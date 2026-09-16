@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import { COLORS, HEIGHT, WIDTH } from '../config';
+import { ensureSeasonSimulated, getProfile } from '../db/repository';
+import { TIERS } from '../db/schema';
 
 interface ModeButtonOpts {
   y: number;
@@ -11,6 +13,9 @@ interface ModeButtonOpts {
 }
 
 export class ModeSelectScene extends Phaser.Scene {
+  private rankText!: Phaser.GameObjects.Text;
+  private circuitSublabel?: Phaser.GameObjects.Text;
+
   constructor() {
     super('ModeSelect');
   }
@@ -19,8 +24,8 @@ export class ModeSelectScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor(COLORS.bg);
 
     this.add
-      .text(WIDTH / 2, 90, 'POGO SHOWDOWN', {
-        fontSize: '38px',
+      .text(WIDTH / 2, 74, 'POGO SHOWDOWN', {
+        fontSize: '34px',
         fontFamily: 'system-ui, sans-serif',
         fontStyle: 'bold',
         color: '#f9d64b',
@@ -28,15 +33,24 @@ export class ModeSelectScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.add
-      .text(WIDTH / 2, 130, 'history’s icons. high school. no chill.', {
-        fontSize: '15px',
+      .text(WIDTH / 2, 112, 'history’s icons. high school. no chill.', {
+        fontSize: '14px',
         fontFamily: 'system-ui, sans-serif',
         color: '#b7aed0',
       })
       .setOrigin(0.5);
 
+    this.rankText = this.add
+      .text(WIDTH / 2, 138, '', {
+        fontSize: '13px',
+        fontFamily: 'system-ui, sans-serif',
+        fontStyle: 'bold',
+        color: '#6b6180',
+      })
+      .setOrigin(0.5);
+
     this.makeModeButton({
-      y: 260,
+      y: 240,
       label: '\u{1F91A}  Pogo Dash',
       sublabel: 'endless dodge & trick run',
       color: 0xf9d64b,
@@ -45,7 +59,16 @@ export class ModeSelectScene extends Phaser.Scene {
     });
 
     this.makeModeButton({
-      y: 380,
+      y: 336,
+      label: '\u{1F3C6}  The Circuit',
+      sublabel: 'loading…',
+      color: 0xef4444,
+      enabled: true,
+      onTap: () => this.scene.start('Circuit'),
+    });
+
+    this.makeModeButton({
+      y: 432,
       label: '\u{1FA80}  Pog Battles',
       sublabel: 'turn-based · win their stack — coming soon',
       color: 0x8b5cf6,
@@ -53,7 +76,7 @@ export class ModeSelectScene extends Phaser.Scene {
     });
 
     this.makeModeButton({
-      y: 480,
+      y: 528,
       label: '\u{1FA80} Yoyo Trick Lab',
       sublabel: 'freestyle combos — coming soon',
       color: 0x14b8a6,
@@ -61,8 +84,8 @@ export class ModeSelectScene extends Phaser.Scene {
     });
 
     this.makeModeButton({
-      y: 600,
-      label: '\u{1F3C6}  Leaderboard',
+      y: 624,
+      label: '\u{1F4CB}  Leaderboard',
       sublabel: 'top pogo dashers',
       color: 0x22c55e,
       enabled: true,
@@ -76,11 +99,31 @@ export class ModeSelectScene extends Phaser.Scene {
         color: '#6b6180',
       })
       .setOrigin(0.5);
+
+    void this.loadRankInfo();
+  }
+
+  private async loadRankInfo(): Promise<void> {
+    await ensureSeasonSimulated();
+    const profile = await getProfile();
+    const tier = TIERS.find((t) => t.id === profile.tier) ?? TIERS[0];
+    this.rankText.setText(
+      profile.circuitUnlockedAt
+        ? `${tier.label} · best ${profile.careerBestScore} · Circuit ${profile.circuitWins}-${profile.circuitLosses}`
+        : `${tier.label} · best ${profile.careerBestScore}`,
+    );
+
+    const circuitSub = this.circuitSublabel;
+    if (circuitSub) {
+      circuitSub.setText(
+        profile.circuitUnlockedAt ? 'standings · today’s scheduled match' : `locked — reach PRO standing`,
+      );
+    }
   }
 
   private makeModeButton(opts: ModeButtonOpts): void {
     const w = 340;
-    const h = 84;
+    const h = 78;
     const x = WIDTH / 2;
     const alpha = opts.enabled ? 1 : 0.45;
 
@@ -91,7 +134,7 @@ export class ModeSelectScene extends Phaser.Scene {
 
     this.add
       .text(x, opts.y - 12, opts.label, {
-        fontSize: '22px',
+        fontSize: '21px',
         fontFamily: 'system-ui, sans-serif',
         fontStyle: 'bold',
         color: '#ffffff',
@@ -99,14 +142,16 @@ export class ModeSelectScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setAlpha(alpha);
 
-    this.add
-      .text(x, opts.y + 18, opts.sublabel, {
-        fontSize: '13px',
+    const sub = this.add
+      .text(x, opts.y + 17, opts.sublabel, {
+        fontSize: '12px',
         fontFamily: 'system-ui, sans-serif',
         color: '#b7aed0',
       })
       .setOrigin(0.5)
       .setAlpha(alpha);
+
+    if (opts.label.includes('Circuit')) this.circuitSublabel = sub;
 
     if (opts.enabled && opts.onTap) {
       bg.setInteractive({ useHandCursor: true });

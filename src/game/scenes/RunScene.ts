@@ -10,6 +10,8 @@ import {
   REGISTRY_KEY_LAST_RESULT,
   WIDTH,
 } from '../config';
+import { recordRun } from '../db/repository';
+import type { RunResult } from '../db/runResult';
 
 type ObstacleType = 'hurdle' | 'banner' | 'star';
 
@@ -407,11 +409,30 @@ export class RunScene extends Phaser.Scene {
 
   private endRun(): void {
     this.gameOver = true;
-    this.registry.set(REGISTRY_KEY_LAST_RESULT, {
-      score: Math.floor(this.score),
-      bestCombo: this.bestCombo,
-      characterId: this.character.id,
+    const finalScore = Math.floor(this.score);
+
+    this.time.delayedCall(400, () => {
+      void recordRun(finalScore).then((outcome) => {
+        const result: RunResult = {
+          score: finalScore,
+          bestCombo: this.bestCombo,
+          characterId: this.character.id,
+          leveledUp: outcome.leveledUp,
+          newTierId: outcome.profile.tier,
+          justUnlockedCircuit: outcome.justUnlockedCircuit,
+          circuitMatch: outcome.circuitMatch
+            ? {
+                opponentName: outcome.circuitMatch.opponent.name,
+                opponentEmoji: outcome.circuitMatch.opponent.emoji,
+                yourScore: outcome.circuitMatch.yourScore,
+                opponentScore: outcome.circuitMatch.opponentScore,
+                won: outcome.circuitMatch.won,
+              }
+            : null,
+        };
+        this.registry.set(REGISTRY_KEY_LAST_RESULT, result);
+        this.scene.start('GameOver');
+      });
     });
-    this.time.delayedCall(400, () => this.scene.start('GameOver'));
   }
 }
