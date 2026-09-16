@@ -10,7 +10,10 @@ Last session: 2026-09-16. Repo: `~/pogo-showdown` (git, branch `master`, no remo
 - **The Circuit** — 11 historical pros running a deterministic, seeded daily league since simulated purely from wall-clock date. Unlocks at Pro tier. Player's first Pogo Dash run each day auto-resolves as their scheduled match.
 - **Equipment/Advantage system** — Pog Stack / Yoyo Rig / Character Mastery axes, Tech Point economy, The Locker screen, The Natural secret path. Applies only to Circuit battle scores, not the casual leaderboard.
 
-**Not built yet** — Pog Battles and Yoyo Trick Lab are still menu stubs ("coming soon"). Design plans for both are below; not implemented this session by design (user asked to plan, not build, this time).
+- **Yoyo Trick Lab** (2026-09-16, v0.2.0) — `scenes/TrickLabScene.ts` + `data/tricks.ts`. 60s sessions, 3 strings, prompted swipe/tap patterns with real yoyo trick names, combo multiplier same shape as Pogo Dash. Sessions are recorded on the profile (`trickLabSessions`, `trickLabBest`, optional fields, no DB version bump) and count as Yoyo Rig "use" for the Locker's unlock gate via `yoyoUsageCount()`. Verified on a Pixel with real touches driven over adb + Chrome DevTools (see "Testing on device" below).
+- **Android packaging** — Capacitor wrapper in `android/`, signed release pipeline, GitHub Releases carry the APK. See `PLAY_STORE.md`.
+
+**Not built yet** — Pog Battles is still a menu stub. Design plan below; the open data-model question (Pog Stack tier vs. discrete collectible pogs) still needs the user's call before building.
 
 ## How to run / test
 
@@ -24,6 +27,17 @@ npx tsc --noEmit -p tsconfig.json   # typecheck only
 ```
 
 No `chromium-cli` in this environment. Testing approach that worked: installed `playwright` into the scratchpad dir (`npm install playwright@<version>`), then `npx playwright install chromium` (the cached `~/.cache/ms-playwright` browser revision didn't match the npm package's expected revision — had to fetch a matching one). Drive with a small `.mjs` script using `chromium.launch({args:['--no-sandbox']})`, screenshot at each step, and read the screenshots with the Read tool. To test states that require real playtime (Pro tier, owned gear, etc.) without grinding, write directly into IndexedDB via `page.evaluate` — see any `drive*.mjs` pattern from this session (not saved to the repo, they lived in the session scratchpad).
+
+## Testing on device
+
+Debug builds have WebView inspection enabled. Forward Chrome DevTools to the app's *current* pid (the socket name changes on every restart — a stale forward just hangs):
+
+```bash
+adb forward --remove-all
+adb forward tcp:9222 localabstract:webview_devtools_remote_$(adb shell pidof com.pogoshowdown.app | tr -d '\r\n')
+```
+
+Then `chromium.connectOverCDP('http://localhost:9222')` from Playwright, read scene state through `window.__game` / `window.__trick` / `window.__seq` (test hooks), and send real touches with `adb shell input swipe/tap`. Game-to-device pixel mapping on the Pixel: device_y ≈ 205 + game_y × 2.36, device_x ≈ game_x × 2.25. Remember the session clock keeps running while you read screenshots — a 60s mode will end and its results buttons will eat your next tap.
 
 ## Architecture map
 
@@ -117,7 +131,7 @@ Flag these back to the user early next session rather than assuming silently:
 
 **Scope warning for next session**: this is a full mini-game (its own input scene, its own win/loss resolution, a new collectible data model) — comparable in size to what The Circuit took this session. Don't try to also do Yoyo Trick Lab in the same pass unless there's a lot of budget; ship one, verify it's fun, then the other.
 
-## Next up: Yoyo Trick Lab — design plan
+## Shipped: Yoyo Trick Lab (kept for reference — original design plan)
 
 **Concept**: a dedicated freestyle trick-combo mode, separate from Pogo Dash's runner loop, that's the natural home for building Yoyo Rig mastery through direct practice rather than passively equipping it.
 

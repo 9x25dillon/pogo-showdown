@@ -15,6 +15,7 @@ interface ModeButtonOpts {
 export class ModeSelectScene extends Phaser.Scene {
   private rankText!: Phaser.GameObjects.Text;
   private circuitSublabel?: Phaser.GameObjects.Text;
+  private trickLabSublabel?: Phaser.GameObjects.Text;
 
   constructor() {
     super('ModeSelect');
@@ -78,9 +79,10 @@ export class ModeSelectScene extends Phaser.Scene {
     this.makeModeButton({
       y: 528,
       label: '\u{1FA80} Yoyo Trick Lab',
-      sublabel: 'freestyle combos — coming soon',
+      sublabel: 'freestyle combos · 60s · swipe the pattern',
       color: 0x14b8a6,
-      enabled: false,
+      enabled: true,
+      onTap: () => this.scene.start('TrickLab'),
     });
 
     this.makeModeButton({
@@ -112,6 +114,10 @@ export class ModeSelectScene extends Phaser.Scene {
         ? `${tier.label} · best ${profile.careerBestScore} · Circuit ${profile.circuitWins}-${profile.circuitLosses}`
         : `${tier.label} · best ${profile.careerBestScore}`,
     );
+
+    if (this.trickLabSublabel && (profile.trickLabBest ?? 0) > 0) {
+      this.trickLabSublabel.setText(`freestyle combos · best ${profile.trickLabBest}`);
+    }
 
     const circuitSub = this.circuitSublabel;
     if (circuitSub) {
@@ -152,6 +158,7 @@ export class ModeSelectScene extends Phaser.Scene {
       .setAlpha(alpha);
 
     if (opts.label.includes('Circuit')) this.circuitSublabel = sub;
+    if (opts.label.includes('Trick Lab')) this.trickLabSublabel = sub;
 
     if (opts.enabled && opts.onTap) {
       bg.setInteractive({ useHandCursor: true });

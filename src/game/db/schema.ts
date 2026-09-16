@@ -53,6 +53,9 @@ export interface PlayerProfile {
   circuitStreak: number;
   /** last ISO date a circuit match was resolved for the player, or null */
   lastCircuitMatchDate: string | null;
+  /** Yoyo Trick Lab - optional so profiles created before the mode existed still load */
+  trickLabSessions?: number;
+  trickLabBest?: number;
   createdAt: string;
   updatedAt: string;
 }

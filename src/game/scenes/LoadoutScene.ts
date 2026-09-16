@@ -8,7 +8,7 @@ import {
   YOYO_TIERS,
   type TierFlavor,
 } from '../data/loadoutData';
-import { getProfile } from '../db/repository';
+import { getProfile, yoyoUsageCount } from '../db/repository';
 import {
   SETUP_LABELS,
   axisPoints,
@@ -26,7 +26,7 @@ import { CHARACTER_LEVEL_MAX } from '../data/loadoutData';
 
 const AXIS_META: Record<AxisId, { title: string; tiers: TierFlavor[]; hint: string }> = {
   pog: { title: 'POG STACK', tiers: POG_TIERS, hint: 'stacked on the footpeg — finite, tradable' },
-  yoyo: { title: 'YOYO RIG', tiers: YOYO_TIERS, hint: 'hung off the handle — finite, tradable' },
+  yoyo: { title: 'YOYO RIG', tiers: YOYO_TIERS, hint: 'hung off the handle — Trick Lab counts as use' },
   mastery: { title: 'CHARACTER MASTERY', tiers: MASTERY_TIERS, hint: 'your own technique — not tradable' },
 };
 
@@ -97,7 +97,9 @@ export class LoadoutScene extends Phaser.Scene {
     let y = 130;
 
     (['pog', 'yoyo', 'mastery'] as AxisId[]).forEach((axisId) => {
-      this.renderAxisPanel(axisId, loadout, totalRuns, y, panelH);
+      // the Yoyo Rig also counts Trick Lab sessions as "using" the current tier
+      const usage = axisId === 'yoyo' ? yoyoUsageCount(profile) : totalRuns;
+      this.renderAxisPanel(axisId, loadout, usage, y, panelH);
       y += panelH + gap;
     });
 

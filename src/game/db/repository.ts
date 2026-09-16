@@ -278,6 +278,32 @@ export async function recordRun(score: number): Promise<RecordRunResult> {
   return { profile, leveledUp, justUnlockedCircuit, techPointsGranted, circuitMatch };
 }
 
+export interface TrickLabSessionResult {
+  profile: PlayerProfile;
+  newBest: boolean;
+  previousBest: number;
+}
+
+/**
+ * A Trick Lab session doesn't touch tiers or the Circuit - it's a
+ * separate skill track. It does count as "using" the Yoyo Rig for the
+ * Locker's unlock gate (see yoyoUsageCount).
+ */
+export async function recordTrickLabSession(score: number): Promise<TrickLabSessionResult> {
+  const profile = await getProfile();
+  const previousBest = profile.trickLabBest ?? 0;
+  profile.trickLabSessions = (profile.trickLabSessions ?? 0) + 1;
+  profile.trickLabBest = Math.max(previousBest, score);
+  profile.updatedAt = new Date().toISOString();
+  await dbPut('profile', profile);
+  return { profile, newBest: score > previousBest, previousBest };
+}
+
+/** usage counter the Yoyo Rig axis is gated on: dash runs plus trick lab sessions */
+export function yoyoUsageCount(profile: PlayerProfile): number {
+  return profile.totalRuns + (profile.trickLabSessions ?? 0);
+}
+
 export interface StandingsEntry {
   id: string;
   name: string;

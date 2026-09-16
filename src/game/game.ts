@@ -8,9 +8,10 @@ import { GameOverScene } from './scenes/GameOverScene';
 import { LeaderboardScene } from './scenes/LeaderboardScene';
 import { CircuitScene } from './scenes/CircuitScene';
 import { LoadoutScene } from './scenes/LoadoutScene';
+import { TrickLabScene } from './scenes/TrickLabScene';
 
 export function createGame(parent: string): Phaser.Game {
-  return new Phaser.Game({
+  const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent,
     width: WIDTH,
@@ -29,6 +30,9 @@ export function createGame(parent: string): Phaser.Game {
       LeaderboardScene,
       CircuitScene,
       LoadoutScene,
+      TrickLabScene,
     ],
   });
+  (window as unknown as { __game?: Phaser.Game }).__game = game; // test hook for automated drives
+  return game;
 }
