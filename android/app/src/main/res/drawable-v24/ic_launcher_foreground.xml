@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+  <!-- Adaptive icon safe zone is the centre 66dp circle (21..87). Keep art inside it. -->
+  <group android:scaleX="1.0" android:scaleY="1.0" android:pivotX="54" android:pivotY="54">
+    <path android:fillColor="#F5D142" android:pathData="M51,38 L57,38 L57,68 L51,68 Z"/>
+    <path android:fillColor="#C9A227" android:pathData="M38,66 L70,66 L70,73 L38,73 Z"/>
+    <path android:fillColor="#FFE97A" android:pathData="M46,44 L62,44 L62,47 L46,47 Z"/>
+    <path android:fillColor="#FFE97A" android:pathData="M46,51 L62,51 L62,54 L46,54 Z"/>
+    <path android:fillColor="#FFE97A" android:pathData="M46,58 L62,58 L62,61 L46,61 Z"/>
+    <path android:fillColor="#F5D142" android:pathData="M40,24 L68,24 L68,42 L40,42 Z"/>
+    <path android:fillColor="#0B0714" android:pathData="M46,29 L50,29 L50,33 L46,33 Z"/>
+    <path android:fillColor="#0B0714" android:pathData="M58,29 L62,29 L62,33 L58,33 Z"/>
+    <path android:fillColor="#0B0714" android:pathData="M50,36 L58,36 L58,38 L50,38 Z"/>
+    <path android:fillColor="#F5D142" android:pathData="M75,44 L76.8,47.8 L81,48.3 L77.9,51.1 L78.8,55.2 L75,53.1 L71.2,55.2 L72.1,51.1 L69,48.3 L73.2,47.8 Z"/>
+  </group>
+</vector>

@@ -14,6 +14,8 @@ Last session: 2026-09-16. Repo: `~/pogo-showdown` (git, branch `master`, no remo
 
 ## How to run / test
 
+Android/Play packaging (Capacitor) lives in `android/`; build, signing, and Play Console steps are in `PLAY_STORE.md`.
+
 ```bash
 cd ~/pogo-showdown
 npm run dev          # http://localhost:5173

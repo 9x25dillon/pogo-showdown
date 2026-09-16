@@ -6,13 +6,20 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "android:sync": "npm run build && npx cap sync android",
+    "android:apk": "npm run android:sync && cd android && ./gradlew assembleDebug -q && ls -la app/build/outputs/apk/debug/app-debug.apk",
+    "android:release": "npm run android:sync && cd android && ./gradlew bundleRelease assembleRelease -q && ls -la app/build/outputs/bundle/release/ app/build/outputs/apk/release/",
+    "android:install": "adb install -r android/app/build/outputs/apk/debug/app-debug.apk"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.2",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
     "phaser": "^4.2.1"
   }
 }
