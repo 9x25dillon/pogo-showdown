@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
+import { equippedPerks } from '../db/pogRepository';
 import { CHARACTERS } from '../data/characters';
-import { COLORS, HEIGHT, REGISTRY_KEY_CHARACTER, WIDTH } from '../config';
+import { COLORS, HEIGHT, REGISTRY_KEY_CHARACTER, REGISTRY_KEY_PERKS, WIDTH } from '../config';
 
 export class CharacterSelectScene extends Phaser.Scene {
   private selectedIndex = 0;
@@ -107,7 +108,11 @@ export class CharacterSelectScene extends Phaser.Scene {
       .setOrigin(0.5);
     startBtn.on('pointerdown', () => {
       this.registry.set(REGISTRY_KEY_CHARACTER, CHARACTERS[this.selectedIndex].id);
-      this.scene.start('Run');
+      // equipped pog perks are read synchronously by RunScene, so resolve them here first
+      void equippedPerks().then((perks) => {
+        this.registry.set(REGISTRY_KEY_PERKS, perks);
+        this.scene.start('Run');
+      });
     });
 
     // back

@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { EMPTY_PERKS, type PogPerks } from '../data/pogs';
 import { CHARACTERS, type Character } from '../data/characters';
 import {
   BASE_SPEED,
@@ -10,6 +11,7 @@ import {
   PASSIVE_SCORE_RATE,
   PLAYER_Y,
   REGISTRY_KEY_CHARACTER,
+  REGISTRY_KEY_PERKS,
   REGISTRY_KEY_LAST_RESULT,
   SPEED_RAMP,
   WIDTH,
@@ -44,6 +46,9 @@ export class RunScene extends Phaser.Scene {
   private invulnTimer = 0;
   private bobPhase = 0;
   private lives = 3;
+  private perks: Required<PogPerks> = { ...EMPTY_PERKS };
+  private shields = 0;
+  private secondWindUsed = false;
   private combo = 0;
   private bestCombo = 0;
   private score = 0;
@@ -86,7 +91,10 @@ export class RunScene extends Phaser.Scene {
     this.duckTimer = 0;
     this.invulnTimer = 0;
     this.bobPhase = 0;
-    this.lives = 3 + this.character.shield;
+    this.perks = (this.registry.get(REGISTRY_KEY_PERKS) as Required<PogPerks> | undefined) ?? { ...EMPTY_PERKS };
+    this.lives = 3 + this.character.shield + this.perks.extraLives;
+    this.shields = this.perks.shieldHits;
+    this.secondWindUsed = false;
     this.combo = 0;
     this.bestCombo = 0;
     this.score = 0;
@@ -237,7 +245,7 @@ export class RunScene extends Phaser.Scene {
     const dt = Math.min(deltaMs, 50) / 1000;
     this.elapsed += dt;
 
-    this.speed = Math.min(MAX_SPEED, this.speed + SPEED_RAMP * this.character.speedMod * dt);
+    this.speed = Math.min(MAX_SPEED, this.speed + SPEED_RAMP * this.character.speedMod * this.perks.speedScale * dt);
     this.score += this.speed * dt * PASSIVE_SCORE_RATE;
     this.scoreText.setText(Math.floor(this.score).toString());
 
@@ -375,7 +383,7 @@ export class RunScene extends Phaser.Scene {
     ob.resolved = true;
 
     if (ob.type === 'star') {
-      this.onTrickSuccess(ob, 40, 'STAR!');
+      this.onTrickSuccess(ob, 40 + this.perks.starBonus, 'STAR!');
       return;
     }
 
@@ -383,7 +391,7 @@ export class RunScene extends Phaser.Scene {
     const dodgedByDuck = ob.type === 'banner' && this.duckTimer > 0;
 
     if (dodgedByAir || dodgedByDuck) {
-      this.onTrickSuccess(ob, 18, ob.type === 'hurdle' ? 'HOP!' : 'DUCK!');
+      this.onTrickSuccess(ob, 18 + this.perks.trickBonus, ob.type === 'hurdle' ? 'HOP!' : 'DUCK!');
     } else {
       this.onHit(ob);
     }
@@ -392,7 +400,7 @@ export class RunScene extends Phaser.Scene {
   private onTrickSuccess(ob: Obstacle, basePoints: number, label: string): void {
     this.combo += 1;
     this.bestCombo = Math.max(this.bestCombo, this.combo);
-    const multiplier = 1 + Math.min(this.combo, 12) * 0.12 * this.character.flairMod;
+    const multiplier = 1 + Math.min(this.combo, 12) * 0.12 * (this.character.flairMod + this.perks.flair);
     const gained = Math.round(basePoints * multiplier);
     this.score += gained;
 
@@ -428,6 +436,16 @@ export class RunScene extends Phaser.Scene {
       return;
     }
 
+    if (this.shields > 0) {
+      // an equipped pog eats the hit: no life lost, combo survives
+      this.shields -= 1;
+      this.invulnTimer = INVULN_MS;
+      this.updateHearts();
+      this.cameras.main.flash(140, 56, 189, 248);
+      ob.sprite.destroy();
+      return;
+    }
+
     this.lives -= 1;
     this.combo = 0;
     this.comboText.setText('');
@@ -438,6 +456,15 @@ export class RunScene extends Phaser.Scene {
     this.cameras.main.flash(140, 239, 68, 68);
     ob.sprite.destroy();
 
+    if (this.lives <= 0 && this.perks.secondWind && !this.secondWindUsed) {
+      this.secondWindUsed = true;
+      this.lives = 1;
+      this.invulnTimer = INVULN_MS * 2;
+      this.updateHearts();
+      this.cameras.main.flash(260, 249, 214, 75);
+      return;
+    }
+
     if (this.lives <= 0) {
       this.endRun();
     }
@@ -445,7 +472,7 @@ export class RunScene extends Phaser.Scene {
 
   private updateHearts(): void {
     const full = Math.max(0, this.lives);
-    this.heartsText.setText('❤️'.repeat(full));
+    this.heartsText.setText('❤️'.repeat(full) + '\u{1F6E1}\u{FE0F}'.repeat(this.shields));
   }
 
   private endRun(): void {

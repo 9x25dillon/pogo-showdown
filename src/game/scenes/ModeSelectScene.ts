@@ -51,7 +51,7 @@ export class ModeSelectScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.makeModeButton({
-      y: 240,
+      y: 214,
       label: '\u{1F91A}  Pogo Dash',
       sublabel: 'endless dodge & trick run',
       color: 0xf9d64b,
@@ -60,7 +60,7 @@ export class ModeSelectScene extends Phaser.Scene {
     });
 
     this.makeModeButton({
-      y: 336,
+      y: 300,
       label: '\u{1F3C6}  The Circuit',
       sublabel: 'loading…',
       color: 0xef4444,
@@ -69,15 +69,16 @@ export class ModeSelectScene extends Phaser.Scene {
     });
 
     this.makeModeButton({
-      y: 432,
+      y: 386,
       label: '\u{1F94F}  Pog Battles',
-      sublabel: 'turn-based · win their stack — coming soon',
+      sublabel: 'best-of-3 slams · win their signature pog',
       color: 0x8b5cf6,
-      enabled: false,
+      enabled: true,
+      onTap: () => this.scene.start('PogBattle'),
     });
 
     this.makeModeButton({
-      y: 528,
+      y: 472,
       label: '\u{1FA80} Yoyo Trick Lab',
       sublabel: 'freestyle combos · 60s · swipe the pattern',
       color: 0x14b8a6,
@@ -86,12 +87,21 @@ export class ModeSelectScene extends Phaser.Scene {
     });
 
     this.makeModeButton({
-      y: 624,
+      y: 558,
       label: '\u{1F4CB}  Leaderboard',
       sublabel: 'top pogo dashers',
       color: 0x22c55e,
       enabled: true,
       onTap: () => this.scene.start('Leaderboard'),
+    });
+
+    this.makeModeButton({
+      y: 644,
+      label: '\u{1F392}  Pog Binder',
+      sublabel: 'your collection · equip onto the footpeg',
+      color: 0xf97316,
+      enabled: true,
+      onTap: () => this.scene.start('PogBinder'),
     });
 
     this.add
@@ -129,7 +139,7 @@ export class ModeSelectScene extends Phaser.Scene {
 
   private makeModeButton(opts: ModeButtonOpts): void {
     const w = 340;
-    const h = 78;
+    const h = 74;
     const x = WIDTH / 2;
     const alpha = opts.enabled ? 1 : 0.45;
 

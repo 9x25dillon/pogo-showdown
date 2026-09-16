@@ -1,7 +1,7 @@
 const DB_NAME = 'pogo-showdown';
-const DB_VERSION = 2;
+const DB_VERSION = 3; // 3: added pogs + battleLog
 
-export const STORES = ['profile', 'standings', 'matchLog', 'season', 'loadout'] as const;
+export const STORES = ['profile', 'standings', 'matchLog', 'season', 'loadout', 'pogs', 'battleLog'] as const;
 export type StoreName = (typeof STORES)[number];
 
 type Row = { id: string };
@@ -111,5 +111,21 @@ export async function dbPutMany<T extends Row>(store: StoreName, values: T[]): P
     });
   } catch {
     // already written to memoryFallback above
+  }
+}
+
+export async function dbDelete(store: StoreName, id: string): Promise<void> {
+  memoryFallback.get(store)?.delete(id);
+  if (useMemoryFallback) return;
+  try {
+    const db = await openDB();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(store, 'readwrite');
+      tx.objectStore(store).delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch {
+    // already removed from memoryFallback above
   }
 }

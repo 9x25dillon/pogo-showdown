@@ -13,7 +13,9 @@ Last session: 2026-09-16. Repo: `~/pogo-showdown` (git, branch `master`, no remo
 - **Yoyo Trick Lab** (2026-09-16, v0.2.0) — `scenes/TrickLabScene.ts` + `data/tricks.ts`. 60s sessions, 3 strings, prompted swipe/tap patterns with real yoyo trick names, combo multiplier same shape as Pogo Dash. Sessions are recorded on the profile (`trickLabSessions`, `trickLabBest`, optional fields, no DB version bump) and count as Yoyo Rig "use" for the Locker's unlock gate via `yoyoUsageCount()`. Verified on a Pixel with real touches driven over adb + Chrome DevTools (see "Testing on device" below).
 - **Android packaging** — Capacitor wrapper in `android/`, signed release pipeline, GitHub Releases carry the APK. See `PLAY_STORE.md`.
 
-**Not built yet** — Pog Battles is still a menu stub. Design plan below; the open data-model question (Pog Stack tier vs. discrete collectible pogs) still needs the user's call before building.
+- **Collectible pogs + Pog Battles** (2026-09-16, v0.3.0) — user chose *discrete collectible pogs* (resolving the open question). `data/pogs.ts` is the whole balance table: 20 pogs, rarity weight 1-4, footpeg capacity 4 + Locker Pog Stack tier, perks (extra lives, shield hits, flair, star/trick bonus, speed scale, second wind) with hard clamps in `aggregatePerks()`. `db/pogRepository.ts` owns the collection (`pogs` store), equip/capacity, and battle resolution (`battleLog` store, one drop per opponent per calendar day, ranked losses delete the stake = the economy's sink). DB_VERSION is now **3**. `PogBinderScene` = collection/equip; `PogBattleScene` = opponent select → (wager for pros) → best-of-3 timing-bar slams → result. RunScene reads `REGISTRY_KEY_PERKS`, set by CharacterSelect right before starting a run. Circuit Advantage applies to your slam only in ranked battles (answering the other open question: Pog Battles reuses the number, scoped to pros).
+
+**Everything on the original roadmap is now built.** Remaining open item: Character Mastery is still one unified track, not per-highschooler.
 
 ## How to run / test
 
@@ -113,7 +115,7 @@ Flag these back to the user early next session rather than assuming silently:
 
 ---
 
-## Next up: Pog Battles — design plan
+## Shipped: Pog Battles (kept for reference — original design plan)
 
 **Concept**: turn-based skill contests where you wager and can win/lose individual pogs, against either the 8 highschoolers (low-stakes practice) or, once Pro-tier, the 11 Circuit pros (real stakes). This is also the natural way to grow the Locker's Pog Stack axis through play instead of only through Tech Points.
 
