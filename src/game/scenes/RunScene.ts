@@ -1,0 +1,417 @@
+import Phaser from 'phaser';
+import { CHARACTERS, type Character } from '../data/characters';
+import {
+  COLORS,
+  GROUND_Y,
+  HEIGHT,
+  LANE_X,
+  PLAYER_Y,
+  REGISTRY_KEY_CHARACTER,
+  REGISTRY_KEY_LAST_RESULT,
+  WIDTH,
+} from '../config';
+
+type ObstacleType = 'hurdle' | 'banner' | 'star';
+
+interface Obstacle {
+  sprite: Phaser.GameObjects.Sprite;
+  lane: number;
+  type: ObstacleType;
+  resolved: boolean;
+}
+
+const BASE_SPEED = 260;
+const MAX_SPEED = 680;
+const SPEED_RAMP = 5.5; // px/s added per second, scaled by character.speedMod
+const JUMP_MS = 480;
+const DUCK_MS = 460;
+const INVULN_MS = 550;
+const SWIPE_THRESHOLD = 28;
+
+export class RunScene extends Phaser.Scene {
+  private character!: Character;
+
+  // player state
+  private lane = 1;
+  private playerSprite!: Phaser.GameObjects.Sprite;
+  private jumpTimer = 0;
+  private duckTimer = 0;
+  private invulnTimer = 0;
+  private bobPhase = 0;
+  private lives = 3;
+  private combo = 0;
+  private bestCombo = 0;
+  private score = 0;
+
+  // world
+  private speed = BASE_SPEED;
+  private elapsed = 0;
+  private obstacles: Obstacle[] = [];
+  private nextSpawnAt = 0;
+  private roadLines: Phaser.GameObjects.Rectangle[] = [];
+  private gameOver = false;
+
+  // ui
+  private scoreText!: Phaser.GameObjects.Text;
+  private comboText!: Phaser.GameObjects.Text;
+  private heartsText!: Phaser.GameObjects.Text;
+  private particles!: Phaser.GameObjects.Particles.ParticleEmitter;
+
+  // input
+  private pointerStartX = 0;
+  private pointerStartY = 0;
+  private pointerStartT = 0;
+  private pointerActive = false;
+
+  constructor() {
+    super('Run');
+  }
+
+  create(): void {
+    const charId = this.registry.get(REGISTRY_KEY_CHARACTER) as string | undefined;
+    this.character = CHARACTERS.find((c) => c.id === charId) ?? CHARACTERS[0];
+
+    // reset all run state (scene instances are reused between runs)
+    this.lane = 1;
+    this.jumpTimer = 0;
+    this.duckTimer = 0;
+    this.invulnTimer = 0;
+    this.bobPhase = 0;
+    this.lives = 3 + this.character.shield;
+    this.combo = 0;
+    this.bestCombo = 0;
+    this.score = 0;
+    this.speed = BASE_SPEED;
+    this.elapsed = 0;
+    this.obstacles = [];
+    this.nextSpawnAt = 0;
+    this.gameOver = false;
+
+    this.cameras.main.setBackgroundColor(COLORS.bg);
+    this.cameras.main.resetFX();
+
+    this.buildRoad();
+
+    this.playerSprite = this.add.sprite(LANE_X[this.lane], PLAYER_Y, 'player');
+    this.playerSprite.setTint(this.character.color);
+    this.playerSprite.setDepth(10);
+
+    this.particles = this.add.particles(0, 0, 'particle', {
+      speed: { min: 80, max: 220 },
+      lifespan: 380,
+      scale: { start: 1, end: 0 },
+      quantity: 0,
+      emitting: false,
+    });
+    this.particles.setDepth(20);
+
+    this.scoreText = this.add
+      .text(WIDTH / 2, 28, '0', {
+        fontSize: '30px',
+        fontFamily: 'system-ui, sans-serif',
+        fontStyle: 'bold',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5)
+      .setDepth(30);
+
+    this.comboText = this.add
+      .text(WIDTH / 2, 62, '', {
+        fontSize: '16px',
+        fontFamily: 'system-ui, sans-serif',
+        color: '#f9d64b',
+      })
+      .setOrigin(0.5)
+      .setDepth(30);
+
+    this.heartsText = this.add
+      .text(16, 16, '', { fontSize: '20px' })
+      .setDepth(30);
+    this.updateHearts();
+
+    this.setupInput();
+  }
+
+  private buildRoad(): void {
+    this.roadLines = [];
+    this.add.rectangle(WIDTH / 2, HEIGHT / 2, WIDTH, HEIGHT, COLORS.road).setDepth(0);
+    this.add
+      .rectangle(WIDTH / 2, GROUND_Y + 40, WIDTH, 220, COLORS.ground)
+      .setDepth(0);
+
+    // lane divider dashes that scroll to sell forward motion
+    const dividerXs = [(LANE_X[0] + LANE_X[1]) / 2, (LANE_X[1] + LANE_X[2]) / 2];
+    for (const dx of dividerXs) {
+      for (let i = 0; i < 10; i++) {
+        const line = this.add
+          .rectangle(dx, i * 100, 6, 50, COLORS.laneLine)
+          .setDepth(1);
+        this.roadLines.push(line);
+      }
+    }
+  }
+
+  private setupInput(): void {
+    this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      this.pointerActive = true;
+      this.pointerStartX = p.x;
+      this.pointerStartY = p.y;
+      this.pointerStartT = this.time.now;
+    });
+
+    this.input.on('pointerup', (p: Phaser.Input.Pointer) => {
+      if (!this.pointerActive) return;
+      this.pointerActive = false;
+      const dx = p.x - this.pointerStartX;
+      const dy = p.y - this.pointerStartY;
+      const dt = this.time.now - this.pointerStartT;
+
+      if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > SWIPE_THRESHOLD) {
+        this.changeLane(dx > 0 ? 1 : -1);
+      } else if (dy < -SWIPE_THRESHOLD) {
+        this.startJump();
+      } else if (dy > SWIPE_THRESHOLD) {
+        this.startDuck();
+      } else if (dt < 250) {
+        // quick tap with no real swipe = jump, the most common action
+        this.startJump();
+      }
+    });
+
+    const kb = this.input.keyboard;
+    if (kb) {
+      kb.on('keydown-LEFT', () => this.changeLane(-1));
+      kb.on('keydown-A', () => this.changeLane(-1));
+      kb.on('keydown-RIGHT', () => this.changeLane(1));
+      kb.on('keydown-D', () => this.changeLane(1));
+      kb.on('keydown-UP', () => this.startJump());
+      kb.on('keydown-W', () => this.startJump());
+      kb.on('keydown-SPACE', () => this.startJump());
+      kb.on('keydown-DOWN', () => this.startDuck());
+      kb.on('keydown-S', () => this.startDuck());
+    }
+  }
+
+  private changeLane(dir: number): void {
+    if (this.gameOver) return;
+    const next = Phaser.Math.Clamp(this.lane + dir, 0, LANE_X.length - 1);
+    if (next === this.lane) return;
+    this.lane = next;
+    this.tweens.add({
+      targets: this.playerSprite,
+      x: LANE_X[this.lane],
+      duration: 130,
+      ease: 'Quad.Out',
+    });
+  }
+
+  private startJump(): void {
+    if (this.gameOver || this.jumpTimer > 0) return;
+    this.jumpTimer = JUMP_MS;
+    this.duckTimer = 0;
+  }
+
+  private startDuck(): void {
+    if (this.gameOver || this.duckTimer > 0) return;
+    this.duckTimer = DUCK_MS;
+    this.jumpTimer = 0;
+  }
+
+  update(_time: number, deltaMs: number): void {
+    if (this.gameOver) return;
+    const dt = Math.min(deltaMs, 50) / 1000;
+    this.elapsed += dt;
+
+    this.speed = Math.min(MAX_SPEED, this.speed + SPEED_RAMP * this.character.speedMod * dt);
+    this.score += this.speed * dt * 0.12;
+    this.scoreText.setText(Math.floor(this.score).toString());
+
+    this.updateTimers(dt);
+    this.updatePlayerPose();
+    this.scrollRoad(dt);
+    this.updateSpawning(dt);
+    this.updateObstacles(dt);
+  }
+
+  private updateTimers(dt: number): void {
+    if (this.jumpTimer > 0) this.jumpTimer = Math.max(0, this.jumpTimer - dt * 1000);
+    if (this.duckTimer > 0) this.duckTimer = Math.max(0, this.duckTimer - dt * 1000);
+    if (this.invulnTimer > 0) this.invulnTimer = Math.max(0, this.invulnTimer - dt * 1000);
+  }
+
+  private updatePlayerPose(): void {
+    this.bobPhase += 6.5 * (0.6 + this.speed / MAX_SPEED);
+    const idleBob = Math.sin(this.bobPhase) * 6;
+
+    let yOffset = idleBob;
+    let scaleX = 1;
+    let scaleY = 1;
+
+    if (this.jumpTimer > 0) {
+      const t = this.jumpTimer / JUMP_MS; // 1 -> 0
+      const arc = Math.sin((1 - t) * Math.PI); // 0 -> 1 -> 0
+      yOffset = idleBob - arc * 90;
+      scaleY = 1 + arc * 0.18;
+      scaleX = 1 - arc * 0.1;
+    } else if (this.duckTimer > 0) {
+      const t = this.duckTimer / DUCK_MS;
+      const arc = Math.sin((1 - t) * Math.PI);
+      yOffset = idleBob + arc * 18;
+      scaleY = 1 - arc * 0.35;
+      scaleX = 1 + arc * 0.22;
+    } else {
+      // subtle squash on idle bounce ground contact
+      const squash = Math.max(0, Math.sin(this.bobPhase));
+      scaleY = 1 - squash * 0.04;
+      scaleX = 1 + squash * 0.03;
+    }
+
+    this.playerSprite.y = PLAYER_Y + yOffset;
+    this.playerSprite.setScale(scaleX, scaleY);
+
+    if (this.invulnTimer > 0) {
+      this.playerSprite.setAlpha(Math.floor(this.invulnTimer / 80) % 2 === 0 ? 0.35 : 1);
+    } else {
+      this.playerSprite.setAlpha(1);
+    }
+  }
+
+  private scrollRoad(dt: number): void {
+    const dy = this.speed * dt;
+    for (const line of this.roadLines) {
+      line.y += dy;
+      if (line.y > HEIGHT + 30) line.y -= 1000;
+    }
+  }
+
+  private updateSpawning(dt: number): void {
+    this.nextSpawnAt -= dt;
+    if (this.nextSpawnAt > 0) return;
+
+    const difficulty = Phaser.Math.Clamp(this.elapsed / 45, 0, 1);
+    this.nextSpawnAt = Phaser.Math.FloatBetween(0.85, 1.5) - difficulty * 0.35;
+
+    const lane = Phaser.Math.Between(0, LANE_X.length - 1);
+    const roll = Math.random();
+    const starChance = 0.14 + this.character.flairMod * 0.02;
+    let type: ObstacleType;
+    if (roll < starChance) type = 'star';
+    else if (roll < starChance + 0.45) type = 'hurdle';
+    else type = 'banner';
+
+    const sprite = this.add.sprite(LANE_X[lane], -40, type);
+    sprite.setDepth(5);
+    if (type === 'hurdle') sprite.y = -40;
+    if (type === 'banner') sprite.y = -70; // sits "overhead" visually, still same collision band
+
+    this.obstacles.push({ sprite, lane, type, resolved: false });
+  }
+
+  private updateObstacles(dt: number): void {
+    const dy = this.speed * dt;
+    const keep: Obstacle[] = [];
+
+    for (const ob of this.obstacles) {
+      ob.sprite.y += dy;
+
+      if (!ob.resolved && ob.lane === this.lane && ob.sprite.y > PLAYER_Y - 34 && ob.sprite.y < PLAYER_Y + 34) {
+        this.resolveObstacle(ob);
+      }
+
+      if (ob.sprite.y > HEIGHT + 60) {
+        ob.sprite.destroy();
+      } else {
+        keep.push(ob);
+      }
+    }
+
+    this.obstacles = keep;
+  }
+
+  private resolveObstacle(ob: Obstacle): void {
+    ob.resolved = true;
+
+    if (ob.type === 'star') {
+      this.onTrickSuccess(ob, 40, 'STAR!');
+      return;
+    }
+
+    const dodgedByAir = ob.type === 'hurdle' && this.jumpTimer > 0;
+    const dodgedByDuck = ob.type === 'banner' && this.duckTimer > 0;
+
+    if (dodgedByAir || dodgedByDuck) {
+      this.onTrickSuccess(ob, 18, ob.type === 'hurdle' ? 'HOP!' : 'DUCK!');
+    } else {
+      this.onHit(ob);
+    }
+  }
+
+  private onTrickSuccess(ob: Obstacle, basePoints: number, label: string): void {
+    this.combo += 1;
+    this.bestCombo = Math.max(this.bestCombo, this.combo);
+    const multiplier = 1 + Math.min(this.combo, 12) * 0.12 * this.character.flairMod;
+    const gained = Math.round(basePoints * multiplier);
+    this.score += gained;
+
+    this.comboText.setText(this.combo >= 2 ? `combo x${this.combo}` : '');
+    this.tweens.add({ targets: this.comboText, scale: { from: 1.4, to: 1 }, duration: 180, ease: 'Back.Out' });
+
+    this.particles.emitParticleAt(ob.sprite.x, PLAYER_Y, 14);
+    this.cameras.main.shake(80, 0.003);
+
+    const floatText = this.add
+      .text(ob.sprite.x, PLAYER_Y - 40, `+${gained} ${label}`, {
+        fontSize: '16px',
+        fontFamily: 'system-ui, sans-serif',
+        fontStyle: 'bold',
+        color: '#f9d64b',
+      })
+      .setOrigin(0.5)
+      .setDepth(40);
+    this.tweens.add({
+      targets: floatText,
+      y: PLAYER_Y - 90,
+      alpha: 0,
+      duration: 550,
+      onComplete: () => floatText.destroy(),
+    });
+
+    ob.sprite.destroy();
+  }
+
+  private onHit(ob: Obstacle): void {
+    if (this.invulnTimer > 0) {
+      ob.sprite.destroy();
+      return;
+    }
+
+    this.lives -= 1;
+    this.combo = 0;
+    this.comboText.setText('');
+    this.invulnTimer = INVULN_MS;
+    this.updateHearts();
+
+    this.cameras.main.shake(180, 0.01);
+    this.cameras.main.flash(140, 239, 68, 68);
+    ob.sprite.destroy();
+
+    if (this.lives <= 0) {
+      this.endRun();
+    }
+  }
+
+  private updateHearts(): void {
+    const full = Math.max(0, this.lives);
+    this.heartsText.setText('❤️'.repeat(full));
+  }
+
+  private endRun(): void {
+    this.gameOver = true;
+    this.registry.set(REGISTRY_KEY_LAST_RESULT, {
+      score: Math.floor(this.score),
+      bestCombo: this.bestCombo,
+      characterId: this.character.id,
+    });
+    this.time.delayedCall(400, () => this.scene.start('GameOver'));
+  }
+}

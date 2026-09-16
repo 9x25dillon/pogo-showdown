@@ -1,0 +1,29 @@
+:root {
+  color-scheme: dark;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #0b0714;
+  overscroll-behavior: none;
+  touch-action: none;
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+}
+
+#app {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100svh;
+}
+
+#game-root {
+  line-height: 0;
+}
+
+canvas {
+  touch-action: none;
+}
