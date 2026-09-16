@@ -32,6 +32,15 @@ Release bundle (what Play wants): `android/app/build/outputs/bundle/release/app-
 3. `npm run android:release`. Without `keystore.properties` the release build falls back to the
    debug key so it still compiles, but Play will reject it.
 
+## Upload key (generated 2026-09-16)
+
+- Keystore: `~/pogo-upload.jks`, alias `pogo`. Passwords are in `android/keystore.properties` (gitignored, mode 600).
+- **Back both files up off this machine.** Losing the key means a new Play listing.
+- SHA-256: `f0da538418f421c254d48a144c85747b478d79ac33368355108163715a60f9f8`
+- SHA-1: `6fe2c2f4f9bf1a3e79ccfad1374ac50f1676b797`
+
+Signed release APK + AAB were built and the APK verified on a Pixel (clean install, full run, leaderboard write).
+
 ## Per-release bump
 
 `android/app/build.gradle` → `versionCode` (must increase every upload) and `versionName`.
