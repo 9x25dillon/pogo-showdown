@@ -1,7 +1,7 @@
 const DB_NAME = 'pogo-showdown';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
-export const STORES = ['profile', 'standings', 'matchLog', 'season'] as const;
+export const STORES = ['profile', 'standings', 'matchLog', 'season', 'loadout'] as const;
 export type StoreName = (typeof STORES)[number];
 
 type Row = { id: string };

@@ -1,6 +1,9 @@
 import { CIRCUIT_ROSTER, type CircuitPro } from '../data/circuitRoster';
 import { addDaysKey, dayIndex, todayKey } from '../systems/dates';
 import { seededRandom, seededRange } from '../systems/seededRandom';
+import { proSkillToScore } from '../systems/scoreCurve';
+import { computeCurrentAdvantage, grantCircuitWinBonus, grantTierUpBonus } from './loadoutRepository';
+import type { AdvantageResult } from './loadoutSchema';
 import { dbGet, dbGetAll, dbPut, dbPutMany } from './LocalDB';
 import {
   CIRCUIT_UNLOCK_TIER,
@@ -69,7 +72,8 @@ export function opponentForDate(dateKey: string): CircuitPro {
 }
 
 function generateOpponentScore(dateKey: string, pro: CircuitPro): number {
-  return Math.round(250 + pro.skill * 9 + seededRange(`${dateKey}:oppscore:${pro.id}`, -150, 150));
+  const variance = seededRange(`${dateKey}:oppscore:${pro.id}`, 0.85, 1.15);
+  return proSkillToScore(pro.skill, variance);
 }
 
 /** Elo-style win probability for A given both skills */
@@ -198,12 +202,21 @@ export interface RecordRunResult {
   profile: PlayerProfile;
   leveledUp: boolean;
   justUnlockedCircuit: boolean;
-  circuitMatch: { opponent: CircuitPro; yourScore: number; opponentScore: number; won: boolean } | null;
+  techPointsGranted: number;
+  circuitMatch: {
+    opponent: CircuitPro;
+    yourScore: number;
+    opponentScore: number;
+    battleScore: number;
+    advantage: AdvantageResult;
+    won: boolean;
+  } | null;
 }
 
 export async function recordRun(score: number): Promise<RecordRunResult> {
   const profile = await getProfile();
   const today = todayKey();
+  let techPointsGranted = 0;
 
   profile.totalRuns += 1;
   profile.totalScoreCareer += score;
@@ -213,6 +226,11 @@ export async function recordRun(score: number): Promise<RecordRunResult> {
   const newTier = tierForScore(profile.careerBestScore);
   const leveledUp = tierIndex(newTier.id) > prevTierIdx;
   profile.tier = newTier.id;
+
+  if (leveledUp) {
+    await grantTierUpBonus();
+    techPointsGranted += 1;
+  }
 
   let justUnlockedCircuit = false;
   if (!profile.circuitUnlockedAt && tierIndex(newTier.id) >= tierIndex(CIRCUIT_UNLOCK_TIER)) {
@@ -224,7 +242,9 @@ export async function recordRun(score: number): Promise<RecordRunResult> {
   if (profile.circuitUnlockedAt && profile.circuitUnlockedAt <= today && profile.lastCircuitMatchDate !== today) {
     const opponent = opponentForDate(today);
     const opponentScore = generateOpponentScore(today, opponent);
-    const won = score > opponentScore;
+    const advantage = await computeCurrentAdvantage(profile.totalRuns);
+    const battleScore = Math.round(score * (1 + advantage.percent / 100));
+    const won = battleScore > opponentScore;
 
     profile.circuitWins += won ? 1 : 0;
     profile.circuitLosses += won ? 0 : 1;
@@ -232,25 +252,30 @@ export async function recordRun(score: number): Promise<RecordRunResult> {
     profile.circuitStreak = applyStreak(profile.circuitStreak, won);
     profile.lastCircuitMatchDate = today;
 
+    if (won) {
+      const granted = await grantCircuitWinBonus();
+      if (granted) techPointsGranted += 1;
+    }
+
     await appendMatchLog([
       {
         id: `${today}:me-live:${profile.totalRuns}`,
         date: today,
         a: 'me',
         b: opponent.id,
-        scoreA: score,
+        scoreA: battleScore,
         scoreB: opponentScore,
         winnerId: won ? 'me' : opponent.id,
       },
     ]);
 
-    circuitMatch = { opponent, yourScore: score, opponentScore, won };
+    circuitMatch = { opponent, yourScore: score, opponentScore, battleScore, advantage, won };
   }
 
   profile.updatedAt = new Date().toISOString();
   await dbPut('profile', profile);
 
-  return { profile, leveledUp, justUnlockedCircuit, circuitMatch };
+  return { profile, leveledUp, justUnlockedCircuit, techPointsGranted, circuitMatch };
 }
 
 export interface StandingsEntry {

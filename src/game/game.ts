@@ -7,6 +7,7 @@ import { RunScene } from './scenes/RunScene';
 import { GameOverScene } from './scenes/GameOverScene';
 import { LeaderboardScene } from './scenes/LeaderboardScene';
 import { CircuitScene } from './scenes/CircuitScene';
+import { LoadoutScene } from './scenes/LoadoutScene';
 
 export function createGame(parent: string): Phaser.Game {
   return new Phaser.Game({
@@ -19,6 +20,15 @@ export function createGame(parent: string): Phaser.Game {
       mode: Phaser.Scale.FIT,
       autoCenter: Phaser.Scale.CENTER_BOTH,
     },
-    scene: [BootScene, ModeSelectScene, CharacterSelectScene, RunScene, GameOverScene, LeaderboardScene, CircuitScene],
+    scene: [
+      BootScene,
+      ModeSelectScene,
+      CharacterSelectScene,
+      RunScene,
+      GameOverScene,
+      LeaderboardScene,
+      CircuitScene,
+      LoadoutScene,
+    ],
   });
 }

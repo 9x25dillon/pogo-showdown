@@ -4,6 +4,7 @@ import { COLORS, HEIGHT, REGISTRY_KEY_LAST_RESULT, WIDTH } from '../config';
 import { getProfile } from '../db/repository';
 import type { RunResult } from '../db/runResult';
 import { TIERS } from '../db/schema';
+import { SETUP_LABELS } from '../db/loadoutRepository';
 import { leaderboardService } from '../systems/LeaderboardService';
 
 const NAME_KEY = 'pogo-showdown:playerName';
@@ -16,6 +17,7 @@ function fallbackResult(): RunResult {
     leveledUp: false,
     newTierId: 'rookie',
     justUnlockedCircuit: false,
+    techPointsGranted: 0,
     circuitMatch: null,
   };
 }
@@ -104,7 +106,9 @@ export class GameOverScene extends Phaser.Scene {
     if (result.circuitMatch) {
       const m = result.circuitMatch;
       const color = m.won ? 0x22c55e : 0xef4444;
-      this.add.rectangle(WIDTH / 2, cursor + 22, WIDTH - 60, 60, color, 0.15).setStrokeStyle(1, color, 0.6);
+      const setup = SETUP_LABELS[m.setupPath];
+      const boxH = m.advantagePercent > 0 ? 78 : 60;
+      this.add.rectangle(WIDTH / 2, cursor + boxH / 2 - 8, WIDTH - 60, boxH, color, 0.15).setStrokeStyle(1, color, 0.6);
       this.add
         .text(WIDTH / 2, cursor + 8, `CIRCUIT MATCH — ${m.won ? 'WIN' : 'LOSS'}`, {
           fontSize: '13px',
@@ -114,13 +118,40 @@ export class GameOverScene extends Phaser.Scene {
         })
         .setOrigin(0.5);
       this.add
-        .text(WIDTH / 2, cursor + 30, `you ${m.yourScore} – ${m.opponentScore} ${m.opponentEmoji} ${m.opponentName}`, {
+        .text(WIDTH / 2, cursor + 30, `${m.battleScore} – ${m.opponentScore} ${m.opponentEmoji} ${m.opponentName}`, {
           fontSize: '13px',
           fontFamily: 'system-ui, sans-serif',
           color: '#ffffff',
         })
         .setOrigin(0.5);
-      cursor += 74;
+      if (m.advantagePercent > 0) {
+        this.add
+          .text(
+            WIDTH / 2,
+            cursor + 50,
+            `${setup.emoji} ${setup.label} · run score ${m.yourScore} × ${(1 + m.advantagePercent / 100).toFixed(2)} (+${m.advantagePercent}%)`,
+            {
+              fontSize: '11px',
+              fontFamily: 'system-ui, sans-serif',
+              color: '#b7aed0',
+            },
+          )
+          .setOrigin(0.5);
+      }
+      cursor += boxH + 14;
+    }
+
+    if (result.techPointsGranted > 0) {
+      const tpBanner = this.add
+        .text(WIDTH / 2, cursor, `⚙️ +${result.techPointsGranted} Tech Point${result.techPointsGranted > 1 ? 's' : ''}`, {
+          fontSize: '13px',
+          fontFamily: 'system-ui, sans-serif',
+          fontStyle: 'bold',
+          color: '#38bdf8',
+        })
+        .setOrigin(0.5);
+      this.tweens.add({ targets: tpBanner, scale: { from: 0.7, to: 1 }, duration: 220, ease: 'Back.Out' });
+      cursor += 30;
     }
 
     const status = this.add

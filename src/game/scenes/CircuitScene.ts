@@ -32,6 +32,7 @@ export class CircuitScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.buildBackButton();
+    this.buildLockerButton();
 
     void this.loadAndRender().then(() => loading.destroy());
   }
@@ -46,6 +47,19 @@ export class CircuitScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
     back.on('pointerdown', () => this.scene.start('ModeSelect'));
+  }
+
+  private buildLockerButton(): void {
+    const locker = this.add
+      .text(WIDTH - 20, 24, '\u{1F392} Locker', {
+        fontSize: '13px',
+        fontFamily: 'system-ui, sans-serif',
+        fontStyle: 'bold',
+        color: '#38bdf8',
+      })
+      .setOrigin(1, 0.5)
+      .setInteractive({ useHandCursor: true });
+    locker.on('pointerdown', () => this.scene.start('Loadout'));
   }
 
   private async loadAndRender(): Promise<void> {

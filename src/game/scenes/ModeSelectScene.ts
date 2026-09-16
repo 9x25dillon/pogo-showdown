@@ -69,7 +69,7 @@ export class ModeSelectScene extends Phaser.Scene {
 
     this.makeModeButton({
       y: 432,
-      label: '\u{1FA80}  Pog Battles',
+      label: '\u{1F94F}  Pog Battles',
       sublabel: 'turn-based · win their stack — coming soon',
       color: 0x8b5cf6,
       enabled: false,

@@ -1,17 +1,23 @@
 import Phaser from 'phaser';
 import { CHARACTERS, type Character } from '../data/characters';
 import {
+  BASE_SPEED,
   COLORS,
   GROUND_Y,
   HEIGHT,
   LANE_X,
+  MAX_SPEED,
+  PASSIVE_SCORE_RATE,
   PLAYER_Y,
   REGISTRY_KEY_CHARACTER,
   REGISTRY_KEY_LAST_RESULT,
+  SPEED_RAMP,
   WIDTH,
 } from '../config';
 import { recordRun } from '../db/repository';
 import type { RunResult } from '../db/runResult';
+import { getLoadout } from '../db/loadoutRepository';
+import { POG_TIERS, YOYO_TIERS } from '../data/loadoutData';
 
 type ObstacleType = 'hurdle' | 'banner' | 'star';
 
@@ -22,9 +28,6 @@ interface Obstacle {
   resolved: boolean;
 }
 
-const BASE_SPEED = 260;
-const MAX_SPEED = 680;
-const SPEED_RAMP = 5.5; // px/s added per second, scaled by character.speedMod
 const JUMP_MS = 480;
 const DUCK_MS = 460;
 const INVULN_MS = 550;
@@ -58,6 +61,10 @@ export class RunScene extends Phaser.Scene {
   private comboText!: Phaser.GameObjects.Text;
   private heartsText!: Phaser.GameObjects.Text;
   private particles!: Phaser.GameObjects.Particles.ParticleEmitter;
+
+  // equipped gear, drawn onto the pogo stick itself
+  private pogStack?: Phaser.GameObjects.Container;
+  private yoyoDangle?: Phaser.GameObjects.Container;
 
   // input
   private pointerStartX = 0;
@@ -97,6 +104,12 @@ export class RunScene extends Phaser.Scene {
     this.playerSprite = this.add.sprite(LANE_X[this.lane], PLAYER_Y, 'player');
     this.playerSprite.setTint(this.character.color);
     this.playerSprite.setDepth(10);
+
+    this.pogStack?.destroy();
+    this.yoyoDangle?.destroy();
+    this.pogStack = undefined;
+    this.yoyoDangle = undefined;
+    void this.loadGearVisuals();
 
     this.particles = this.add.particles(0, 0, 'particle', {
       speed: { min: 80, max: 220 },
@@ -225,7 +238,7 @@ export class RunScene extends Phaser.Scene {
     this.elapsed += dt;
 
     this.speed = Math.min(MAX_SPEED, this.speed + SPEED_RAMP * this.character.speedMod * dt);
-    this.score += this.speed * dt * 0.12;
+    this.score += this.speed * dt * PASSIVE_SCORE_RATE;
     this.scoreText.setText(Math.floor(this.score).toString());
 
     this.updateTimers(dt);
@@ -275,6 +288,34 @@ export class RunScene extends Phaser.Scene {
       this.playerSprite.setAlpha(Math.floor(this.invulnTimer / 80) % 2 === 0 ? 0.35 : 1);
     } else {
       this.playerSprite.setAlpha(1);
+    }
+
+    // pogs ride the footpeg at the base of the stick; the yoyo swings off the handle
+    this.pogStack?.setPosition(this.playerSprite.x, this.playerSprite.y + 30);
+    this.yoyoDangle?.setPosition(this.playerSprite.x + 15, this.playerSprite.y + 1);
+    this.yoyoDangle?.setRotation(Math.sin(this.bobPhase * 0.4) * 0.2);
+  }
+
+  private async loadGearVisuals(): Promise<void> {
+    const loadout = await getLoadout();
+
+    if (loadout.pog.tier > 0) {
+      const flavor = POG_TIERS[loadout.pog.tier];
+      const container = this.add.container(this.playerSprite.x, this.playerSprite.y + 30);
+      for (let i = 0; i < loadout.pog.tier; i++) {
+        container.add(this.add.circle(0, -i * 4, 5, flavor.color).setStrokeStyle(1, 0x000000, 0.3));
+      }
+      container.setDepth(9);
+      this.pogStack = container;
+    }
+
+    if (loadout.yoyo.tier > 0) {
+      const flavor = YOYO_TIERS[loadout.yoyo.tier];
+      const container = this.add.container(this.playerSprite.x + 15, this.playerSprite.y + 1);
+      container.add(this.add.rectangle(0, 6, 1.5, 12, 0xd4d4d8));
+      container.add(this.add.circle(0, 14, 6, flavor.color).setStrokeStyle(1, 0x000000, 0.35));
+      container.setDepth(11);
+      this.yoyoDangle = container;
     }
   }
 
@@ -420,12 +461,16 @@ export class RunScene extends Phaser.Scene {
           leveledUp: outcome.leveledUp,
           newTierId: outcome.profile.tier,
           justUnlockedCircuit: outcome.justUnlockedCircuit,
+          techPointsGranted: outcome.techPointsGranted,
           circuitMatch: outcome.circuitMatch
             ? {
                 opponentName: outcome.circuitMatch.opponent.name,
                 opponentEmoji: outcome.circuitMatch.opponent.emoji,
                 yourScore: outcome.circuitMatch.yourScore,
                 opponentScore: outcome.circuitMatch.opponentScore,
+                battleScore: outcome.circuitMatch.battleScore,
+                advantagePercent: outcome.circuitMatch.advantage.percent,
+                setupPath: outcome.circuitMatch.advantage.path,
                 won: outcome.circuitMatch.won,
               }
             : null,

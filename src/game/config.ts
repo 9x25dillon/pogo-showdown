@@ -18,3 +18,14 @@ export const COLORS = {
 
 export const REGISTRY_KEY_CHARACTER = 'selectedCharacterId';
 export const REGISTRY_KEY_LAST_RESULT = 'lastRunResult';
+
+/**
+ * Shared scoring/speed constants - used by RunScene for real gameplay
+ * and by scoreCurve.ts to derive tier thresholds and pro opponent
+ * scores from the same math, so balance tuning stays grounded in what
+ * the game actually produces instead of guesswork.
+ */
+export const BASE_SPEED = 260;
+export const MAX_SPEED = 680;
+export const SPEED_RAMP = 5.5;
+export const PASSIVE_SCORE_RATE = 0.12;

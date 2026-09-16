@@ -7,13 +7,20 @@ export interface TierDef {
   threshold: number;
 }
 
+/**
+ * Thresholds are derived from the game's actual passive-scoring curve
+ * (see scoreCurve.ts), not guesses - each roughly maps to a survival
+ * time: Amateur ~16s, Varsity ~38s, Semi-Pro ~95s, Pro ~145s of real
+ * sustained play (faster with good trick/combo play), Elite ~230s+.
+ * This makes Pro a genuine milestone rather than a first-run freebie.
+ */
 export const TIERS: TierDef[] = [
   { id: 'rookie', label: 'Rookie', threshold: 0 },
-  { id: 'amateur', label: 'Amateur', threshold: 500 },
-  { id: 'varsity', label: 'Varsity', threshold: 1500 },
-  { id: 'semipro', label: 'Semi-Pro', threshold: 3000 },
-  { id: 'pro', label: 'Pro', threshold: 5500 },
-  { id: 'elite', label: 'Elite', threshold: 9000 },
+  { id: 'amateur', label: 'Amateur', threshold: 600 },
+  { id: 'varsity', label: 'Varsity', threshold: 2000 },
+  { id: 'semipro', label: 'Semi-Pro', threshold: 5000 },
+  { id: 'pro', label: 'Pro', threshold: 10000 },
+  { id: 'elite', label: 'Elite', threshold: 20000 },
 ];
 
 /** tier at which The Circuit unlocks */
