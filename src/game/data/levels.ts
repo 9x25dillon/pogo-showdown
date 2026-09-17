@@ -49,10 +49,16 @@ export interface LevelDef {
   enemies: EnemySpawnDef[];
   coins: CoinDef[];
   playerStart: { x: number; y: number };
-  rivalStart: { x: number; y: number };
-  rivalWaypoints: RivalWaypoint[];
-  goalX: number;
-  goalY: number;
+  /**
+   * A boss level has no rival to race and no goal flag: the win
+   * condition is defeating the boss enemy (an EnemySpawnDef of type
+   * 'boss' in `enemies`) instead.
+   */
+  bossLevel?: boolean;
+  rivalStart?: { x: number; y: number };
+  rivalWaypoints?: RivalWaypoint[];
+  goalX?: number;
+  goalY?: number;
 }
 
 function ground(x: number, width: number): GroundSegment {
@@ -168,4 +174,27 @@ export const LEVEL_2: LevelDef = {
   goalY: GY,
 };
 
-export const LEVELS: LevelDef[] = [LEVEL_1, LEVEL_2];
+export const LEVEL_3: LevelDef = {
+  id: 'level3',
+  name: 'Circuit Showdown',
+  widthPx: 2400,
+  groundY: GY,
+  bossLevel: true,
+  ground: [
+    ground(0, 500), // intro
+    ground(620, 1600), // 500-620 is a warm-up gap; 620-2220 is the flat boss arena
+  ],
+  platforms: [],
+  movingPlatforms: [],
+  enemies: [
+    enemySpawn('patroller', 250, GY, 120),
+    enemySpawn('boss', 1000, GY, 800), // patrols 1000-1800 inside the arena
+  ],
+  coins: [
+    ...coinRow(120, GY - 80, 4, 50),
+    ...coinRow(700, GY - 80, 3, 50),
+  ],
+  playerStart: { x: 60, y: GY },
+};
+
+export const LEVELS: LevelDef[] = [LEVEL_1, LEVEL_2, LEVEL_3];

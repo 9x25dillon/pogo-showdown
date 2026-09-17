@@ -21,6 +21,7 @@ export class BootScene extends Phaser.Scene {
     this.makePatrolEnemyTexture();
     this.makeFlyingEnemyTexture();
     this.makeProjectileTexture();
+    this.makeBossTexture();
     this.makeGoalFlagTexture();
     this.makeShieldBurstTexture();
     this.scene.start('ModeSelect');
@@ -197,6 +198,33 @@ export class BootScene extends Phaser.Scene {
     g.fillStyle(0xfecaca, 1);
     g.fillCircle(cx, cy, 4);
     g.generateTexture('projectile', 24, 24);
+    g.destroy();
+  }
+
+  private makeBossTexture(): void {
+    const g = this.add.graphics();
+    g.fillStyle(0x1e1030, 1);
+    g.fillRoundedRect(2, 14, 66, 52, 16);
+    g.fillStyle(0xdc2626, 1);
+    g.fillRoundedRect(6, 18, 58, 40, 14);
+    g.lineStyle(3, 0x7c1d1d, 1);
+    for (const x of [16, 35, 54]) {
+      g.beginPath();
+      g.moveTo(x - 8, 20);
+      g.lineTo(x, 6);
+      g.lineTo(x + 8, 20);
+      g.strokePath();
+    }
+    g.fillStyle(0xfacc15, 1);
+    g.fillCircle(22, 38, 6);
+    g.fillCircle(48, 38, 6);
+    g.fillStyle(0x1e1030, 1);
+    g.fillCircle(22, 38, 2.6);
+    g.fillCircle(48, 38, 2.6);
+    g.fillStyle(0x450a0a, 1);
+    g.fillRect(10, 60, 12, 8);
+    g.fillRect(48, 60, 12, 8);
+    g.generateTexture('boss', 70, 70);
     g.destroy();
   }
 

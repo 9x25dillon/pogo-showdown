@@ -39,6 +39,11 @@ export const FLYER_BOB_HEIGHT = 46; // px above/below its spawn height
 export const PROJECTILE_SPEED = 420;
 export const PROJECTILE_LIFESPAN_MS = 900;
 
+export const BOSS_PATROL_MS = 2200;
+export const BOSS_TELEGRAPH_MS = 500;
+export const BOSS_CHARGE_MS = 650;
+export const BOSS_COOLDOWN_MS = 700;
+
 /** ~0.88x player top speed - an average player can win, but it stays close */
 export const RIVAL_MOVE_SPEED = 185;
 /** whoever loses a player<->rival stomp exchange: input zeroed, tinted, no elimination - the race continues */

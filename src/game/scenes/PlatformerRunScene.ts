@@ -9,6 +9,10 @@ import {
   WIDTH,
 } from '../config';
 import {
+  BOSS_CHARGE_MS,
+  BOSS_COOLDOWN_MS,
+  BOSS_PATROL_MS,
+  BOSS_TELEGRAPH_MS,
   ENEMY_PATROL_SPEED,
   FLYER_BOB_HEIGHT,
   FLYER_BOB_SPEED,
@@ -50,6 +54,8 @@ const ITEM_ICON: Record<PogActiveEffect['kind'], string> = {
   projectile: '🔥',
 };
 
+type BossPhase = 'patrol' | 'telegraph' | 'charge' | 'cooldown';
+
 interface PatrolEnemyState {
   sprite: Phaser.Physics.Arcade.Sprite;
   def: PlatformerEnemyDef;
@@ -59,6 +65,9 @@ interface PatrolEnemyState {
   alive: boolean;
   baseY: number;
   bobPhase: number;
+  health: number;
+  bossPhase?: BossPhase;
+  bossPhaseTimer?: number;
 }
 
 interface MovingPlatformState {
@@ -75,7 +84,8 @@ export class PlatformerRunScene extends Phaser.Scene {
   private character!: Character;
 
   private player!: Phaser.Physics.Arcade.Sprite;
-  private rival!: Phaser.Physics.Arcade.Sprite;
+  /** absent for boss levels - see LevelDef.bossLevel */
+  private rival?: Phaser.Physics.Arcade.Sprite;
   private playerState: ControllerState = createControllerState();
   private rivalState: ControllerState = createControllerState();
   private rivalAI: RivalAIState = createRivalAIState();
@@ -109,7 +119,8 @@ export class PlatformerRunScene extends Phaser.Scene {
   private coinSprites: Phaser.Physics.Arcade.Sprite[] = [];
   private enemies: PatrolEnemyState[] = [];
   private projectiles: Phaser.Physics.Arcade.Sprite[] = [];
-  private goalSprite!: Phaser.Physics.Arcade.Sprite;
+  /** absent for boss levels; win condition there is defeating the boss */
+  private goalSprite?: Phaser.Physics.Arcade.Sprite;
   private levelIndex = 0;
 
   private shields = 0;
@@ -175,7 +186,7 @@ export class PlatformerRunScene extends Phaser.Scene {
     this.cameras.main.startFollow(this.player, true, 1, 0);
 
     this.lastCheckpoint = { x: this.level.playerStart.x, y: this.player.y };
-    this.rivalLastSafe = { x: this.level.rivalStart.x, y: this.rival.y };
+    this.rivalLastSafe = this.rival ? { x: this.rival.x, y: this.rival.y } : { x: 0, y: 0 };
 
     void this.loadLoadout();
   }
@@ -246,11 +257,27 @@ export class PlatformerRunScene extends Phaser.Scene {
       } else {
         body.setGravityY(GRAVITY_Y);
       }
-      this.enemies.push({ sprite, def, originX: e.x, rangeX: e.rangeX, dir: 1, alive: true, baseY: e.y, bobPhase: Math.random() * Math.PI * 2 });
+      this.enemies.push({
+        sprite,
+        def,
+        originX: e.x,
+        rangeX: e.rangeX,
+        dir: 1,
+        alive: true,
+        baseY: e.y,
+        bobPhase: Math.random() * Math.PI * 2,
+        health: def.maxHealth ?? 1,
+        bossPhase: def.id === 'boss' ? 'patrol' : undefined,
+        bossPhaseTimer: def.id === 'boss' ? BOSS_PATROL_MS : undefined,
+      });
     }
 
-    this.goalSprite = this.physics.add.sprite(this.level.goalX, this.level.goalY, 'goalFlag').setOrigin(0.5, 1);
-    (this.goalSprite.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
+    if (this.level.goalX !== undefined && this.level.goalY !== undefined) {
+      this.goalSprite = this.physics.add.sprite(this.level.goalX, this.level.goalY, 'goalFlag').setOrigin(0.5, 1);
+      (this.goalSprite.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
+    } else {
+      this.goalSprite = undefined;
+    }
 
     this.player = this.physics.add.sprite(this.level.playerStart.x, this.level.playerStart.y, 'player').setOrigin(0.5, 1);
     this.player.setTint(this.character.color);
@@ -258,19 +285,23 @@ export class PlatformerRunScene extends Phaser.Scene {
     playerBody.setGravityY(GRAVITY_Y);
     playerBody.setCollideWorldBounds(false);
 
-    this.rival = this.physics.add.sprite(this.level.rivalStart.x, this.level.rivalStart.y, 'player').setOrigin(0.5, 1);
-    this.rival.setTint(0x94a3b8);
-    this.rival.setAlpha(0.92);
-    const rivalBody = this.rival.body as Phaser.Physics.Arcade.Body;
-    rivalBody.setGravityY(GRAVITY_Y);
-    rivalBody.setCollideWorldBounds(false);
+    if (this.level.rivalStart) {
+      this.rival = this.physics.add.sprite(this.level.rivalStart.x, this.level.rivalStart.y, 'player').setOrigin(0.5, 1);
+      this.rival.setTint(0x94a3b8);
+      this.rival.setAlpha(0.92);
+      const rivalBody = this.rival.body as Phaser.Physics.Arcade.Body;
+      rivalBody.setGravityY(GRAVITY_Y);
+      rivalBody.setCollideWorldBounds(false);
+    } else {
+      this.rival = undefined;
+    }
 
     // physical collision (stops falling through)
     this.physics.add.collider(this.player, this.staticSolids);
-    this.physics.add.collider(this.rival, this.staticSolids);
+    if (this.rival) this.physics.add.collider(this.rival, this.staticSolids);
     for (const mp of this.movingPlatforms) {
       this.physics.add.collider(this.player, mp.sprite);
-      this.physics.add.collider(this.rival, mp.sprite);
+      if (this.rival) this.physics.add.collider(this.rival, mp.sprite);
     }
     for (const e of this.enemies) {
       if (!e.def.flies) this.physics.add.collider(e.sprite, this.staticSolids);
@@ -283,9 +314,13 @@ export class PlatformerRunScene extends Phaser.Scene {
     for (const e of this.enemies) {
       this.physics.add.overlap(this.player, e.sprite, () => this.resolveEnemyContact(e));
     }
-    this.physics.add.overlap(this.player, this.rival, () => this.resolvePlayerRivalContact());
-    this.physics.add.overlap(this.player, this.goalSprite, () => this.endLevel('playerWon'));
-    this.physics.add.overlap(this.rival, this.goalSprite, () => this.endLevel('rivalWon'));
+    if (this.rival) {
+      this.physics.add.overlap(this.player, this.rival, () => this.resolvePlayerRivalContact());
+    }
+    if (this.goalSprite) {
+      this.physics.add.overlap(this.player, this.goalSprite, () => this.endLevel('playerWon'));
+      if (this.rival) this.physics.add.overlap(this.rival, this.goalSprite, () => this.endLevel('rivalWon'));
+    }
   }
 
   // ---------------- HUD ----------------
@@ -317,8 +352,13 @@ export class PlatformerRunScene extends Phaser.Scene {
     this.livesText.setText(`♥ ${Math.max(0, this.lives)}${this.shields ? `  ⛨ ${this.shields}` : ''}`);
     this.timeText.setText(`${this.elapsed.toFixed(1)}s`);
     this.comboText.setText(this.stompCombo >= 2 ? `stomp x${this.stompCombo}` : '');
-    const ahead = this.player.x - this.rival.x;
-    this.rivalPositionText.setText(ahead >= 0 ? `Rival: ahead by ${Math.round(ahead)}` : `Rival: behind by ${Math.round(-ahead)}`);
+    if (this.rival) {
+      const ahead = this.player.x - this.rival.x;
+      this.rivalPositionText.setText(ahead >= 0 ? `Rival: ahead by ${Math.round(ahead)}` : `Rival: behind by ${Math.round(-ahead)}`);
+    } else {
+      const boss = this.enemies.find((e) => e.def.id === 'boss');
+      this.rivalPositionText.setText(boss && boss.alive ? `BOSS HP: ${boss.health} / ${boss.def.maxHealth}` : '');
+    }
   }
 
   // ---------------- controls ----------------
@@ -440,12 +480,14 @@ export class PlatformerRunScene extends Phaser.Scene {
     const playerMoveSpeed = this.speedBoostTimer > 0 ? MOVE_SPEED * SPEED_BOOST_MULTIPLIER : MOVE_SPEED;
     updateController(playerBody, playerInput, this.playerState, { moveSpeed: playerMoveSpeed, moveAccel: MOVE_ACCEL }, dt);
 
-    const rivalInput = computeRivalInput(this.rival.x, this.level.rivalWaypoints, this.rivalAI, this.rivalStunTimer > 0, dt);
-    const rivalBody = this.rival.body as Phaser.Physics.Arcade.Body;
-    updateController(rivalBody, rivalInput, this.rivalState, { moveSpeed: RIVAL_MOVE_SPEED, moveAccel: MOVE_ACCEL }, dt);
+    if (this.rival) {
+      const rivalInput = computeRivalInput(this.rival.x, this.level.rivalWaypoints ?? [], this.rivalAI, this.rivalStunTimer > 0, dt);
+      const rivalBody = this.rival.body as Phaser.Physics.Arcade.Body;
+      updateController(rivalBody, rivalInput, this.rivalState, { moveSpeed: RIVAL_MOVE_SPEED, moveAccel: MOVE_ACCEL }, dt);
+      this.rival.setFlipX(rivalBody.velocity.x < -5 ? true : rivalBody.velocity.x > 5 ? false : this.rival.flipX);
+    }
 
     this.player.setFlipX(playerBody.velocity.x < -5 ? true : playerBody.velocity.x > 5 ? false : this.player.flipX);
-    this.rival.setFlipX(rivalBody.velocity.x < -5 ? true : rivalBody.velocity.x > 5 ? false : this.rival.flipX);
     this.player.setAlpha(this.invulnTimer > 0 && Math.floor(this.invulnTimer / 80) % 2 === 0 ? 0.4 : 1);
 
     this.updatePatrolEnemies(dt);
@@ -458,6 +500,10 @@ export class PlatformerRunScene extends Phaser.Scene {
   private updatePatrolEnemies(dt: number): void {
     for (const e of this.enemies) {
       if (!e.alive) continue;
+      if (e.def.id === 'boss') {
+        this.updateBoss(e, dt);
+        continue;
+      }
       const body = e.sprite.body as Phaser.Physics.Arcade.Body;
       if (e.sprite.x >= e.originX + e.rangeX) e.dir = -1;
       else if (e.sprite.x <= e.originX) e.dir = 1;
@@ -467,6 +513,53 @@ export class PlatformerRunScene extends Phaser.Scene {
         e.bobPhase += (dt / 1000) * FLYER_BOB_SPEED;
         e.sprite.setY(e.baseY + Math.sin(e.bobPhase) * FLYER_BOB_HEIGHT);
       }
+    }
+  }
+
+  /** patrol -> telegraph (pause + flash) -> charge (fast dash at the player) -> cooldown -> repeat */
+  private updateBoss(e: PatrolEnemyState, dt: number): void {
+    const body = e.sprite.body as Phaser.Physics.Arcade.Body;
+    e.bossPhaseTimer = (e.bossPhaseTimer ?? 0) - dt;
+
+    switch (e.bossPhase) {
+      case 'telegraph':
+        if (e.bossPhaseTimer <= 0) {
+          e.bossPhase = 'charge';
+          e.bossPhaseTimer = BOSS_CHARGE_MS;
+          const towardPlayer = this.player.x < e.sprite.x ? -1 : 1;
+          e.dir = towardPlayer;
+          e.sprite.setFlipX(towardPlayer < 0);
+          body.setVelocityX(towardPlayer * (e.def.chargeSpeed ?? ENEMY_PATROL_SPEED));
+        }
+        break;
+      case 'charge':
+        if (e.bossPhaseTimer <= 0 || e.sprite.x <= e.originX || e.sprite.x >= e.originX + e.rangeX) {
+          e.bossPhase = 'cooldown';
+          e.bossPhaseTimer = BOSS_COOLDOWN_MS;
+          body.setVelocityX(0);
+          e.sprite.clearTint();
+        }
+        break;
+      case 'cooldown':
+        body.setVelocityX(0);
+        if (e.bossPhaseTimer <= 0) {
+          e.bossPhase = 'patrol';
+          e.bossPhaseTimer = BOSS_PATROL_MS;
+        }
+        break;
+      case 'patrol':
+      default:
+        if (e.sprite.x >= e.originX + e.rangeX) e.dir = -1;
+        else if (e.sprite.x <= e.originX) e.dir = 1;
+        body.setVelocityX(e.dir * ENEMY_PATROL_SPEED);
+        e.sprite.setFlipX(e.dir < 0);
+        if (e.bossPhaseTimer <= 0) {
+          e.bossPhase = 'telegraph';
+          e.bossPhaseTimer = BOSS_TELEGRAPH_MS;
+          body.setVelocityX(0);
+          e.sprite.setTint(0xffffff);
+        }
+        break;
     }
   }
 
@@ -484,7 +577,7 @@ export class PlatformerRunScene extends Phaser.Scene {
       const deltaX = mp.sprite.x - mp.prevX;
       if (deltaX !== 0) {
         if (this.isStandingOn(this.player, mp.sprite)) this.player.x += deltaX;
-        if (this.isStandingOn(this.rival, mp.sprite)) this.rival.x += deltaX;
+        if (this.rival && this.isStandingOn(this.rival, mp.sprite)) this.rival.x += deltaX;
       }
       mp.prevX = mp.sprite.x;
     }
@@ -511,13 +604,15 @@ export class PlatformerRunScene extends Phaser.Scene {
       this.respawnPlayer();
     }
 
-    const rivalBody = this.rival.body as Phaser.Physics.Arcade.Body;
-    if (rivalBody.blocked.down || rivalBody.touching.down) {
-      this.rivalLastSafe = { x: this.rival.x, y: this.rival.y };
-    }
-    if (this.rival.y > GAP_DEATH_Y) {
-      this.rival.setPosition(this.rivalLastSafe.x, this.rivalLastSafe.y);
-      rivalBody.setVelocity(0, 0);
+    if (this.rival) {
+      const rivalBody = this.rival.body as Phaser.Physics.Arcade.Body;
+      if (rivalBody.blocked.down || rivalBody.touching.down) {
+        this.rivalLastSafe = { x: this.rival.x, y: this.rival.y };
+      }
+      if (this.rival.y > GAP_DEATH_Y) {
+        this.rival.setPosition(this.rivalLastSafe.x, this.rivalLastSafe.y);
+        rivalBody.setVelocity(0, 0);
+      }
     }
   }
 
@@ -543,24 +638,33 @@ export class PlatformerRunScene extends Phaser.Scene {
 
     if (isStomp) {
       playerBody.setVelocityY(STOMP_BOUNCE_VELOCITY);
-      this.defeatEnemy(enemy);
+      this.damageEnemy(enemy);
     } else {
       this.takeDamage(enemy.def.contactDamage);
     }
   }
 
-  private defeatEnemy(enemy: PatrolEnemyState): void {
+  private damageEnemy(enemy: PatrolEnemyState, amount = 1): void {
     if (!enemy.alive) return;
+    enemy.health -= amount;
+    if (enemy.health > 0) {
+      // hurt but not defeated (bosses only - regular enemies default to 1 health)
+      enemy.sprite.setTint(0xffffff);
+      this.time.delayedCall(120, () => { if (enemy.alive) enemy.sprite.clearTint(); });
+      this.registerStomp();
+      return;
+    }
     enemy.alive = false;
     this.tweens.add({
       targets: enemy.sprite,
       scaleY: 0.2,
       alpha: 0,
-      duration: 160,
+      duration: 220,
       onComplete: () => enemy.sprite.destroy(),
     });
     this.coins += enemy.def.stompReward;
     this.registerStomp();
+    if (enemy.def.id === 'boss') this.endLevel('playerWon');
   }
 
   private spawnProjectile(): void {
@@ -574,7 +678,9 @@ export class PlatformerRunScene extends Phaser.Scene {
     for (const e of this.enemies) {
       this.physics.add.overlap(sprite, e.sprite, () => this.hitEnemyWithProjectile(sprite, e));
     }
-    this.physics.add.overlap(sprite, this.rival, () => this.hitRivalWithProjectile(sprite));
+    if (this.rival) {
+      this.physics.add.overlap(sprite, this.rival, () => this.hitRivalWithProjectile(sprite));
+    }
 
     this.time.delayedCall(PROJECTILE_LIFESPAN_MS, () => {
       if (sprite.active) sprite.destroy();
@@ -584,7 +690,7 @@ export class PlatformerRunScene extends Phaser.Scene {
   private hitEnemyWithProjectile(sprite: Phaser.Physics.Arcade.Sprite, enemy: PatrolEnemyState): void {
     if (!sprite.active || !enemy.alive) return;
     sprite.destroy();
-    this.defeatEnemy(enemy);
+    this.damageEnemy(enemy);
   }
 
   private hitRivalWithProjectile(sprite: Phaser.Physics.Arcade.Sprite): void {
@@ -594,14 +700,15 @@ export class PlatformerRunScene extends Phaser.Scene {
   }
 
   private stunRival(): void {
+    if (!this.rival) return;
     this.rivalStunTimer = STOMP_STUN_MS;
     this.rival.setTint(0x475569);
-    this.time.delayedCall(STOMP_STUN_MS, () => this.rival.setTint(0x94a3b8));
+    this.time.delayedCall(STOMP_STUN_MS, () => this.rival?.setTint(0x94a3b8));
     this.registerStomp();
   }
 
   private resolvePlayerRivalContact(): void {
-    if (this.gameOver || this.playerStunTimer > 0 || this.rivalStunTimer > 0) return;
+    if (!this.rival || this.gameOver || this.playerStunTimer > 0 || this.rivalStunTimer > 0) return;
     const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
     const rivalBody = this.rival.body as Phaser.Physics.Arcade.Body;
     const playerStomps = playerBody.velocity.y > 0 && playerBody.bottom <= rivalBody.top + STOMP_TOLERANCE_PX;
