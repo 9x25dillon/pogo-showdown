@@ -1,3 +1,5 @@
+import { CHARACTERS } from '../data/characters';
+import { progressFor, TRAINING_SECONDS } from '../systems/characterMastery';
 import { CIRCUIT_ROSTER, type CircuitPro } from '../data/circuitRoster';
 import { addDaysKey, dayIndex, todayKey } from '../systems/dates';
 import { seededRandom, seededRange } from '../systems/seededRandom';
@@ -213,11 +215,21 @@ export interface RecordRunResult {
   } | null;
 }
 
-export async function recordRun(score: number): Promise<RecordRunResult> {
+export async function recordRun(score: number, characterId = CHARACTERS[0].id, durationSeconds = 0): Promise<RecordRunResult> {
   const profile = await getProfile();
   const today = todayKey();
   let techPointsGranted = 0;
 
+  characterId = CHARACTERS.find((c) => c.id === characterId)?.id ?? CHARACTERS[0].id;
+  const previous = progressFor(profile, characterId);
+  const trainingEarned = durationSeconds >= TRAINING_SECONDS;
+  const progress = {
+    runs: previous.runs + 1,
+    trainingRuns: previous.trainingRuns + (trainingEarned ? 1 : 0),
+    bestScore: Math.max(previous.bestScore, score),
+  };
+  profile.characters = { ...profile.characters, [characterId]: progress };
+  profile.lastCharacterId = characterId;
   profile.totalRuns += 1;
   profile.totalScoreCareer += score;
   profile.careerBestScore = Math.max(profile.careerBestScore, score);
@@ -228,8 +240,10 @@ export async function recordRun(score: number): Promise<RecordRunResult> {
   profile.tier = newTier.id;
 
   if (leveledUp) {
-    await grantTierUpBonus();
-    techPointsGranted += 1;
+    for (let i = prevTierIdx; i < tierIndex(newTier.id); i++) {
+      await grantTierUpBonus();
+      techPointsGranted += 1;
+    }
   }
 
   let justUnlockedCircuit = false;
@@ -242,7 +256,7 @@ export async function recordRun(score: number): Promise<RecordRunResult> {
   if (profile.circuitUnlockedAt && profile.circuitUnlockedAt <= today && profile.lastCircuitMatchDate !== today) {
     const opponent = opponentForDate(today);
     const opponentScore = generateOpponentScore(today, opponent);
-    const advantage = await computeCurrentAdvantage(profile.totalRuns);
+    const advantage = await computeCurrentAdvantage(progress.trainingRuns);
     const battleScore = Math.round(score * (1 + advantage.percent / 100));
     const won = battleScore > opponentScore;
 

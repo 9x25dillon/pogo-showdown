@@ -53,6 +53,6 @@ export const TP_PER_TIER_UP = 1; // x5 tier-ups possible (Amateur..Elite) = 5 TP
 export const TP_PER_CIRCUIT_WIN = 1;
 export const TP_FROM_WINS_CAP = 20;
 
-/** Character Level (free, play-count based) - the gate for the secret Natural path */
+/** Character Level: every four qualifying runs with this character, up to level 10 */
 export const RUNS_PER_CHARACTER_LEVEL = 4;
-export const CHARACTER_LEVEL_MAX = 10; // reached at 40 total runs
+export const CHARACTER_LEVEL_MAX = 10; // reached at 40 training runs per character

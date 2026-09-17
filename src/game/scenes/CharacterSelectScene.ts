@@ -1,9 +1,16 @@
+import { getProfile } from '../db/repository';
+import type { PlayerProfile } from '../db/schema';
+import { characterLevel } from '../db/loadoutRepository';
+import { masterySummary, progressFor } from '../systems/characterMastery';
 import Phaser from 'phaser';
 import { equippedPerks } from '../db/pogRepository';
 import { CHARACTERS } from '../data/characters';
 import { COLORS, HEIGHT, REGISTRY_KEY_CHARACTER, REGISTRY_KEY_PERKS, WIDTH } from '../config';
 
 export class CharacterSelectScene extends Phaser.Scene {
+  private profile?: PlayerProfile;
+  private masteryText!: Phaser.GameObjects.Text;
+  private masteryBar!: Phaser.GameObjects.Rectangle;
   private selectedIndex = 0;
   private cardTexts: Phaser.GameObjects.Text[] = [];
   private cards: Phaser.GameObjects.Rectangle[] = [];
@@ -91,7 +98,23 @@ export class CharacterSelectScene extends Phaser.Scene {
         .setOrigin(0.5);
       this.cardTexts.push(label);
 
-      card.on('pointerdown', () => this.select(i));
+      card.on('pointerdown', () => {
+        this.registry.set(REGISTRY_KEY_CHARACTER, c.id);
+        this.select(i);
+      });
+    });
+
+    this.add.rectangle(WIDTH / 2, 644, 410, 136, 0x1c1430).setStrokeStyle(1, 0x362a52);
+    this.masteryText = this.add.text(WIDTH / 2, 610, 'loading mastery…', {
+      fontSize: '14px', fontFamily: 'system-ui, sans-serif', color: '#b7aed0', align: 'center', lineSpacing: 10,
+    }).setOrigin(0.5, 0);
+    this.add.rectangle(60, 688, 360, 8, 0x362a52).setOrigin(0, 0.5);
+    this.masteryBar = this.add.rectangle(60, 688, 1, 8, COLORS.accent).setOrigin(0, 0.5);
+    this.select(Math.max(0, CHARACTERS.findIndex((c) => c.id === this.registry.get(REGISTRY_KEY_CHARACTER))));
+    void getProfile().then((profile) => {
+      if (!this.scene.isActive()) return;
+      this.profile = profile;
+      this.select(Math.max(0, CHARACTERS.findIndex((c) => c.id === (this.registry.get(REGISTRY_KEY_CHARACTER) ?? profile.lastCharacterId))));
     });
 
     // start button
@@ -107,9 +130,11 @@ export class CharacterSelectScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     startBtn.on('pointerdown', () => {
+      startBtn.disableInteractive();
       this.registry.set(REGISTRY_KEY_CHARACTER, CHARACTERS[this.selectedIndex].id);
       // equipped pog perks are read synchronously by RunScene, so resolve them here first
       void equippedPerks().then((perks) => {
+        if (!this.scene.isActive()) return;
         this.registry.set(REGISTRY_KEY_PERKS, perks);
         this.scene.start('Run');
       });
@@ -133,6 +158,12 @@ export class CharacterSelectScene extends Phaser.Scene {
     this.nameText.setText(c.name);
     this.clubText.setText(c.club);
     this.perkText.setText(c.perk);
+    if (this.profile) {
+      const progress = progressFor(this.profile, c.id);
+      this.masteryText.setText(`LEVEL ${characterLevel(progress.trainingRuns)} · BEST ${progress.bestScore} · ${progress.runs} RUNS\n${masterySummary(progress)}\nTrain by surviving 15 seconds in a run`);
+      this.masteryBar.width = 360 * Math.min(1, progress.trainingRuns / 40);
+      this.masteryBar.setFillStyle(c.color);
+    }
     this.cards.forEach((card, idx) => {
       card.setStrokeStyle(2, CHARACTERS[idx].color, idx === i ? 1 : 0.4);
     });

@@ -68,6 +68,7 @@ export class TrickLabScene extends Phaser.Scene {
     this.sessionLeft = SESSION_SECONDS;
     this.over = false;
     this.started = false;
+    this.pointerActive = false;
     this.lastTrickName = '';
     this.glyphBoxes = [];
     this.glyphTexts = [];
@@ -206,15 +207,15 @@ export class TrickLabScene extends Phaser.Scene {
   }
 
   private setupInput(): void {
-    this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
+    const onDown = (p: Phaser.Input.Pointer) => {
       if (this.started && this.time.now - this.sessionStartedAt < 120) return;
       this.pointerActive = true;
       this.pointerStartX = p.x;
       this.pointerStartY = p.y;
       this.pointerStartT = this.time.now;
-    });
+    };
 
-    this.input.on('pointerup', (p: Phaser.Input.Pointer) => {
+    const onUp = (p: Phaser.Input.Pointer) => {
       if (!this.pointerActive) return;
       this.pointerActive = false;
       if (!this.started || this.over) return;
@@ -231,15 +232,22 @@ export class TrickLabScene extends Phaser.Scene {
       } else if (dt < TAP_MAX_MS) {
         this.handleInput('tap');
       }
+    };
+    this.input.on('pointerdown', onDown);
+    this.input.on('pointerup', onUp);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.input.off('pointerdown', onDown);
+      this.input.off('pointerup', onUp);
     });
 
     const kb = this.input.keyboard;
     if (kb) {
-      kb.on('keydown-UP', () => this.keyInput('up'));
-      kb.on('keydown-DOWN', () => this.keyInput('down'));
-      kb.on('keydown-LEFT', () => this.keyInput('left'));
-      kb.on('keydown-RIGHT', () => this.keyInput('right'));
-      kb.on('keydown-SPACE', () => this.keyInput('tap'));
+      const bindings: Record<string, TrickInput> = { UP: 'up', DOWN: 'down', LEFT: 'left', RIGHT: 'right', SPACE: 'tap' };
+      for (const [key, input] of Object.entries(bindings)) {
+        const handler = () => this.keyInput(input);
+        kb.on(`keydown-${key}`, handler);
+        this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => kb.off(`keydown-${key}`, handler));
+      }
     }
   }
 
@@ -497,6 +505,7 @@ export class TrickLabScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(depth + 1);
     btn.on('pointerdown', () => {
+      btn.disableInteractive();
       this.tweens.add({ targets: btn, scale: 0.96, duration: 70, yoyo: true, onComplete: onTap });
     });
   }

@@ -118,6 +118,7 @@ export class ModeSelectScene extends Phaser.Scene {
   private async loadRankInfo(): Promise<void> {
     await ensureSeasonSimulated();
     const profile = await getProfile();
+    if (!this.scene.isActive() || !this.rankText.active) return;
     const tier = TIERS.find((t) => t.id === profile.tier) ?? TIERS[0];
     this.rankText.setText(
       profile.circuitUnlockedAt
@@ -175,6 +176,7 @@ export class ModeSelectScene extends Phaser.Scene {
       bg.on('pointerover', () => bg.setFillStyle(opts.color, 0.32));
       bg.on('pointerout', () => bg.setFillStyle(opts.color, 0.18));
       bg.on('pointerdown', () => {
+        bg.disableInteractive();
         this.tweens.add({
           targets: bg,
           scale: 0.96,

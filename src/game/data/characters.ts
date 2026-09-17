@@ -9,8 +9,12 @@ export interface Character {
   flairMod: number;
   /** multiplier applied to world scroll speed ramp */
   speedMod: number;
-  /** extra hits the player can take before losing a life */
+  /** extra starting lives (legacy field name) */
   shield: number;
+  startingShields?: number;
+  timingMod?: number;
+  trickBonus?: number;
+  pickupBonus?: number;
 }
 
 export const CHARACTERS: Character[] = [
@@ -42,7 +46,8 @@ export const CHARACTERS: Character[] = [
     club: 'Fencing Captain',
     color: 0xc0c0c8,
     emoji: '⚔️',
-    perk: 'Trick+ — bonus points on clean dodges',
+    perk: 'Trick+ — +6 points on clean dodges',
+    trickBonus: 6,
     flairMod: 1.15,
     speedMod: 1,
     shield: 0,
@@ -64,7 +69,8 @@ export const CHARACTERS: Character[] = [
     club: 'Robotics President',
     color: 0x14b8a6,
     emoji: '\u{1F916}',
-    perk: 'Precision+ — wider timing window',
+    perk: 'Precision+ — 15% longer jumps and ducks',
+    timingMod: 1.15,
     flairMod: 1,
     speedMod: 0.9,
     shield: 0,
@@ -75,10 +81,11 @@ export const CHARACTERS: Character[] = [
     club: 'Debate Captain',
     color: 0x22c55e,
     emoji: '\u{1F4D6}',
-    perk: 'Tactician — starts each run shielded',
+    perk: 'Tactician — one shield protects your combo',
+    startingShields: 1,
     flairMod: 1,
     speedMod: 1,
-    shield: 1,
+    shield: 0,
   },
   {
     id: 'frida',
@@ -86,8 +93,8 @@ export const CHARACTERS: Character[] = [
     club: 'Art Club President',
     color: 0xec4899,
     emoji: '\u{1F3A8}',
-    perk: 'Flair+ — chained tricks pay out big',
-    flairMod: 1.4,
+    perk: 'Flow+ — gentler ramp, stronger combos',
+    flairMod: 1.2,
     speedMod: 0.95,
     shield: 0,
   },
@@ -97,7 +104,8 @@ export const CHARACTERS: Character[] = [
     club: 'Yearbook / Inventor',
     color: 0xf97316,
     emoji: '\u{1F4A1}',
-    perk: 'Gadgets+ — more power-ups spawn',
+    perk: 'Gadgets+ — stars appear 26% of the time',
+    pickupBonus: 0.10,
     flairMod: 1.1,
     speedMod: 1,
     shield: 0,

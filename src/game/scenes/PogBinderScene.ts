@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { COLORS, HEIGHT, WIDTH } from '../config';
 import { POG_CATALOG, RARITY_COLOR, RARITY_LABEL, RARITY_WEIGHT, describePerks, pogDef } from '../data/pogs';
 import { ensureStarterPog, equippedPerks, footpegCapacity, toggleEquip, weightOf } from '../db/pogRepository';
+import { addPageControls } from '../ui/pageControls';
 import type { PogInstance } from '../db/pogSchema';
 
 const FONT = 'system-ui, sans-serif';
@@ -11,13 +12,18 @@ const FONT = 'system-ui, sans-serif';
  * Capacity is a weight budget (rarity 1-4) of 4 + Locker Pog Stack tier.
  */
 export class PogBinderScene extends Phaser.Scene {
+  private page = 0;
+  private equipping = false;
   private toast?: Phaser.GameObjects.Text;
 
   constructor() {
     super('PogBinder');
   }
 
-  create(): void {
+  create(data: { page?: number } = {}): void {
+    this.page = data.page ?? 0;
+    this.equipping = false;
+    this.toast = undefined;
     this.cameras.main.setBackgroundColor(COLORS.bg);
 
     this.add
@@ -34,7 +40,9 @@ export class PogBinderScene extends Phaser.Scene {
   }
 
   private async render(): Promise<void> {
-    const [owned, cap, perks] = await Promise.all([ensureStarterPog(), footpegCapacity(), equippedPerks()]);
+    const owned = await ensureStarterPog();
+    const [cap, perks] = await Promise.all([footpegCapacity(), equippedPerks()]);
+    if (!this.scene.isActive()) return;
     const equipped = owned.filter((i) => i.equipped);
     const used = weightOf(equipped);
 
@@ -80,21 +88,16 @@ export class PogBinderScene extends Phaser.Scene {
       return rb - ra;
     });
 
-    sorted.slice(0, 9).forEach((inst, i) => {
+    this.page = Math.min(this.page, Math.max(0, Math.ceil(sorted.length / 9) - 1));
+    sorted.slice(this.page * 9, (this.page + 1) * 9).forEach((inst, i) => {
       const x = startX + (i % cols) * (cardW + gapX);
       const y = startY + Math.floor(i / cols) * (cardH + gapY);
       this.renderCard(inst, x, y, cardW, cardH);
     });
 
-    if (sorted.length > 9) {
-      this.add
-        .text(WIDTH / 2, startY + 3 * (cardH + gapY) + 4, `+${sorted.length - 9} more in the binder (equipped and rarest shown first)`, {
-          fontSize: '11px',
-          fontFamily: FONT,
-          color: '#6b6180',
-        })
-        .setOrigin(0.5, 0);
-    }
+    addPageControls(this, this.page, sorted.length, 9, 728, (page) => {
+      if (!this.equipping) this.scene.restart({ page });
+    });
 
     this.add
       .text(WIDTH / 2, HEIGHT - 66, 'tap a pog to equip / unequip · win more in Pog Battles', {
@@ -147,9 +150,13 @@ export class PogBinderScene extends Phaser.Scene {
     }
 
     bg.on('pointerdown', () => {
+      if (this.equipping) return;
+      this.equipping = true;
       void toggleEquip(inst.id).then((res) => {
+        if (!this.scene.isActive()) return;
+        this.equipping = false;
         if (res.ok) {
-          this.scene.restart();
+          this.scene.restart({ page: this.page });
         } else {
           this.showToast(res.reason ?? 'can’t equip');
         }

@@ -15,7 +15,10 @@ export interface PlayerLoadout {
   techPointsSpent: number;
   pog: AxisState;
   yoyo: AxisState;
+  /** Legacy shared training, retained only for save migration. */
   mastery: AxisState;
+  characterMasteryMigrated?: boolean;
+  masteryRefund?: number;
   updatedAt: string;
 }
 
