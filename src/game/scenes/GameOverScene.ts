@@ -1,3 +1,4 @@
+import { masterySummary, progressFor } from '../systems/characterMastery';
 import Phaser from 'phaser';
 import { CHARACTERS } from '../data/characters';
 import { COLORS, HEIGHT, REGISTRY_KEY_LAST_RESULT, WIDTH } from '../config';
@@ -101,7 +102,12 @@ export class GameOverScene extends Phaser.Scene {
         color: '#f9d64b',
       })
       .setOrigin(0.5);
-    cursor += 36;
+    cursor += 28;
+    const progress = progressFor(profile, character.id);
+    this.add.text(WIDTH / 2, cursor, `${character.name} · ${masterySummary(progress)}`, {
+      fontSize: '11px', fontFamily: 'system-ui, sans-serif', color: '#38bdf8',
+    }).setOrigin(0.5);
+    cursor += 28;
 
     if (result.circuitMatch) {
       const m = result.circuitMatch;
@@ -224,6 +230,7 @@ export class GameOverScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     btn.on('pointerdown', () => {
+      btn.disableInteractive();
       this.tweens.add({ targets: btn, scale: 0.96, duration: 70, yoyo: true, onComplete: onTap });
     });
   }

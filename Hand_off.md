@@ -2,6 +2,21 @@
 
 Last session: 2026-09-16. Repo: `~/pogo-showdown` (git, branch `master`, no remote configured yet).
 
+## Current update — graphics, gameplay fixes, and individual mastery (2026-09-16)
+
+This section supersedes the older shared-mastery balance notes below.
+
+- Each highschooler now has separate runs, personal best, and qualifying training runs in `PlayerProfile.characters`. Finish a Pogo Dash run after surviving at least **15 active seconds** to earn one training run. Paused time does not count. Every four training runs earns one level, capped at 10. Mastery tiers unlock at **4 / 12 / 24 / 40** training runs, worth **6 / 12 / 18 / 24** battle points. Training costs no Tech Points.
+- Character selection, the Locker (with character arrows), and run results show individual progression. Circuit uses the runner's mastery; ranked Pog Battles uses the current selected character, falling back to the last played character.
+- Shared purchased mastery is retired. An idempotent migration in `getLoadout()` refunds the cumulative cost of the old owned mastery tier, resets the legacy axis, and records the refund on the loadout. Existing gear, career stats, collections, and currency earned stay intact. Old aggregate runs cannot reliably be assigned to individual characters, so character-specific records begin with this update. No new IndexedDB stores are needed; version remains 3.
+- Natural advantage now grows gradually by **1.5% per character level**, capped at **15%**, while net TP spent is zero. Gear + character mastery retains the **30%** ceiling and max-tier synergy. Casual runner scores do not receive battle Advantage.
+- A run that crosses several career tiers awards a TP for **each** tier crossed (previously only one). Gear's existing TP costs and circuit-win cap are unchanged.
+- Ada gets 15% longer jump/duck actions. Joan gets +6 base dodge points. Sun Tzu starts with a combo-protecting shield instead of an extra life; Khan keeps the extra life. Leo's star chance is 26% versus the standard 16%. Frida's flair is 1.2 (down from 1.4) with her gentler speed ramp, giving Cleo the stronger combo multiplier at 1.3.
+- Runner polish: explicit upward/downward obstacle chevrons and distinct silhouettes, rider details, landing shadow, character-colored road edges, compact HUD, control hint, pause button/P/Esc and auto-pause on focus loss, frame-rate-independent bounce, and replacement of overlapping lane tweens.
+- Fixed retained destroyed obstacles, repeated keyboard/pointer listeners in Run and Trick Lab, repeated battle keyboard listeners, stale menu profile updates, initial Binder perk summary, and duplicate button activation. Binder and wager grids now page through the entire collection.
+
+Verification: `npm run build`, `git diff --check`, and `npm run test:browser`. The browser suite uses Node's native WebSocket client, a running Vite server (`npm run dev`), and Chromium launched with `--headless --no-sandbox --remote-debugging-port=9333 --user-data-dir=/tmp/pogo-browser-check`. Use `CDP_URL` and `POGO_URL` to override endpoints. Tests create an isolated incognito context and dispose it afterwards; they do not modify player saves. Optional `POGO_SCREENSHOT_DIR=/tmp` saves screenshots. Browser coverage includes paging, migration/refund idempotence, independent mastery and survival gate, tier awards and caps, UI, restarts, pause, shield behavior, obstacle cleanup, and persisted progression after reload. Android packaging has not been rebuilt for this update. Balance is an initial tuning pass, not a claim of equal win rates from human playtesting.
+
 ## Where things stand
 
 **Built and verified working** (headless-browser tested each time, screenshots checked, no console errors):

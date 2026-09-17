@@ -60,6 +60,9 @@ export class RunScene extends Phaser.Scene {
   private nextSpawnAt = 0;
   private roadLines: Phaser.GameObjects.Rectangle[] = [];
   private gameOver = false;
+  private paused = false;
+  private pauseOverlay?: Phaser.GameObjects.Container;
+  private shadow!: Phaser.GameObjects.Ellipse;
 
   // ui
   private scoreText!: Phaser.GameObjects.Text;
@@ -93,7 +96,7 @@ export class RunScene extends Phaser.Scene {
     this.bobPhase = 0;
     this.perks = (this.registry.get(REGISTRY_KEY_PERKS) as Required<PogPerks> | undefined) ?? { ...EMPTY_PERKS };
     this.lives = 3 + this.character.shield + this.perks.extraLives;
-    this.shields = this.perks.shieldHits;
+    this.shields = this.perks.shieldHits + (this.character.startingShields ?? 0);
     this.secondWindUsed = false;
     this.combo = 0;
     this.bestCombo = 0;
@@ -103,12 +106,16 @@ export class RunScene extends Phaser.Scene {
     this.obstacles = [];
     this.nextSpawnAt = 0;
     this.gameOver = false;
+    this.paused = false;
+    this.pauseOverlay = undefined;
+    this.pointerActive = false;
 
     this.cameras.main.setBackgroundColor(COLORS.bg);
     this.cameras.main.resetFX();
 
     this.buildRoad();
 
+    this.shadow = this.add.ellipse(LANE_X[this.lane], PLAYER_Y + 36, 62, 16, 0x000000, 0.4).setDepth(4);
     this.playerSprite = this.add.sprite(LANE_X[this.lane], PLAYER_Y, 'player');
     this.playerSprite.setTint(this.character.color);
     this.playerSprite.setDepth(10);
@@ -148,11 +155,24 @@ export class RunScene extends Phaser.Scene {
       .setDepth(30);
 
     this.heartsText = this.add
-      .text(16, 16, '', { fontSize: '20px' })
+      .text(16, 22, '', { fontSize: '16px', fontFamily: 'system-ui, sans-serif' })
       .setDepth(30);
     this.updateHearts();
 
+    const pauseButton = this.add.rectangle(WIDTH - 35, 28, 48, 44, 0x362a52).setDepth(31).setInteractive({ useHandCursor: true });
+    this.add.text(WIDTH - 35, 28, 'Ⅱ', { fontSize: '22px', color: '#ffffff' }).setOrigin(0.5).setDepth(32);
+    pauseButton.on('pointerdown', (_p: Phaser.Input.Pointer, _x: number, _y: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+      this.togglePause();
+    });
+    const hint = this.add.text(WIDTH / 2, HEIGHT - 44, '← → move   ·   ↑ / tap jump   ·   ↓ duck', {
+      fontSize: '13px', fontFamily: 'system-ui, sans-serif', color: '#b7aed0',
+    }).setOrigin(0.5).setDepth(30);
+    this.tweens.add({ targets: hint, alpha: 0, delay: 6500, duration: 1000 });
     this.setupInput();
+    const onBlur = () => { if (!this.paused && !this.gameOver) this.togglePause(); };
+    this.game.events.on(Phaser.Core.Events.BLUR, onBlur);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.game.events.off(Phaser.Core.Events.BLUR, onBlur));
   }
 
   private buildRoad(): void {
@@ -161,6 +181,13 @@ export class RunScene extends Phaser.Scene {
     this.add
       .rectangle(WIDTH / 2, GROUND_Y + 40, WIDTH, 220, COLORS.ground)
       .setDepth(0);
+
+    for (const x of [34, WIDTH - 34]) {
+      this.add.rectangle(x, HEIGHT / 2, 3, HEIGHT, this.character.color, 0.35).setDepth(1);
+      this.add.rectangle(x, HEIGHT / 2, 14, HEIGHT, this.character.color, 0.04).setDepth(1);
+    }
+    this.add.rectangle(WIDTH / 2, PLAYER_Y + 36, WIDTH - 70, 2, 0xffffff, 0.16).setDepth(1);
+    this.add.rectangle(WIDTH / 2, 40, WIDTH, 88, COLORS.bg, 0.85).setDepth(25);
 
     // lane divider dashes that scroll to sell forward motion
     const dividerXs = [(LANE_X[0] + LANE_X[1]) / 2, (LANE_X[1] + LANE_X[2]) / 2];
@@ -175,14 +202,15 @@ export class RunScene extends Phaser.Scene {
   }
 
   private setupInput(): void {
-    this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
+    const onDown = (p: Phaser.Input.Pointer) => {
+      if (this.paused || this.gameOver) return;
       this.pointerActive = true;
       this.pointerStartX = p.x;
       this.pointerStartY = p.y;
       this.pointerStartT = this.time.now;
-    });
+    };
 
-    this.input.on('pointerup', (p: Phaser.Input.Pointer) => {
+    const onUp = (p: Phaser.Input.Pointer) => {
       if (!this.pointerActive) return;
       this.pointerActive = false;
       const dx = p.x - this.pointerStartX;
@@ -199,27 +227,61 @@ export class RunScene extends Phaser.Scene {
         // quick tap with no real swipe = jump, the most common action
         this.startJump();
       }
+    };
+    this.input.on('pointerdown', onDown);
+    this.input.on('pointerup', onUp);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.input.off('pointerdown', onDown);
+      this.input.off('pointerup', onUp);
     });
 
     const kb = this.input.keyboard;
     if (kb) {
-      kb.on('keydown-LEFT', () => this.changeLane(-1));
-      kb.on('keydown-A', () => this.changeLane(-1));
-      kb.on('keydown-RIGHT', () => this.changeLane(1));
-      kb.on('keydown-D', () => this.changeLane(1));
-      kb.on('keydown-UP', () => this.startJump());
-      kb.on('keydown-W', () => this.startJump());
-      kb.on('keydown-SPACE', () => this.startJump());
-      kb.on('keydown-DOWN', () => this.startDuck());
-      kb.on('keydown-S', () => this.startDuck());
+      const bindings: Record<string, () => void> = {
+        LEFT: () => this.changeLane(-1), A: () => this.changeLane(-1),
+        RIGHT: () => this.changeLane(1), D: () => this.changeLane(1),
+        UP: () => this.startJump(), W: () => this.startJump(), SPACE: () => this.startJump(),
+        DOWN: () => this.startDuck(), S: () => this.startDuck(),
+        ESC: () => this.togglePause(), P: () => this.togglePause(),
+      };
+      for (const [key, handler] of Object.entries(bindings)) kb.on(`keydown-${key}`, handler);
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+        for (const [key, handler] of Object.entries(bindings)) kb.off(`keydown-${key}`, handler);
+      });
     }
   }
 
-  private changeLane(dir: number): void {
+  private togglePause(): void {
     if (this.gameOver) return;
+    this.paused = !this.paused;
+    this.pointerActive = false;
+    if (!this.paused) {
+      this.pauseOverlay?.destroy();
+      this.pauseOverlay = undefined;
+      this.tweens.resumeAll();
+      return;
+    }
+    this.tweens.pauseAll();
+    const shade = this.add.rectangle(WIDTH / 2, HEIGHT / 2, WIDTH, HEIGHT, 0x0b0714, 0.9).setInteractive();
+    const title = this.add.text(WIDTH / 2, 340, 'TAKE A BREATHER', {
+      fontSize: '26px', fontFamily: 'system-ui, sans-serif', fontStyle: 'bold', color: '#f9d64b',
+    }).setOrigin(0.5);
+    const hint = this.add.text(WIDTH / 2, 395, 'Tap to resume · P / Esc', {
+      fontSize: '16px', fontFamily: 'system-ui, sans-serif', color: '#b7aed0',
+    }).setOrigin(0.5);
+    this.pauseOverlay = this.add.container(0, 0, [shade, title, hint]).setDepth(100);
+    shade.on('pointerdown', (_p: Phaser.Input.Pointer, _x: number, _y: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+      this.togglePause();
+    });
+  }
+
+  private changeLane(dir: number): void {
+    if (this.gameOver || this.paused) return;
     const next = Phaser.Math.Clamp(this.lane + dir, 0, LANE_X.length - 1);
     if (next === this.lane) return;
     this.lane = next;
+    this.tweens.killTweensOf(this.playerSprite);
     this.tweens.add({
       targets: this.playerSprite,
       x: LANE_X[this.lane],
@@ -229,19 +291,19 @@ export class RunScene extends Phaser.Scene {
   }
 
   private startJump(): void {
-    if (this.gameOver || this.jumpTimer > 0) return;
-    this.jumpTimer = JUMP_MS;
+    if (this.gameOver || this.paused || this.jumpTimer > 0) return;
+    this.jumpTimer = JUMP_MS * (this.character.timingMod ?? 1);
     this.duckTimer = 0;
   }
 
   private startDuck(): void {
-    if (this.gameOver || this.duckTimer > 0) return;
-    this.duckTimer = DUCK_MS;
+    if (this.gameOver || this.paused || this.duckTimer > 0) return;
+    this.duckTimer = DUCK_MS * (this.character.timingMod ?? 1);
     this.jumpTimer = 0;
   }
 
   update(_time: number, deltaMs: number): void {
-    if (this.gameOver) return;
+    if (this.gameOver || this.paused) return;
     const dt = Math.min(deltaMs, 50) / 1000;
     this.elapsed += dt;
 
@@ -250,7 +312,7 @@ export class RunScene extends Phaser.Scene {
     this.scoreText.setText(Math.floor(this.score).toString());
 
     this.updateTimers(dt);
-    this.updatePlayerPose();
+    this.updatePlayerPose(dt);
     this.scrollRoad(dt);
     this.updateSpawning(dt);
     this.updateObstacles(dt);
@@ -262,8 +324,8 @@ export class RunScene extends Phaser.Scene {
     if (this.invulnTimer > 0) this.invulnTimer = Math.max(0, this.invulnTimer - dt * 1000);
   }
 
-  private updatePlayerPose(): void {
-    this.bobPhase += 6.5 * (0.6 + this.speed / MAX_SPEED);
+  private updatePlayerPose(dt: number): void {
+    this.bobPhase += dt * 12 * (0.6 + this.speed / MAX_SPEED);
     const idleBob = Math.sin(this.bobPhase) * 6;
 
     let yOffset = idleBob;
@@ -271,13 +333,13 @@ export class RunScene extends Phaser.Scene {
     let scaleY = 1;
 
     if (this.jumpTimer > 0) {
-      const t = this.jumpTimer / JUMP_MS; // 1 -> 0
+      const t = this.jumpTimer / (JUMP_MS * (this.character.timingMod ?? 1)); // 1 -> 0
       const arc = Math.sin((1 - t) * Math.PI); // 0 -> 1 -> 0
       yOffset = idleBob - arc * 90;
       scaleY = 1 + arc * 0.18;
       scaleX = 1 - arc * 0.1;
     } else if (this.duckTimer > 0) {
-      const t = this.duckTimer / DUCK_MS;
+      const t = this.duckTimer / (DUCK_MS * (this.character.timingMod ?? 1));
       const arc = Math.sin((1 - t) * Math.PI);
       yOffset = idleBob + arc * 18;
       scaleY = 1 - arc * 0.35;
@@ -289,6 +351,8 @@ export class RunScene extends Phaser.Scene {
       scaleX = 1 + squash * 0.03;
     }
 
+    this.shadow.x = this.playerSprite.x;
+    this.shadow.setScale(1 + Math.min(0, yOffset) / 180);
     this.playerSprite.y = PLAYER_Y + yOffset;
     this.playerSprite.setScale(scaleX, scaleY);
 
@@ -306,6 +370,7 @@ export class RunScene extends Phaser.Scene {
 
   private async loadGearVisuals(): Promise<void> {
     const loadout = await getLoadout();
+    if (!this.scene.isActive() || this.gameOver) return;
 
     if (loadout.pog.tier > 0) {
       const flavor = POG_TIERS[loadout.pog.tier];
@@ -344,7 +409,7 @@ export class RunScene extends Phaser.Scene {
 
     const lane = Phaser.Math.Between(0, LANE_X.length - 1);
     const roll = Math.random();
-    const starChance = 0.14 + this.character.flairMod * 0.02;
+    const starChance = 0.16 + (this.character.pickupBonus ?? 0);
     let type: ObstacleType;
     if (roll < starChance) type = 'star';
     else if (roll < starChance + 0.45) type = 'hurdle';
@@ -363,6 +428,7 @@ export class RunScene extends Phaser.Scene {
     const keep: Obstacle[] = [];
 
     for (const ob of this.obstacles) {
+      if (!ob.sprite.active) continue;
       ob.sprite.y += dy;
 
       if (!ob.resolved && ob.lane === this.lane && ob.sprite.y > PLAYER_Y - 34 && ob.sprite.y < PLAYER_Y + 34) {
@@ -371,7 +437,7 @@ export class RunScene extends Phaser.Scene {
 
       if (ob.sprite.y > HEIGHT + 60) {
         ob.sprite.destroy();
-      } else {
+      } else if (ob.sprite.active) {
         keep.push(ob);
       }
     }
@@ -391,7 +457,7 @@ export class RunScene extends Phaser.Scene {
     const dodgedByDuck = ob.type === 'banner' && this.duckTimer > 0;
 
     if (dodgedByAir || dodgedByDuck) {
-      this.onTrickSuccess(ob, 18 + this.perks.trickBonus, ob.type === 'hurdle' ? 'HOP!' : 'DUCK!');
+      this.onTrickSuccess(ob, 18 + this.perks.trickBonus + (this.character.trickBonus ?? 0), ob.type === 'hurdle' ? 'HOP!' : 'DUCK!');
     } else {
       this.onHit(ob);
     }
@@ -472,7 +538,7 @@ export class RunScene extends Phaser.Scene {
 
   private updateHearts(): void {
     const full = Math.max(0, this.lives);
-    this.heartsText.setText('❤️'.repeat(full) + '\u{1F6E1}\u{FE0F}'.repeat(this.shields));
+    this.heartsText.setText(`♥ ${full}${this.shields ? `  ⛨ ${this.shields}` : ''}`);
   }
 
   private endRun(): void {
@@ -480,7 +546,7 @@ export class RunScene extends Phaser.Scene {
     const finalScore = Math.floor(this.score);
 
     this.time.delayedCall(400, () => {
-      void recordRun(finalScore).then((outcome) => {
+      void recordRun(finalScore, this.character.id, this.elapsed).then((outcome) => {
         const result: RunResult = {
           score: finalScore,
           bestCombo: this.bestCombo,

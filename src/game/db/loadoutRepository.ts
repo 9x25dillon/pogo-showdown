@@ -1,3 +1,4 @@
+import { masteryTier } from '../systems/characterMastery';
 import {
   ADVANTAGE_CAP,
   CHARACTER_LEVEL_MAX,
@@ -28,13 +29,25 @@ function newLoadout(): PlayerLoadout {
     pog: freshAxis(),
     yoyo: freshAxis(),
     mastery: freshAxis(),
+    characterMasteryMigrated: true,
     updatedAt: new Date().toISOString(),
   };
 }
 
 export async function getLoadout(): Promise<PlayerLoadout> {
   const existing = await dbGet<PlayerLoadout>('loadout', 'me');
-  if (existing) return existing;
+  if (existing) {
+    if (!existing.characterMasteryMigrated) {
+      const refund = TIER_CUMULATIVE_COST[existing.mastery.tier];
+      existing.techPointsSpent = Math.max(0, existing.techPointsSpent - refund);
+      existing.masteryRefund = refund;
+      existing.mastery = freshAxis();
+      existing.characterMasteryMigrated = true;
+      existing.updatedAt = new Date().toISOString();
+      await dbPut('loadout', existing);
+    }
+    return existing;
+  }
   const created = newLoadout();
   await dbPut('loadout', created);
   return created;
@@ -67,6 +80,7 @@ export function characterLevel(totalRuns: number): number {
 }
 
 export async function unlockNextTier(axisId: AxisId, totalRuns: number): Promise<{ ok: boolean; reason?: string }> {
+  if (axisId === 'mastery') return { ok: false, reason: 'mastery is earned by training with each character' };
   const loadout = await getLoadout();
   const axis = loadout[axisId];
   const cost = nextTierCost(axis);
@@ -85,6 +99,7 @@ export async function unlockNextTier(axisId: AxisId, totalRuns: number): Promise
 
 /** refunds half the TP sunk into an axis and resets it to tier 0 - the "tradable" side of the economy */
 export async function tradeInAxis(axisId: AxisId): Promise<{ ok: boolean; refunded: number }> {
+  if (axisId === 'mastery') return { ok: false, refunded: 0 };
   const loadout = await getLoadout();
   const axis = loadout[axisId];
   if (axis.tier === 0) return { ok: false, refunded: 0 };
@@ -118,25 +133,17 @@ export async function grantCircuitWinBonus(): Promise<boolean> {
   return true;
 }
 
-/**
- * The three named setups (Gearhead/equipment, Tactician/skill,
- * Prodigy/mastery) are structurally identical axes that each reach the
- * same +30% ceiling once fully built (24 base points + a +6 synergy
- * bonus for maxing any one axis) - equal advantage, different finite
- * TP-spending path. The secret 4th, The Natural, only exists for a
- * player who has spent zero Tech Points anywhere: once their
- * (free, play-count based) Character Level maxes out, they get a
- * flat-but-lower +15% ceiling on pure experience - a real chance, not
- * parity with players who engaged the gear economy.
+/** Gear combines with the active character's earned mastery, capped at 30%.
+ * Players who have spent no TP follow the free Natural path, capped at 15%.
  */
-export function computeAdvantage(loadout: PlayerLoadout, totalRuns: number): AdvantageResult {
+export function computeAdvantage(loadout: PlayerLoadout, trainingRuns: number): AdvantageResult {
   const pogPts = axisPoints(loadout.pog);
   const yoyoPts = axisPoints(loadout.yoyo);
-  const masteryPts = axisPoints(loadout.mastery);
+  const masteryPts = TIER_POINTS[masteryTier(trainingRuns)];
 
   if (loadout.techPointsSpent === 0) {
-    const level = characterLevel(totalRuns);
-    if (level >= CHARACTER_LEVEL_MAX) {
+    const level = characterLevel(trainingRuns);
+    if (level > 0) {
       return { percent: Math.min(NATURAL_CAP, level * 1.5), path: 'natural' as SetupPath };
     }
     return { percent: 0, path: 'none' as SetupPath };
@@ -153,9 +160,9 @@ export function computeAdvantage(loadout: PlayerLoadout, totalRuns: number): Adv
   return { percent, path };
 }
 
-export async function computeCurrentAdvantage(totalRuns: number): Promise<AdvantageResult> {
+export async function computeCurrentAdvantage(trainingRuns: number): Promise<AdvantageResult> {
   const loadout = await getLoadout();
-  return computeAdvantage(loadout, totalRuns);
+  return computeAdvantage(loadout, trainingRuns);
 }
 
 export const SETUP_LABELS: Record<SetupPath, { label: string; emoji: string }> = {

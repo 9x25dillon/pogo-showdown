@@ -1,5 +1,8 @@
+import { CHARACTERS } from '../data/characters';
+import { masteryTier, masterySummary, progressFor } from '../systems/characterMastery';
+import type { CharacterProgress } from '../systems/characterMastery';
 import Phaser from 'phaser';
-import { COLORS, HEIGHT, WIDTH } from '../config';
+import { COLORS, HEIGHT, REGISTRY_KEY_CHARACTER, WIDTH } from '../config';
 import {
   MASTERY_TIERS,
   POG_TIERS,
@@ -72,7 +75,11 @@ export class LoadoutScene extends Phaser.Scene {
     const [loadout, profile] = await Promise.all([getLoadout(), getProfile()]);
     const totalRuns = profile.totalRuns;
     const available = techPointsAvailable(loadout);
-    const advantage = computeAdvantage(loadout, totalRuns);
+    if (!this.scene.isActive()) return;
+    const characterId = this.registry.get(REGISTRY_KEY_CHARACTER) ?? profile.lastCharacterId ?? CHARACTERS[0].id;
+    const characterIndex = Math.max(0, CHARACTERS.findIndex((c) => c.id === characterId));
+    const progress = progressFor(profile, characterId);
+    const advantage = computeAdvantage(loadout, progress.trainingRuns);
     const setup = SETUP_LABELS[advantage.path];
 
     this.add
@@ -96,14 +103,21 @@ export class LoadoutScene extends Phaser.Scene {
     const gap = 8;
     let y = 130;
 
-    (['pog', 'yoyo', 'mastery'] as AxisId[]).forEach((axisId) => {
+    (['pog', 'yoyo'] as AxisId[]).forEach((axisId) => {
       // the Yoyo Rig also counts Trick Lab sessions as "using" the current tier
       const usage = axisId === 'yoyo' ? yoyoUsageCount(profile) : totalRuns;
       this.renderAxisPanel(axisId, loadout, usage, y, panelH);
       y += panelH + gap;
     });
 
-    this.renderNaturalPanel(loadout, totalRuns, y);
+    this.renderMasteryPanel(characterIndex, progress, y, panelH);
+    y += panelH + gap;
+    this.renderNaturalPanel(loadout, progress.trainingRuns, y);
+    if (loadout.masteryRefund) {
+      this.add.text(WIDTH / 2, 738, `Shared mastery retired: ${loadout.masteryRefund} TP returned to your wallet.`, {
+        fontSize: '11px', fontFamily: 'system-ui, sans-serif', color: '#38bdf8',
+      }).setOrigin(0.5);
+    }
   }
 
   private renderAxisPanel(axisId: AxisId, loadout: PlayerLoadout, totalRuns: number, top: number, h: number): void {
@@ -190,6 +204,7 @@ export class LoadoutScene extends Phaser.Scene {
       if (enabled) {
         btn.setInteractive({ useHandCursor: true });
         btn.on('pointerdown', () => {
+          btn.disableInteractive();
           void unlockNextTier(axisId, totalRuns).then(() => this.scene.restart());
         });
       }
@@ -210,8 +225,29 @@ export class LoadoutScene extends Phaser.Scene {
         })
         .setOrigin(0.5);
       tradeBtn.on('pointerdown', () => {
+        tradeBtn.disableInteractive();
         void tradeInAxis(axisId).then(() => this.scene.restart());
       });
+    }
+  }
+
+  private renderMasteryPanel(index: number, progress: CharacterProgress, top: number, h: number): void {
+    const character = CHARACTERS[index];
+    const tier = masteryTier(progress.trainingRuns);
+    this.add.rectangle(WIDTH / 2, top + h / 2, WIDTH - 40, h, character.color, 0.12).setStrokeStyle(1, character.color, 0.6);
+    const style = { fontSize: '13px', fontFamily: 'system-ui, sans-serif', color: '#ffffff' };
+    this.add.text(WIDTH / 2, top + 22, `${character.emoji} ${character.name} · MASTERY ${tier}/4`, style).setOrigin(0.5);
+    this.add.text(WIDTH / 2, top + 50, MASTERY_TIERS[tier].name, { ...style, color: '#f9d64b' }).setOrigin(0.5);
+    this.add.text(WIDTH / 2, top + 76, masterySummary(progress), { ...style, fontSize: '11px' }).setOrigin(0.5);
+    this.add.text(WIDTH / 2, top + 100, 'Survive 15s in Pogo Dash to train · no TP cost', { ...style, fontSize: '11px', color: '#b7aed0' }).setOrigin(0.5);
+    this.add.text(WIDTH / 2, top + 126, `${tier * 6}/24 mastery points · best ${progress.bestScore}`, { ...style, fontSize: '11px' }).setOrigin(0.5);
+    for (const direction of [-1, 1]) {
+      const x = WIDTH / 2 + direction * 186;
+      this.add.rectangle(x, top + 24, 40, 44, 0x1c1430).setInteractive({ useHandCursor: true }).on('pointerdown', () => {
+        this.registry.set(REGISTRY_KEY_CHARACTER, CHARACTERS[(index + direction + CHARACTERS.length) % CHARACTERS.length].id);
+        this.scene.restart();
+      });
+      this.add.text(x, top + 24, direction < 0 ? '‹' : '›', { ...style, fontSize: '24px' }).setOrigin(0.5);
     }
   }
 
@@ -234,11 +270,9 @@ export class LoadoutScene extends Phaser.Scene {
     this.add.rectangle(WIDTH / 2, top + 34, barW, 10, 0x1c1430).setStrokeStyle(1, 0x362a52);
     if (pct > 0) this.add.rectangle(WIDTH / 2 - barW / 2, top + 34, barW * pct, 10, 0x38bdf8).setOrigin(0, 0.5);
 
-    const status = unlocked
-      ? untouched
-        ? '⭐ THE NATURAL is active — pure skill, +15% ceiling'
-        : '⭐ The Natural is unlocked, but you’ve spent Tech Points — you’re on a named path instead'
-      : `⭐ secret — reach level ${CHARACTER_LEVEL_MAX} without spending any Tech Points`;
+    const status = untouched
+      ? `⭐ THE NATURAL · +${Math.min(15, level * 1.5)}% advantage · +15% at level 10`
+      : 'Gear + this character’s mastery combine up to +30% battle advantage';
 
     this.add
       .text(WIDTH / 2, top + 56, status, {

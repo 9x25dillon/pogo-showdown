@@ -1,3 +1,5 @@
+import type { CharacterProgress } from '../systems/characterMastery';
+
 export type TierId = 'rookie' | 'amateur' | 'varsity' | 'semipro' | 'pro' | 'elite';
 
 export interface TierDef {
@@ -54,6 +56,8 @@ export interface PlayerProfile {
   /** last ISO date a circuit match was resolved for the player, or null */
   lastCircuitMatchDate: string | null;
   /** Yoyo Trick Lab - optional so profiles created before the mode existed still load */
+  characters?: Record<string, CharacterProgress>;
+  lastCharacterId?: string;
   trickLabSessions?: number;
   trickLabBest?: number;
   createdAt: string;

@@ -1,5 +1,7 @@
+import { CHARACTERS } from '../data/characters';
+import { progressFor } from '../systems/characterMastery';
 import Phaser from 'phaser';
-import { COLORS, HEIGHT, WIDTH } from '../config';
+import { COLORS, HEIGHT, REGISTRY_KEY_CHARACTER, WIDTH } from '../config';
 import { RARITY_COLOR, RARITY_LABEL, describePerks, pogDef, type PogDef } from '../data/pogs';
 import { computeCurrentAdvantage } from '../db/loadoutRepository';
 import {
@@ -10,6 +12,7 @@ import {
   resolveBattle,
   type BattleOpponent,
 } from '../db/pogRepository';
+import { addPageControls } from '../ui/pageControls';
 import type { PogInstance } from '../db/pogSchema';
 import { getProfile } from '../db/repository';
 
@@ -61,6 +64,10 @@ export class PogBattleScene extends Phaser.Scene {
     this.rounds = [];
     this.sweeping = false;
     this.cameras.main.setBackgroundColor(COLORS.bg);
+    this.input.keyboard?.on('keydown-SPACE', this.onSlamTap, this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.input.keyboard?.off('keydown-SPACE', this.onSlamTap, this);
+    });
     void this.showSelect();
   }
 
@@ -82,6 +89,7 @@ export class PogBattleScene extends Phaser.Scene {
   private async showSelect(): Promise<void> {
     this.children.removeAll();
     this.phase = 'select';
+    this.wager = null;
 
     this.add
       .text(WIDTH / 2, 40, 'POG BATTLES', { fontSize: '26px', fontFamily: FONT, fontStyle: 'bold', color: '#8b5cf6' })
@@ -169,7 +177,7 @@ export class PogBattleScene extends Phaser.Scene {
 
   // ---------------- wager ----------------
 
-  private async showWager(): Promise<void> {
+  private async showWager(page = 0): Promise<void> {
     this.children.removeAll();
     this.phase = 'wager';
     const owned = await getCollection();
@@ -197,7 +205,8 @@ export class PogBattleScene extends Phaser.Scene {
     const h = 96;
     const gap = 10;
     const startX = WIDTH / 2 - ((cols - 1) * (w + gap)) / 2;
-    owned.slice(0, 15).forEach((inst, i) => {
+    page = Math.min(page, Math.max(0, Math.ceil(owned.length / 15) - 1));
+    owned.slice(page * 15, (page + 1) * 15).forEach((inst, i) => {
       const def = pogDef(inst.defId);
       if (!def) return;
       const x = startX + (i % cols) * (w + gap);
@@ -222,6 +231,8 @@ export class PogBattleScene extends Phaser.Scene {
       });
     });
 
+    addPageControls(this, page, owned.length, 15, 720, (nextPage) => void this.showWager(nextPage));
+
     const back = this.add
       .text(WIDTH / 2, HEIGHT - 30, '← pick someone else', { fontSize: '15px', fontFamily: FONT, color: '#b7aed0' })
       .setOrigin(0.5)
@@ -241,7 +252,7 @@ export class PogBattleScene extends Phaser.Scene {
 
     // the Locker's Advantage only matters at circuit level: ranked battles
     const profile = await getProfile();
-    this.advantagePercent = this.opponent.ranked ? (await computeCurrentAdvantage(profile.totalRuns)).percent : 0;
+    this.advantagePercent = this.opponent.ranked ? (await computeCurrentAdvantage(progressFor(profile, this.registry.get(REGISTRY_KEY_CHARACTER) ?? profile.lastCharacterId ?? CHARACTERS[0].id).trainingRuns)).percent : 0;
 
     const o = this.opponent;
     this.add.circle(WIDTH / 2, 120, 44, o.color, 0.9).setStrokeStyle(4, 0xffffff, 0.2);
@@ -288,7 +299,6 @@ export class PogBattleScene extends Phaser.Scene {
 
     const zone = this.add.rectangle(WIDTH / 2, HEIGHT / 2, WIDTH, HEIGHT, 0x000000, 0).setInteractive();
     zone.on('pointerdown', () => this.onSlamTap());
-    this.input.keyboard?.on('keydown-SPACE', () => this.onSlamTap());
 
     this.beginRound();
   }
@@ -296,6 +306,7 @@ export class PogBattleScene extends Phaser.Scene {
   private beginRound(): void {
     this.round += 1;
     this.markerT = 0;
+    this.marker.x = WIDTH / 2 - BAR_W / 2;
     this.markerDir = 1;
     const base = this.opponent.ranked ? 1.9 : 1.5;
     this.sweepSpeed = base + (this.round - 1) * 0.35;
@@ -435,6 +446,7 @@ export class PogBattleScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(depth + 1);
     btn.on('pointerdown', () => {
+      btn.disableInteractive();
       this.tweens.add({ targets: btn, scale: 0.96, duration: 70, yoyo: true, onComplete: onTap });
     });
   }
