@@ -1,170 +1,194 @@
-# Pogo Showdown — Handoff
+# Pogo Showdown — next-session handoff
 
-Last session: 2026-09-16. Repo: `~/pogo-showdown` (git, branch `master`, no remote configured yet).
+Updated after the September 16, 2026 session (America/Los_Angeles; the GitHub merge timestamp falls on September 17 UTC).
 
-## Current update — graphics, gameplay fixes, and individual mastery (2026-09-16)
+## Start here
 
-This section supersedes the older shared-mastery balance notes below.
+Today's session focused on **polishing graphics and gameplay, correcting balance and reliability issues, and adding separate character mastery**. The user then requested commit, push, and merge; all three completed. This handoff replaces outdated development plans and conflicting notes in the previous version.
 
-- Each highschooler now has separate runs, personal best, and qualifying training runs in `PlayerProfile.characters`. Finish a Pogo Dash run after surviving at least **15 active seconds** to earn one training run. Paused time does not count. Every four training runs earns one level, capped at 10. Mastery tiers unlock at **4 / 12 / 24 / 40** training runs, worth **6 / 12 / 18 / 24** battle points. Training costs no Tech Points.
-- Character selection, the Locker (with character arrows), and run results show individual progression. Circuit uses the runner's mastery; ranked Pog Battles uses the current selected character, falling back to the last played character.
-- Shared purchased mastery is retired. An idempotent migration in `getLoadout()` refunds the cumulative cost of the old owned mastery tier, resets the legacy axis, and records the refund on the loadout. Existing gear, career stats, collections, and currency earned stay intact. Old aggregate runs cannot reliably be assigned to individual characters, so character-specific records begin with this update. No new IndexedDB stores are needed; version remains 3.
-- Natural advantage now grows gradually by **1.5% per character level**, capped at **15%**, while net TP spent is zero. Gear + character mastery retains the **30%** ceiling and max-tier synergy. Casual runner scores do not receive battle Advantage.
-- A run that crosses several career tiers awards a TP for **each** tier crossed (previously only one). Gear's existing TP costs and circuit-win cap are unchanged.
-- Ada gets 15% longer jump/duck actions. Joan gets +6 base dodge points. Sun Tzu starts with a combo-protecting shield instead of an extra life; Khan keeps the extra life. Leo's star chance is 26% versus the standard 16%. Frida's flair is 1.2 (down from 1.4) with her gentler speed ramp, giving Cleo the stronger combo multiplier at 1.3.
-- Runner polish: explicit upward/downward obstacle chevrons and distinct silhouettes, rider details, landing shadow, character-colored road edges, compact HUD, control hint, pause button/P/Esc and auto-pause on focus loss, frame-rate-independent bounce, and replacement of overlapping lane tweens.
-- Fixed retained destroyed obstacles, repeated keyboard/pointer listeners in Run and Trick Lab, repeated battle keyboard listeners, stale menu profile updates, initial Binder perk summary, and duplicate button activation. Binder and wager grids now page through the entire collection.
+- Workspace: `/home/kill/pogo-showdown`.
+- Repository: https://github.com/9x25dillon/pogo-showdown
+- Default branch: `master`.
+- Feature commit: `b8df0da` — Add per-character mastery and polish gameplay.
+- Merged PR: https://github.com/9x25dillon/pogo-showdown/pull/1
+- Merge commit: `a78ee94`.
+- Local `master` was synchronized and clean after the merge. This subsequent handoff rewrite is a documentation change; it has not been committed or pushed.
+- Android debug APK rebuilt after the handoff at `android/app/build/outputs/apk/debug/app-debug.apk` (4,473,054 bytes). Signature verified; all four bundled web files match the latest `dist/` build. Version remains 0.3.0 (code 3). No release APK/AAB rebuild or physical-phone test was performed. SHA-256: `480aa773ecc6212cc8b4cf26826250f77aad5de1bbeb8c2073e33648bebcdf07`.
 
-Verification: `npm run build`, `git diff --check`, and `npm run test:browser`. The browser suite uses Node's native WebSocket client, a running Vite server (`npm run dev`), and Chromium launched with `--headless --no-sandbox --remote-debugging-port=9333 --user-data-dir=/tmp/pogo-browser-check`. Use `CDP_URL` and `POGO_URL` to override endpoints. Tests create an isolated incognito context and dispose it afterwards; they do not modify player saves. Optional `POGO_SCREENSHOT_DIR=/tmp` saves screenshots. Browser coverage includes paging, migration/refund idempotence, independent mastery and survival gate, tier awards and caps, UI, restarts, pause, shield behavior, obstacle cleanup, and persisted progression after reload. Android packaging has not been rebuilt for this update. Balance is an initial tuning pass, not a claim of equal win rates from human playtesting.
+Begin the next session by reading this file, checking `git status --short`, branch and remote state, and any applicable workspace instructions. Do not assume temporary processes or screenshots still exist. Preserve any user edits. Do not recreate completed modes or ask again whether mastery should be separate.
 
-## Where things stand
+## Product and architecture
 
-**Built and verified working** (headless-browser tested each time, screenshots checked, no console errors):
-- **Pogo Dash** — the core endless lane-runner. Playable end to end.
-- **Local DB** (IndexedDB, `src/game/db/LocalDB.ts`) — player profile, tiers, career stats.
-- **The Circuit** — 11 historical pros running a deterministic, seeded daily league since simulated purely from wall-clock date. Unlocks at Pro tier. Player's first Pogo Dash run each day auto-resolves as their scheduled match.
-- **Equipment/Advantage system** — Pog Stack / Yoyo Rig / Character Mastery axes, Tech Point economy, The Locker screen, The Natural secret path. Applies only to Circuit battle scores, not the casual leaderboard.
+A portrait, web-first game using TypeScript, Phaser 4, Vite, and a Capacitor Android wrapper. Logical canvas size: **480 × 854**. Art is procedural geometry, generated textures, and emoji; no new raster assets were needed this session.
 
-- **Yoyo Trick Lab** (2026-09-16, v0.2.0) — `scenes/TrickLabScene.ts` + `data/tricks.ts`. 60s sessions, 3 strings, prompted swipe/tap patterns with real yoyo trick names, combo multiplier same shape as Pogo Dash. Sessions are recorded on the profile (`trickLabSessions`, `trickLabBest`, optional fields, no DB version bump) and count as Yoyo Rig "use" for the Locker's unlock gate via `yoyoUsageCount()`. Verified on a Pixel with real touches driven over adb + Chrome DevTools (see "Testing on device" below).
-- **Android packaging** — Capacitor wrapper in `android/`, signed release pipeline, GitHub Releases carry the APK. See `PLAY_STORE.md`.
+Everything is local. IndexedDB stores progression; the leaderboard uses localStorage. The Circuit is a deterministic daily simulation against historical pros, not online multiplayer. IndexedDB has an in-memory fallback when persistent storage is unavailable.
 
-- **Collectible pogs + Pog Battles** (2026-09-16, v0.3.0) — user chose *discrete collectible pogs* (resolving the open question). `data/pogs.ts` is the whole balance table: 20 pogs, rarity weight 1-4, footpeg capacity 4 + Locker Pog Stack tier, perks (extra lives, shield hits, flair, star/trick bonus, speed scale, second wind) with hard clamps in `aggregatePerks()`. `db/pogRepository.ts` owns the collection (`pogs` store), equip/capacity, and battle resolution (`battleLog` store, one drop per opponent per calendar day, ranked losses delete the stake = the economy's sink). DB_VERSION is now **3**. `PogBinderScene` = collection/equip; `PogBattleScene` = opponent select → (wager for pros) → best-of-3 timing-bar slams → result. RunScene reads `REGISTRY_KEY_PERKS`, set by CharacterSelect right before starting a run. Circuit Advantage applies to your slam only in ranked battles (answering the other open question: Pog Battles reuses the number, scoped to pros).
+Existing modes and screens:
 
-**Everything on the original roadmap is now built.** Remaining open item: Character Mastery is still one unified track, not per-highschooler.
+- **Pogo Dash:** endless three-lane runner, with lane changes, jumps, ducks, combos, character perks, and equipped collectible-pog perks.
+- **The Circuit:** daily simulated league against 11 pros. Unlocks at Pro career standing. The first eligible Pogo Dash run of the day resolves the player's scheduled match.
+- **Yoyo Trick Lab:** 60-second gesture-pattern sessions with three strings. Sessions count toward Yoyo Rig usage; profile stores sessions and best score.
+- **Pog Battles:** best-of-three timing slams. Highschooler practice is unstaked; ranked pros require Pro access and an owned stake. Wins can award one signature-pog drop per opponent per calendar day. Ranked losses remove the stake.
+- **Pog Binder:** collectible inventory and equipment. Collection grids now paginate rather than hiding all but the first nine items. Ranked stake grids paginate beyond fifteen items.
+- **The Locker:** shared Pog Stack and Yoyo Rig purchases plus a view of the selected character's earned mastery. Arrow controls change the active character.
 
-## How to run / test
+## What changed this session
 
-Android/Play packaging (Capacitor) lives in `android/`; build, signing, and Play Console steps are in `PLAY_STORE.md`.
+### Separate character mastery
+
+`PlayerProfile.characters[characterId]` stores `runs`, `trainingRuns`, and `bestScore`. `lastCharacterId` records the last runner. These optional fields preserve compatibility with old profiles.
+
+- Completing a Pogo Dash run after **15 active seconds** earns one training run for that character. Paused time does not count. Short runs still count as runs and can update the personal best.
+- Every **four training runs** earns one character level, capped at **level 10**.
+- Mastery tier thresholds: **4 / 12 / 24 / 40** training runs.
+- Corresponding mastery points: **6 / 12 / 18 / 24**.
+- Mastery now costs **no Tech Points** and cannot be purchased or traded in.
+- Character selection, the Locker, and results expose individual progression.
+- Circuit scoring uses the actual runner's training. Ranked Pog Battles uses the registry's selected character, falling back to the last played character, then Cleo.
+- Only Pogo Dash currently awards character training. Trick Lab and Pog Battles do not.
+
+### Existing-save migration
+
+`getLoadout()` performs a one-time migration guarded by `characterMasteryMigrated`:
+
+1. Refund the cumulative TP cost of the old owned shared-mastery tier by reducing `techPointsSpent`.
+2. Reset the legacy mastery axis and record `masteryRefund`.
+3. Keep gear, currency earned, collections, and career records intact.
+
+Old aggregate runs were not reliably attributed to characters. Individual character records therefore begin with this update; historical career totals remain. Do not invent character-specific history from the aggregate count. Repeated reads must never issue another refund.
+
+IndexedDB remains **version 3**. New optional properties on existing objects need no store upgrade. New stores or indexes require an appropriate versioned upgrade.
+
+### Balance and economy
+
+- Natural advantage grows by **1.5 percentage points per character level**, capped at **15%**, while net TP spent is zero.
+- Otherwise gear points and that character's mastery combine, with +6 synergy for each maxed axis and a hard **30% total cap**.
+- This Advantage applies to Circuit scores and ranked slams. It does not multiply casual runner scores. Character and collectible-pog perks still affect the runner.
+- Crossing multiple career tiers in one run now awards a TP for **each** tier crossed. This fixes future awards; it does not retroactively reconstruct historically missed bonuses.
+- Gear step costs remain `[2, 4, 6, 6]`; cumulative costs `[0, 2, 6, 12, 18]`. Gear trade-in refunds half the cumulative cost.
+- Lifetime TP sources remain five career-tier awards plus up to twenty Circuit-win awards. Refunded TP is returned spending capacity, not new earnings.
+
+Character changes:
+
+| Character | Current distinction relevant to this pass |
+|---|---|
+| Cleo | Flair multiplier 1.3 |
+| Khan | One extra starting life |
+| Joan | +6 base points for successful hurdle/banner dodges; flair 1.15 |
+| Albert | Speed ramp multiplier 1.25 |
+| Ada | Jump and duck durations ×1.15; speed ramp ×0.9 |
+| Sun Tzu | One starting shield that absorbs a hit while preserving the combo |
+| Frida | Flair reduced from 1.4 to 1.2; retains speed ramp ×0.95 |
+| Leo | Star spawn probability 26%, versus the standard 16%; flair 1.1 |
+
+Career thresholds are unchanged: Rookie 0, Amateur 600, Varsity 2,000, Semi-Pro 5,000, Pro 10,000, Elite 20,000. Runner constants remain `BASE_SPEED=260`, `MAX_SPEED=680`, `SPEED_RAMP=5.5`, `PASSIVE_SCORE_RATE=0.12`. Consult `scoreCurve.ts` when changing these; opponent scoring depends on them.
+
+This is an initial tuning pass. Automated checks establish the implemented rules, not equal character strength or enjoyable pacing. Human playtesting remains necessary.
+
+### Graphics, controls, and reliability
+
+- Hurdles have orange raised-barrier silhouettes and upward chevrons; banners have purple hanging silhouettes and downward chevrons.
+- Added rider details, landing shadow, character-colored road edges, compact life/shield HUD, and a fading control hint.
+- Added pause button, P/Esc pause/resume, and auto-pause on focus loss.
+- Bounce animation uses elapsed time; repeated lane changes replace competing movement tweens.
+- Destroyed obstacles are removed from the update list.
+- Run, Trick Lab, and Pog Battle keyboard listeners are cleaned up on shutdown; Run and Trick Lab pointer handlers are also cleaned up.
+- Fixed menu updates targeting destroyed text after an early scene exit, the Binder's initial perk-summary race, and repeated activation of several transition buttons.
+
+## Where to work
+
+| File | Responsibility |
+|---|---|
+| `src/game/systems/characterMastery.ts` | Training minimum, thresholds, progress lookup, mastery summary |
+| `src/game/db/schema.ts` | Profile and per-character record shape; career tiers |
+| `src/game/db/repository.ts` | Run recording, character credit, tier rewards, Circuit simulation |
+| `src/game/db/loadoutRepository.ts` | Legacy refund migration, TP economy, Advantage calculation |
+| `src/game/db/loadoutSchema.ts` | Gear axes and migration fields |
+| `src/game/data/characters.ts` | Character perk values and descriptions |
+| `src/game/data/loadoutData.ts` | Gear flavors, costs, caps, character-level constants |
+| `src/game/data/pogs.ts` | Collectible catalog, rarity weights, perk clamps |
+| `src/game/db/pogRepository.ts` | Collection, equipment, daily drops, battle results |
+| `src/game/scenes/BootScene.ts` | Procedural texture generation |
+| `src/game/scenes/RunScene.ts` | Runner loop, controls, pause, collisions, scoring |
+| `src/game/scenes/CharacterSelectScene.ts` | Roster picker and mastery preview |
+| `src/game/scenes/LoadoutScene.ts` | Gear shop and character mastery view |
+| `src/game/scenes/GameOverScene.ts` | Results, mastery summary, score submission |
+| `src/game/ui/pageControls.ts` | Shared inventory page controls |
+| `tests/browser-regression.mjs` | Isolated browser regression suite |
+| `PLAY_STORE.md` | Existing Android build/signing/release instructions |
+
+## Run and verify
 
 ```bash
-cd ~/pogo-showdown
-npm run dev          # http://localhost:5173
-npm run build         # production build
-npx tsc --noEmit -p tsconfig.json   # typecheck only
+npm run dev
+npm run build
+git diff --check
 ```
 
-No `chromium-cli` in this environment. Testing approach that worked: installed `playwright` into the scratchpad dir (`npm install playwright@<version>`), then `npx playwright install chromium` (the cached `~/.cache/ms-playwright` browser revision didn't match the npm package's expected revision — had to fetch a matching one). Drive with a small `.mjs` script using `chromium.launch({args:['--no-sandbox']})`, screenshot at each step, and read the screenshots with the Read tool. To test states that require real playtime (Pro tier, owned gear, etc.) without grinding, write directly into IndexedDB via `page.evaluate` — see any `drive*.mjs` pattern from this session (not saved to the repo, they lived in the session scratchpad).
+The browser regression suite needs a Vite **development** server and Chromium with remote debugging. It imports source modules through Vite and is not designed to run against production preview.
 
-## Testing on device
-
-Debug builds have WebView inspection enabled. Forward Chrome DevTools to the app's *current* pid (the socket name changes on every restart — a stale forward just hangs):
+The Chromium executable used this session was:
 
 ```bash
-adb forward --remove-all
-adb forward tcp:9222 localabstract:webview_devtools_remote_$(adb shell pidof com.pogoshowdown.app | tr -d '\r\n')
+/home/kill/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome \
+  --headless --no-sandbox --disable-gpu \
+  --remote-debugging-port=9333 \
+  --user-data-dir=/tmp/pogo-browser-check about:blank
 ```
 
-Then `chromium.connectOverCDP('http://localhost:9222')` from Playwright, read scene state through `window.__game` / `window.__trick` / `window.__seq` (test hooks), and send real touches with `adb shell input swipe/tap`. Game-to-device pixel mapping on the Pixel: device_y ≈ 205 + game_y × 2.36, device_x ≈ game_x × 2.25. Remember the session clock keeps running while you read screenshots — a 60s mode will end and its results buttons will eat your next tap.
+Check whether that executable and the ports are available rather than assuming they persist. With the server and browser running:
 
-## Architecture map
-
-```
-src/game/
-  config.ts              shared constants: WIDTH/HEIGHT, lanes, colors,
-                          BASE_SPEED/MAX_SPEED/SPEED_RAMP/PASSIVE_SCORE_RATE
-                          (single source of truth for RunScene AND scoreCurve.ts)
-  data/
-    characters.ts         8 selectable highschoolers (Pogo Dash roster)
-    circuitRoster.ts       11 Circuit pros (id, name, epithet, color, emoji, skill)
-    loadoutData.ts          Pog/Yoyo/Mastery tier tables, TP costs, caps
-  db/
-    LocalDB.ts              generic IndexedDB wrapper + in-memory fallback
-    schema.ts                 PlayerProfile, TIERS, tierForScore()
-    repository.ts              profile/circuit/season logic (the big one)
-    loadoutSchema.ts             AxisState, PlayerLoadout, AdvantageResult types
-    loadoutRepository.ts          TP economy, unlock/trade-in, computeAdvantage()
-    runResult.ts                   RunScene -> GameOverScene payload shape
-  scenes/
-    BootScene            procedural textures (no raster art in this project)
-    ModeSelectScene         main menu, shows tier + Circuit lock state
-    CharacterSelectScene     highschooler roster picker
-    RunScene                  the actual gameplay
-    GameOverScene               score, tier-up/circuit-match/TP banners
-    LeaderboardScene              local top-10
-    CircuitScene                   standings, today's match, locked teaser
-    LoadoutScene                    "The Locker" - buy/trade gear tiers
-  systems/
-    dates.ts, seededRandom.ts, scoreCurve.ts, LeaderboardService.ts
-  ui/
-    CharacterCard.ts        procedural "trading card" visual (shapes+emoji+text)
+```bash
+npm run test:browser
+# Optional screenshots:
+POGO_SCREENSHOT_DIR=/tmp npm run test:browser
 ```
 
-## Key decisions made this session (and why)
+Defaults: `POGO_URL=http://127.0.0.1:5173`, `CDP_URL=http://127.0.0.1:9333`. Both can be overridden. The suite uses modern Node's native `fetch` and `WebSocket`; this session used Node 26.8.2. It creates and disposes an isolated browser context, leaving ordinary player saves untouched. No Playwright package install is required.
 
-1. **Web-first (Phaser + TS + Vite), not native.** No device/simulator access in this environment; a browser build is testable end-to-end right now and packages to a real app later (Capacitor) once the loop is validated. Revisit if the user wants App Store distribution soon.
-2. **Everything local, no backend.** IndexedDB with an in-memory fallback. The Circuit's "multiplayer" is a deterministic seeded simulation keyed off wall-clock date, not a server — reproducible, catches up correctly after any absence, needs zero infrastructure.
-3. **Balance is derived from the game's own math, not guessed.** `scoreCurve.ts` reproduces RunScene's exact speed-ramp/scoring formula so tier thresholds and pro opponent scores stay internally consistent. When Pogo Dash's scoring formula changes, re-derive from there rather than hand-tuning numbers again.
-4. **Equipment: three structurally identical axes, one shared 30% ceiling, a free-but-lower 15% underdog path.** This was a genuinely ambiguous, densely-worded request (see "unresolved assumptions" below) — resolved by picking the most internally-consistent reading and documenting it explicitly rather than silently guessing. Flag this to the user if they meant something different; it's cheap to re-tune the numbers, harder to redo the architecture.
-5. **No image-generation tool available** → built procedural card art instead of raster assets, and said so plainly rather than quietly delivering something lesser without flagging it.
+Verified this session:
 
-## Balance reference table
+- Production build and whitespace checks passed.
+- Browser regressions passed for collection paging, one-time migration, separate mastery, training-duration gate, tier awards, Advantage caps, mastery UI, restart/listener behavior, pause, shield behavior, destroyed-obstacle cleanup, real run completion, and persistence after reload.
+- No browser exceptions were recorded in the final suite.
+- Character-picker and runner screenshots were visually inspected.
+- Browser tests use direct scene/module access for much of their setup; they are not a substitute for full touch interaction testing or human gameplay.
+- Vite still reports a large bundle warning, largely from Phaser. No bundle-size work was attempted.
+- No GitHub CI checks were configured on PR #1. Verification was local.
 
-| Tier | Threshold (career-best score) | ~survival time |
-|---|---|---|
-| Rookie | 0 | - |
-| Amateur | 600 | ~16s |
-| Varsity | 2000 | ~38s |
-| Semi-Pro | 5000 | ~95s |
-| **Pro** (unlocks Circuit) | 10000 | ~145s |
-| Elite | 20000 | ~230s+ |
+Temporary screenshots were `/tmp/character-mastery.png` and `/tmp/runner-polish.png`. Treat them as disposable. Debug hook: `window.__game`.
 
-Scoring curve constants (`config.ts`): `BASE_SPEED=260, MAX_SPEED=680, SPEED_RAMP=5.5, PASSIVE_SCORE_RATE=0.12`. Ramp completes at `(680-260)/5.5 ≈ 76.4s`. Pro opponent score: `seconds = 40 + (skill-70)*7`, then `passiveScoreAtTime(seconds) * variance(0.85-1.15)`.
+Local ports and `.git` writes were blocked by the sandbox during this session; approved escalation was needed for browser/server startup, browser connections, and Git/GitHub operations. Use the environment's normal approval mechanism if those restrictions recur.
 
-Equipment economy (`loadoutData.ts`): 4 tiers per axis, cumulative points `[0,6,12,18,24]`, cumulative TP cost `[0,2,6,12,18]`. Synergy bonus `+6` for maxing any one axis (→ 30 total). Natural path cap `15%`, needs `techPointsSpent===0` and Character Level `10` (= 40 total runs, `RUNS_PER_CHARACTER_LEVEL=4`). Lifetime TP cap: 5 (tier-ups) + 20 (circuit wins, capped) = **25 TP ever** — deliberately just enough to max one axis (18 TP) with a little left over, not two.
+## Recommended next session
 
-## Known limitations / unresolved assumptions
+No further feature was committed to by the user. Suggested order:
 
-Flag these back to the user early next session rather than assuming silently:
+1. **Playtest the current build on a phone.** Check obstacle readability, swipe responsiveness, pause/focus behavior, and mastery-screen layout. The rebuilt debug APK includes today's changes. Follow `PLAY_STORE.md` for installation or a signed release build; older release APK/AAB files have not been updated.
+2. **Measure balance before further tuning.** Compare survival, score, and perceived usefulness across characters using similar runs and equipment. Pay particular attention to Ada's timing-plus-slowdown benefit, Leo's higher pickup rate, and the pace of 4/12/24/40 training milestones.
+3. **Consider automated CI or further presentation polish** after gathering gameplay feedback. These are recommendations, not existing implementations or authorization to publish a new release.
 
-1. **Character Mastery is one unified track**, not per-highschooler. If the user wants "maining" a specific highschooler to matter distinctly (separate mastery per character), that's a real redesign of the Prodigy axis, not a tweak.
-2. **Advantage bonus applies only to Circuit matches**, never to casual Pogo Dash or the local leaderboard. Confirm this is still the intended scope once Pog Battles exists — does Pog Battles use the same Advantage number, or does it need its own?
-3. **No git remote configured.** `gh` is authenticated as `9x25dillon` with `repo` scope, so a repo can be created and pushed to on request — needs the user's call on name/visibility, don't assume.
-4. **Pog Stack (the Locker axis) vs. "collectible pogs" (the user's stated vision) aren't the same data model yet.** The Locker's Pog Stack is a single tiered progression track (4 tiers, one value). The user's original ask ("add the pogs... as collectable") implies discrete, individually ownable/tradable pog items. Pog Battles (below) is where this needs reconciling — see the open question in that section.
+Preserve the one-time refund, independent character credit, collection accessibility, and the 15%/30% caps unless the user changes those rules. Keep perk descriptions consistent with code. Run relevant regressions after changes; avoid repeatedly rerunning unchanged checks without a reason.
 
-## Gotchas hit this session (save yourself the rediscovery)
+## Collaboration retrospective
 
-- **The `</content>` bug**: repeatedly, Write tool calls in this session ended up with a literal stray `</content>` line appended to the file (an artifact of how the content was composed, not a tool bug). If a freshly-written file's last line looks like `</content>` or a build/typecheck fails mysteriously at end-of-file, run: `grep -rl '^</content>$' src | xargs -r sed -i '/^<\/content>$/d'`. Better: don't reproduce the pattern that caused it in the first place — end file content cleanly with the actual last code line, nothing after.
-- **Phaser installed is v4.2.1**, not v3, since `npm install phaser` pulled latest. The public API used here (Scene, GameObjects, tweens, particles, Graphics→generateTexture) has behaved v3-compatible so far, but if something acts unexpectedly, check v4 docs/changelog rather than assuming v3 behavior.
-- **IndexedDB `DB_VERSION`** is at `2` (bumped when the `loadout` store was added). Any future new store or schema shape change needs another version bump in `LocalDB.ts`, or `onupgradeneeded` won't fire for anyone who already has a v2 database on their device.
-- `npx playwright install chromium` was needed even though `~/.cache/ms-playwright` had a chromium build — the cached revision didn't match the installed npm package's expected revision. Don't assume a cached browser is usable without checking the version.
+The user asked to continue development, then clarified: polish/fix/balance the current graphics and gameplay while adding separate character mastery. They prefer concrete progress and later explicitly authorized commit, push, and merge. The requested implementation was delivered and merged; this document was requested afterwards.
 
----
+Three ways the assistant could improve:
 
-## Shipped: Pog Battles (kept for reference — original design plan)
+1. Establish a small, explicit balance/migration rule table before editing multiple systems; distinguish assumptions from the user's exact requirements.
+2. Make browser assertions deterministic from the start: return serializable values instead of Phaser objects, and read action timers in the same evaluation that sets them.
+3. Replace stale handoff sections during the original update instead of appending current facts above contradictory historical instructions.
 
-**Concept**: turn-based skill contests where you wager and can win/lose individual pogs, against either the 8 highschoolers (low-stakes practice) or, once Pro-tier, the 11 Circuit pros (real stakes). This is also the natural way to grow the Locker's Pog Stack axis through play instead of only through Tech Points.
+Three ways the user could save time in future prompts:
 
-**Open question to resolve with the user first**: does winning a battle grant progress on the existing single-track Pog Stack axis (simplest, reuses current system, but "collectible" stays abstract), or does it grant a discrete named pog item into a real collection (truer to "collectable," bigger data-model change: a new `pogCollection` store of individually-owned pog instances with rarity, and the Locker's Pog Stack tier becomes *derived* from collection size/rarity rather than directly purchased)? Recommend asking directly rather than guessing — this determines whether Pog Battles is an alternate path to the same axis, or unlocks a genuinely separate collectible layer.
+1. Put the specific objective in the opening request, as they did in the follow-up, rather than only asking to continue.
+2. Rank the priorities and identify the target experience or device, such as phone controls first, mastery second, and visual polish third.
+3. Specify what completion means: build and tests, screenshots, Android package, and/or commit/push/merge. This reduces follow-up turns; it is not required to make a useful request.
 
-**Proposed core loop** (assuming the discrete-collectible direction, since it best matches "collectable" and "tradable" from the original request):
-1. Pick an opponent (highschooler roster for practice, no stakes; Circuit pro roster for ranked stakes, gated the same way Circuit is).
-2. Wager: pick one owned pog (or battle unstaked if you own none yet — always allow a free practice path so the mode is playable pre-collection).
-3. Best-of-3 rounds, each a timing-based "slam" mini-game: a moving power/accuracy meter, tap to lock in — reuses the same "skill with the illusion of control" philosophy as Pogo Dash's jump/duck timing, just as a standalone input rather than embedded in a runner.
-4. Opponent's round performance derived from their `skill` rating (same Elo-ish approach already used for Circuit pro-vs-pro sims) plus their own equipped-pog flavor for personality/color.
-5. Winner of 2-of-3 takes the wagered pog (or, unstaked, a small consolation prize - a Tech Point or two).
-6. Log to a new `pogCollection` + `battleLog` DB store; local-only, same pattern as everything else this session.
+Useful vocabulary:
 
-**Reuse from existing code**: the Circuit's seeded-RNG + Elo win-probability pattern (`repository.ts`'s `winProbability`/`simulateProDay`) is directly reusable for opponent round outcomes. `CharacterCard` can render individual pog items once they're discrete objects with their own name/rarity/color.
+- **Acceptance criteria:** observable conditions that define completion. Example: each character retains separate mastery after restarting the app.
+- **Invariant:** a rule that must remain true through changes. Example: legacy mastery TP is refunded at most once.
 
-**Scope warning for next session**: this is a full mini-game (its own input scene, its own win/loss resolution, a new collectible data model) — comparable in size to what The Circuit took this session. Don't try to also do Yoyo Trick Lab in the same pass unless there's a lot of budget; ship one, verify it's fun, then the other.
-
-## Shipped: Yoyo Trick Lab (kept for reference — original design plan)
-
-**Concept**: a dedicated freestyle trick-combo mode, separate from Pogo Dash's runner loop, that's the natural home for building Yoyo Rig mastery through direct practice rather than passively equipping it.
-
-**Proposed core loop**:
-1. A named trick is prompted (e.g. "Around the World," "Rock the Baby," "Walk the Dog" — real yoyo trick names, good flavor already available for free), shown as a short input pattern (arrow/swipe sequence).
-2. Player inputs the matching swipe/tap sequence within a timing window.
-3. Successful tricks chain into a combo multiplier (same combo-scoring shape as Pogo Dash, for consistency of feel); a miss breaks the chain.
-4. Session score feeds its own local leaderboard, and completing sessions grants Yoyo Rig axis "usage" credit (paralleling how a Pogo Dash run counts as "using" the current equipped tier) so Trick Lab becomes a genuine second path to leveling that axis, not just flavor.
-
-**Reuse from existing code**: `RunScene`'s swipe-gesture detection (`pointerdown`/`pointerup` delta logic) is directly transferable to a sequence-input scene. `ComboSystem`-style multiplier math already exists in `RunScene` (`onTrickSuccess`) and can be lifted into a shared helper if both modes end up wanting it (currently combo logic is inline in RunScene - worth extracting to `systems/` if a second mode needs the same shape).
-
-**Scope note**: smaller than Pog Battles (no opponent AI, no wagering/economy design needed) — likely the faster of the two to build if next session's budget is tight.
-
----
-
-## Session retrospective (condensed — full version was given to the user in chat)
-
-- Where Claude could improve: (1) repeatedly reproduced the `</content>` stray-tag bug across many Write calls instead of catching and fixing the root cause once; (2) took several internal false starts before converging on the equipment system's final rule set — should write the numeric rule table first, narrate the reasoning after; (3) didn't batch cleanup sweeps from the start of the session (fixed eventually, but several early turns fixed one file at a time).
-- Where the user could improve: dense run-on requests mixing several distinct design axes in one paragraph (the equipment-system ask) cost real interpretation risk; a follow-up clarification (pogs/yoyos theming) arrived after implementation had already started under placeholder names, costing a rename pass; this handoff request itself bundles five distinct asks (plan two features, commit, push, merge, write two documents) in one message, which is fine but means a blocker on one (e.g. push needing a remote) can stall visibility into the rest.
+Example next prompt: “Continue from Hand_off.md. Prioritize Android touch feel and character balance. Preserve existing saves and the 30% Advantage cap. Acceptance criteria: no duplicate inputs after restarts, readable controls on my phone, and passing regression tests. Make routine implementation choices, report balance assumptions, and commit, push, and merge when verified.”
