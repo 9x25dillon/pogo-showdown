@@ -55,6 +55,16 @@ export interface LevelDef {
    * 'boss' in `enemies`) instead.
    */
   bossLevel?: boolean;
+  /**
+   * Co-op: a second human-controlled player joins at this spawn point
+   * (arrow keys), sharing the lives pool with player one (WASD). Not
+   * an AI rival - no stomp-combat between them, no race. Implies
+   * `coop: true`; `paceMultiplier` (default 1) scales enemy/boss speed
+   * down for the slower, more forgiving two-player pace.
+   */
+  player2Start?: { x: number; y: number };
+  coop?: boolean;
+  paceMultiplier?: number;
   rivalStart?: { x: number; y: number };
   rivalWaypoints?: RivalWaypoint[];
   goalX?: number;
@@ -197,4 +207,30 @@ export const LEVEL_3: LevelDef = {
   playerStart: { x: 60, y: GY },
 };
 
-export const LEVELS: LevelDef[] = [LEVEL_1, LEVEL_2, LEVEL_3];
+export const LEVEL_4: LevelDef = {
+  id: 'level4',
+  name: 'Co-op Circuit',
+  widthPx: 2400,
+  groundY: GY,
+  bossLevel: true,
+  coop: true,
+  paceMultiplier: 0.65,
+  ground: [
+    ground(0, 500),
+    ground(620, 1600),
+  ],
+  platforms: [],
+  movingPlatforms: [],
+  enemies: [
+    enemySpawn('patroller', 300, GY, 140),
+    enemySpawn('boss', 1000, GY, 800),
+  ],
+  coins: [
+    ...coinRow(120, GY - 80, 4, 50),
+    ...coinRow(700, GY - 80, 3, 50),
+  ],
+  playerStart: { x: 60, y: GY },
+  player2Start: { x: 150, y: GY },
+};
+
+export const LEVELS: LevelDef[] = [LEVEL_1, LEVEL_2, LEVEL_3, LEVEL_4];

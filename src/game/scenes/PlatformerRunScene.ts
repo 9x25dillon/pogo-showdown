@@ -90,6 +90,17 @@ export class PlatformerRunScene extends Phaser.Scene {
   private rivalState: ControllerState = createControllerState();
   private rivalAI: RivalAIState = createRivalAIState();
 
+  /** co-op only (LevelDef.player2Start) - a second human, not an AI rival */
+  private coopMode = false;
+  private p2?: Phaser.Physics.Arcade.Sprite;
+  private p2State: ControllerState = createControllerState();
+  private p2InvulnTimer = 0;
+  private p2LastCheckpoint = { x: 0, y: 0 };
+  private p2LeftDown = false;
+  private p2RightDown = false;
+  private p2JumpHeld = false;
+  private pendingP2JumpPress = false;
+
   private touchMoveLeft = false;
   private touchMoveRight = false;
   private keyLeftDown = false;
@@ -144,11 +155,18 @@ export class PlatformerRunScene extends Phaser.Scene {
     this.character = CHARACTERS.find((c) => c.id === charId) ?? CHARACTERS[0];
     this.levelIndex = Phaser.Math.Clamp(Number(this.registry.get(REGISTRY_KEY_PLATFORMER_LEVEL_INDEX) ?? 0), 0, LEVELS.length - 1);
     this.level = LEVELS[this.levelIndex];
+    this.coopMode = !!this.level.coop;
 
     // reset run state (scene instance is reused between attempts)
     this.playerState = createControllerState();
     this.rivalState = createControllerState();
     this.rivalAI = createRivalAIState();
+    this.p2State = createControllerState();
+    this.p2InvulnTimer = 0;
+    this.p2LeftDown = false;
+    this.p2RightDown = false;
+    this.p2JumpHeld = false;
+    this.pendingP2JumpPress = false;
     this.touchMoveLeft = false;
     this.touchMoveRight = false;
     this.keyLeftDown = false;
@@ -187,6 +205,7 @@ export class PlatformerRunScene extends Phaser.Scene {
 
     this.lastCheckpoint = { x: this.level.playerStart.x, y: this.player.y };
     this.rivalLastSafe = this.rival ? { x: this.rival.x, y: this.rival.y } : { x: 0, y: 0 };
+    this.p2LastCheckpoint = this.p2 ? { x: this.p2.x, y: this.p2.y } : { x: 0, y: 0 };
 
     void this.loadLoadout();
   }
@@ -296,12 +315,24 @@ export class PlatformerRunScene extends Phaser.Scene {
       this.rival = undefined;
     }
 
+    if (this.level.player2Start) {
+      this.p2 = this.physics.add.sprite(this.level.player2Start.x, this.level.player2Start.y, 'player').setOrigin(0.5, 1);
+      this.p2.setTint(0x38bdf8);
+      const p2Body = this.p2.body as Phaser.Physics.Arcade.Body;
+      p2Body.setGravityY(GRAVITY_Y);
+      p2Body.setCollideWorldBounds(false);
+    } else {
+      this.p2 = undefined;
+    }
+
     // physical collision (stops falling through)
     this.physics.add.collider(this.player, this.staticSolids);
     if (this.rival) this.physics.add.collider(this.rival, this.staticSolids);
+    if (this.p2) this.physics.add.collider(this.p2, this.staticSolids);
     for (const mp of this.movingPlatforms) {
       this.physics.add.collider(this.player, mp.sprite);
       if (this.rival) this.physics.add.collider(this.rival, mp.sprite);
+      if (this.p2) this.physics.add.collider(this.p2, mp.sprite);
     }
     for (const e of this.enemies) {
       if (!e.def.flies) this.physics.add.collider(e.sprite, this.staticSolids);
@@ -310,9 +341,11 @@ export class PlatformerRunScene extends Phaser.Scene {
     // gameplay overlaps
     for (const coin of this.coinSprites) {
       this.physics.add.overlap(this.player, coin, () => this.collectCoin(coin));
+      if (this.p2) this.physics.add.overlap(this.p2, coin, () => this.collectCoin(coin));
     }
     for (const e of this.enemies) {
-      this.physics.add.overlap(this.player, e.sprite, () => this.resolveEnemyContact(e));
+      this.physics.add.overlap(this.player, e.sprite, () => this.resolveEnemyContact(this.player, false, e));
+      if (this.p2) this.physics.add.overlap(this.p2, e.sprite, () => this.resolveEnemyContact(this.p2!, true, e));
     }
     if (this.rival) {
       this.physics.add.overlap(this.player, this.rival, () => this.resolvePlayerRivalContact());
@@ -320,6 +353,7 @@ export class PlatformerRunScene extends Phaser.Scene {
     if (this.goalSprite) {
       this.physics.add.overlap(this.player, this.goalSprite, () => this.endLevel('playerWon'));
       if (this.rival) this.physics.add.overlap(this.rival, this.goalSprite, () => this.endLevel('rivalWon'));
+      if (this.p2) this.physics.add.overlap(this.p2, this.goalSprite, () => this.endLevel('playerWon'));
     }
   }
 
@@ -389,20 +423,32 @@ export class PlatformerRunScene extends Phaser.Scene {
 
     const kb = this.input.keyboard;
     if (kb) {
+      // co-op: P1 is WASD-only, P2 gets the arrow keys exclusively (no
+      // combat item for P2 in this first pass - keep the control surface
+      // simple). Solo modes keep accepting both WASD and arrows for P1.
       const onKeyDown = (e: KeyboardEvent) => {
         const key = e.key.toLowerCase();
-        if (key === 'a' || key === 'arrowleft') this.keyLeftDown = true;
-        else if (key === 'd' || key === 'arrowright') this.keyRightDown = true;
-        else if ((key === 'w' || key === 'arrowup' || key === ' ') && !this.keyJumpHeld) {
+        if (key === 'a' || (!this.coopMode && key === 'arrowleft')) this.keyLeftDown = true;
+        else if (key === 'd' || (!this.coopMode && key === 'arrowright')) this.keyRightDown = true;
+        else if ((key === 'w' || (!this.coopMode && key === 'arrowup') || key === ' ') && !this.keyJumpHeld) {
           this.keyJumpHeld = true;
           this.pendingJumpPress = true;
         } else if (key === 'f') this.pendingItemUse = true;
+        else if (this.coopMode && key === 'arrowleft') this.p2LeftDown = true;
+        else if (this.coopMode && key === 'arrowright') this.p2RightDown = true;
+        else if (this.coopMode && key === 'arrowup' && !this.p2JumpHeld) {
+          this.p2JumpHeld = true;
+          this.pendingP2JumpPress = true;
+        }
       };
       const onKeyUp = (e: KeyboardEvent) => {
         const key = e.key.toLowerCase();
-        if (key === 'a' || key === 'arrowleft') this.keyLeftDown = false;
-        else if (key === 'd' || key === 'arrowright') this.keyRightDown = false;
-        else if (key === 'w' || key === 'arrowup' || key === ' ') this.keyJumpHeld = false;
+        if (key === 'a' || (!this.coopMode && key === 'arrowleft')) this.keyLeftDown = false;
+        else if (key === 'd' || (!this.coopMode && key === 'arrowright')) this.keyRightDown = false;
+        else if (key === 'w' || (!this.coopMode && key === 'arrowup') || key === ' ') this.keyJumpHeld = false;
+        else if (this.coopMode && key === 'arrowleft') this.p2LeftDown = false;
+        else if (this.coopMode && key === 'arrowright') this.p2RightDown = false;
+        else if (this.coopMode && key === 'arrowup') this.p2JumpHeld = false;
       };
       kb.on('keydown', onKeyDown);
       kb.on('keyup', onKeyUp);
@@ -454,6 +500,7 @@ export class PlatformerRunScene extends Phaser.Scene {
     this.elapsed += dt / 1000;
 
     if (this.invulnTimer > 0) this.invulnTimer = Math.max(0, this.invulnTimer - dt);
+    if (this.p2InvulnTimer > 0) this.p2InvulnTimer = Math.max(0, this.p2InvulnTimer - dt);
     if (this.playerStunTimer > 0) this.playerStunTimer = Math.max(0, this.playerStunTimer - dt);
     if (this.rivalStunTimer > 0) this.rivalStunTimer = Math.max(0, this.rivalStunTimer - dt);
     if (this.speedBoostTimer > 0) this.speedBoostTimer = Math.max(0, this.speedBoostTimer - dt);
@@ -490,11 +537,31 @@ export class PlatformerRunScene extends Phaser.Scene {
     this.player.setFlipX(playerBody.velocity.x < -5 ? true : playerBody.velocity.x > 5 ? false : this.player.flipX);
     this.player.setAlpha(this.invulnTimer > 0 && Math.floor(this.invulnTimer / 80) % 2 === 0 ? 0.4 : 1);
 
+    if (this.p2) {
+      const p2Input: ControllerInput = {
+        left: this.p2LeftDown,
+        right: this.p2RightDown,
+        jumpPressed: this.pendingP2JumpPress,
+        jumpHeld: this.p2JumpHeld,
+      };
+      this.pendingP2JumpPress = false;
+      const p2Body = this.p2.body as Phaser.Physics.Arcade.Body;
+      const p2MoveSpeed = this.speedBoostTimer > 0 ? MOVE_SPEED * SPEED_BOOST_MULTIPLIER : MOVE_SPEED;
+      updateController(p2Body, p2Input, this.p2State, { moveSpeed: p2MoveSpeed, moveAccel: MOVE_ACCEL }, dt);
+      this.p2.setFlipX(p2Body.velocity.x < -5 ? true : p2Body.velocity.x > 5 ? false : this.p2.flipX);
+      this.p2.setAlpha(this.p2InvulnTimer > 0 && Math.floor(this.p2InvulnTimer / 80) % 2 === 0 ? 0.4 : 1);
+    }
+
     this.updatePatrolEnemies(dt);
     this.updateProjectiles();
     this.updateMovingPlatforms();
     this.checkCheckpointsAndGaps();
     this.updateHud();
+  }
+
+  /** co-op's slower pace scales enemy/boss speed down; everywhere else this is a no-op (factor 1) */
+  private paced(baseSpeed: number): number {
+    return baseSpeed * (this.level.paceMultiplier ?? 1);
   }
 
   private updatePatrolEnemies(dt: number): void {
@@ -507,7 +574,7 @@ export class PlatformerRunScene extends Phaser.Scene {
       const body = e.sprite.body as Phaser.Physics.Arcade.Body;
       if (e.sprite.x >= e.originX + e.rangeX) e.dir = -1;
       else if (e.sprite.x <= e.originX) e.dir = 1;
-      body.setVelocityX(e.dir * ENEMY_PATROL_SPEED);
+      body.setVelocityX(e.dir * this.paced(ENEMY_PATROL_SPEED));
       e.sprite.setFlipX(e.dir < 0);
       if (e.def.flies) {
         e.bobPhase += (dt / 1000) * FLYER_BOB_SPEED;
@@ -529,7 +596,7 @@ export class PlatformerRunScene extends Phaser.Scene {
           const towardPlayer = this.player.x < e.sprite.x ? -1 : 1;
           e.dir = towardPlayer;
           e.sprite.setFlipX(towardPlayer < 0);
-          body.setVelocityX(towardPlayer * (e.def.chargeSpeed ?? ENEMY_PATROL_SPEED));
+          body.setVelocityX(towardPlayer * this.paced(e.def.chargeSpeed ?? ENEMY_PATROL_SPEED));
         }
         break;
       case 'charge':
@@ -551,7 +618,7 @@ export class PlatformerRunScene extends Phaser.Scene {
       default:
         if (e.sprite.x >= e.originX + e.rangeX) e.dir = -1;
         else if (e.sprite.x <= e.originX) e.dir = 1;
-        body.setVelocityX(e.dir * ENEMY_PATROL_SPEED);
+        body.setVelocityX(e.dir * this.paced(ENEMY_PATROL_SPEED));
         e.sprite.setFlipX(e.dir < 0);
         if (e.bossPhaseTimer <= 0) {
           e.bossPhase = 'telegraph';
@@ -578,6 +645,7 @@ export class PlatformerRunScene extends Phaser.Scene {
       if (deltaX !== 0) {
         if (this.isStandingOn(this.player, mp.sprite)) this.player.x += deltaX;
         if (this.rival && this.isStandingOn(this.rival, mp.sprite)) this.rival.x += deltaX;
+        if (this.p2 && this.isStandingOn(this.p2, mp.sprite)) this.p2.x += deltaX;
       }
       mp.prevX = mp.sprite.x;
     }
@@ -614,12 +682,36 @@ export class PlatformerRunScene extends Phaser.Scene {
         rivalBody.setVelocity(0, 0);
       }
     }
+
+    if (this.p2) {
+      const p2Body = this.p2.body as Phaser.Physics.Arcade.Body;
+      if (p2Body.blocked.down || p2Body.touching.down) {
+        this.p2LastCheckpoint = { x: this.p2.x, y: this.p2.y };
+      }
+      if (this.p2.y > GAP_DEATH_Y) {
+        this.lives -= 1;
+        this.stompCombo = 0;
+        if (this.lives <= 0) {
+          this.endLevel('fell');
+          return;
+        }
+        this.respawnP2();
+      }
+    }
   }
 
   private respawnPlayer(): void {
     this.player.setPosition(this.lastCheckpoint.x, this.lastCheckpoint.y);
     (this.player.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
     this.invulnTimer = PLATFORMER_INVULN_MS;
+    this.cameras.main.flash(140, 239, 68, 68);
+  }
+
+  private respawnP2(): void {
+    if (!this.p2) return;
+    this.p2.setPosition(this.p2LastCheckpoint.x, this.p2LastCheckpoint.y);
+    (this.p2.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+    this.p2InvulnTimer = PLATFORMER_INVULN_MS;
     this.cameras.main.flash(140, 239, 68, 68);
   }
 
@@ -630,9 +722,10 @@ export class PlatformerRunScene extends Phaser.Scene {
     this.coins += 1;
   }
 
-  private resolveEnemyContact(enemy: PatrolEnemyState): void {
-    if (!enemy.alive || this.gameOver || this.invulnTimer > 0 || this.playerStunTimer > 0) return;
-    const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
+  private resolveEnemyContact(playerSprite: Phaser.Physics.Arcade.Sprite, isP2: boolean, enemy: PatrolEnemyState): void {
+    const ownInvuln = isP2 ? this.p2InvulnTimer : this.invulnTimer;
+    if (!enemy.alive || this.gameOver || ownInvuln > 0 || (!isP2 && this.playerStunTimer > 0)) return;
+    const playerBody = playerSprite.body as Phaser.Physics.Arcade.Body;
     const enemyBody = enemy.sprite.body as Phaser.Physics.Arcade.Body;
     const isStomp = playerBody.velocity.y > 0 && playerBody.bottom <= enemyBody.top + STOMP_TOLERANCE_PX;
 
@@ -640,7 +733,7 @@ export class PlatformerRunScene extends Phaser.Scene {
       playerBody.setVelocityY(STOMP_BOUNCE_VELOCITY);
       this.damageEnemy(enemy);
     } else {
-      this.takeDamage(enemy.def.contactDamage);
+      this.takeDamage(enemy.def.contactDamage, isP2);
     }
   }
 
@@ -733,16 +826,19 @@ export class PlatformerRunScene extends Phaser.Scene {
     }
   }
 
-  private takeDamage(amount = 1): void {
+  /** lives are a shared pool in co-op; only the invulnerability window is per-player */
+  private takeDamage(amount = 1, isP2 = false): void {
     if (this.shields > 0) {
       this.shields -= 1;
-      this.invulnTimer = PLATFORMER_INVULN_MS;
+      if (isP2) this.p2InvulnTimer = PLATFORMER_INVULN_MS;
+      else this.invulnTimer = PLATFORMER_INVULN_MS;
       this.cameras.main.flash(140, 56, 189, 248);
       return;
     }
     this.lives -= amount;
     this.stompCombo = 0;
-    this.invulnTimer = PLATFORMER_INVULN_MS;
+    if (isP2) this.p2InvulnTimer = PLATFORMER_INVULN_MS;
+    else this.invulnTimer = PLATFORMER_INVULN_MS;
     this.cameras.main.flash(140, 239, 68, 68);
     if (this.lives <= 0) this.endLevel('fell');
   }

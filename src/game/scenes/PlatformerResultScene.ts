@@ -27,7 +27,10 @@ export class PlatformerResultScene extends Phaser.Scene {
     const character = CHARACTERS.find((c) => c.id === result.characterId) ?? CHARACTERS[0];
     const copy = OUTCOME_COPY[result.raceOutcome];
     const level = LEVELS[result.levelIndex] ?? LEVELS[0];
-    const hasNextLevel = result.raceOutcome === 'playerWon' && result.levelIndex < LEVELS.length - 1;
+    const hasNextLevel =
+      result.raceOutcome === 'playerWon' &&
+      result.levelIndex < LEVELS.length - 1 &&
+      !LEVELS[result.levelIndex + 1]?.coop; // never auto-advance a solo player into the 2P co-op level
 
     this.add.text(WIDTH / 2, 120, character.emoji, { fontSize: '52px' }).setOrigin(0.5);
     this.add.text(WIDTH / 2, 172, level.name, { fontSize: '13px', fontFamily: FONT, color: '#6b6180' }).setOrigin(0.5);
