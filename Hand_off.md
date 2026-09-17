@@ -1,19 +1,17 @@
 # Pogo Showdown — next-session handoff
 
-Updated after the September 16, 2026 session (America/Los_Angeles; the GitHub merge timestamp falls on September 17 UTC).
+Updated after the September 17, 2026 session (release + balance tuning).
 
 ## Start here
 
-Today's session focused on **polishing graphics and gameplay, correcting balance and reliability issues, and adding separate character mastery**. The user then requested commit, push, and merge; all three completed. This handoff replaces outdated development plans and conflicting notes in the previous version.
+This session: (1) rebuilt and published the Android release that had fallen a commit behind the last GitHub release, and (2) ran a data-driven character balance pass. Both are pushed to `master`.
 
 - Workspace: `/home/kill/pogo-showdown`.
-- Repository: https://github.com/9x25dillon/pogo-showdown
-- Default branch: `master`.
-- Feature commit: `b8df0da` — Add per-character mastery and polish gameplay.
-- Merged PR: https://github.com/9x25dillon/pogo-showdown/pull/1
-- Merge commit: `a78ee94`.
-- Local `master` was synchronized and clean after the merge. This subsequent handoff rewrite is a documentation change; it has not been committed or pushed.
-- Android debug APK rebuilt after the handoff at `android/app/build/outputs/apk/debug/app-debug.apk` (4,473,054 bytes). Signature verified; all four bundled web files match the latest `dist/` build. Version remains 0.3.0 (code 3). No release APK/AAB rebuild or physical-phone test was performed. SHA-256: `480aa773ecc6212cc8b4cf26826250f77aad5de1bbeb8c2073e33648bebcdf07`.
+- Repository: https://github.com/9x25dillon/pogo-showdown, default branch `master`.
+- Android release **v0.4.0** is live: https://github.com/9x25dillon/pogo-showdown/releases/tag/v0.4.0 (signed APK attached, same upload key as v0.1.0–v0.3.0, installs as an update). `versionCode` 4, `versionName` "0.4.0".
+- Why a new release was needed: `b8df0da` (per-character mastery) merged *after* the v0.3.0 tag was cut, so the last published APK didn't include it. Fixed by bumping the version and cutting v0.4.0.
+- Character balance pass (see below) landed in three commits after v0.4.0 was tagged, so **the published v0.4.0 APK does not include the balance changes** — the next release should bundle them.
+- Local `master` is clean and pushed as of this handoff.
 
 Begin the next session by reading this file, checking `git status --short`, branch and remote state, and any applicable workspace instructions. Do not assume temporary processes or screenshots still exist. Preserve any user edits. Do not recreate completed modes or ask again whether mastery should be separate.
 
@@ -32,7 +30,21 @@ Existing modes and screens:
 - **Pog Binder:** collectible inventory and equipment. Collection grids now paginate rather than hiding all but the first nine items. Ranked stake grids paginate beyond fifteen items.
 - **The Locker:** shared Pog Stack and Yoyo Rig purchases plus a view of the selected character's earned mastery. Arrow controls change the active character.
 
-## What changed this session
+## What changed this session (balance tuning)
+
+Simulated RunScene's actual scoring formulas outside Phaser (Monte Carlo, thousands of runs per character across fixed "skill" levels — probability of correctly timing a jump/duck — since real human reflex data doesn't exist yet) to compare characters head to head. Script was scratch work, not committed; rerun it from the formulas below if needed.
+
+**Finding:** pure-survivability characters (Khan's extra life, Sun Tzu's shield) beat every flairMod-based character (Cleo, Joan, Frida, Leo) by 20-30%, widening with skill/run length. Root cause: passive score (`speed * dt * PASSIVE_SCORE_RATE`, the dominant score channel over a full run) previously ignored `flairMod` entirely, so an extra life converted directly into more of the dominant channel while flairMod only touched the secondary trick-point channel. Einstein and Ada (no flairMod at baseline) trailed by a similar 23-30%, for a different reason: their identity stats (speedMod, timingMod) don't compound with survival time the way flairMod now does.
+
+**Fixes (three commits, `src/game/config.ts`, `src/game/scenes/RunScene.ts`, `src/game/data/characters.ts`):**
+
+- `PASSIVE_FLAIR_WEIGHT = 1.1` in `config.ts`: `passiveMod = 1 + (flairMod - 1) * PASSIVE_FLAIR_WEIGHT` now multiplies the passive score gain, not just trick points. Closes the flairMod-character gap to ~5-17%. `scoreCurve.ts` (career tiers, pro-opponent scoring) is untouched by design — it's flairMod-agnostic and stays the flairMod-1 baseline.
+- Einstein: `flairMod` 1 → 1.15 (keeps "Momentum+" as the headline stat).
+- Ada: `flairMod` 1 → 1.2 (chosen over a flat trickBonus because flairMod compounds with the passive-score fix the same way Frida's does; landed in Frida's ~11-18%-behind territory rather than Ada's own ~20-30%).
+
+This is still an initial tuning pass grounded in simulated formulas, not real playtesting — Khan/Sun Tzu still lead by design (survivability archetype), and nobody has measured whether Ada's `timingMod` (15% longer jump/duck window) actually helps human reflexes as much as this pass assumes it might. Flag both to the user before further rebalancing.
+
+## What changed in the previous session (per-character mastery, 2026-09-16)
 
 ### Separate character mastery
 
@@ -127,14 +139,15 @@ git diff --check
 
 The browser regression suite needs a Vite **development** server and Chromium with remote debugging. It imports source modules through Vite and is not designed to run against production preview.
 
-The Chromium executable used this session was:
+This session used the system Chromium instead of a Playwright-managed one:
 
 ```bash
-/home/kill/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome \
-  --headless --no-sandbox --disable-gpu \
+/usr/bin/chromium --headless --no-sandbox --disable-gpu \
   --remote-debugging-port=9333 \
   --user-data-dir=/tmp/pogo-browser-check about:blank
 ```
+
+`npm run dev` binds to `localhost` (IPv6 `::1`) — `curl 127.0.0.1:PORT` will get connection-refused even though the server is up; use `localhost` or `::1`. Also: a `Bash` tool call backgrounded with a trailing `&` in this environment can get torn down when that specific tool call ends — use the tool's own `run_in_background` option instead, or the dev server dies silently between calls.
 
 Check whether that executable and the ports are available rather than assuming they persist. With the server and browser running:
 
@@ -148,43 +161,29 @@ Defaults: `POGO_URL=http://127.0.0.1:5173`, `CDP_URL=http://127.0.0.1:9333`. Bot
 
 Verified this session:
 
-- Production build and whitespace checks passed.
-- Browser regressions passed for collection paging, one-time migration, separate mastery, training-duration gate, tier awards, Advantage caps, mastery UI, restart/listener behavior, pause, shield behavior, destroyed-obstacle cleanup, real run completion, and persistence after reload.
-- No browser exceptions were recorded in the final suite.
-- Character-picker and runner screenshots were visually inspected.
-- Browser tests use direct scene/module access for much of their setup; they are not a substitute for full touch interaction testing or human gameplay.
-- Vite still reports a large bundle warning, largely from Phaser. No bundle-size work was attempted.
-- No GitHub CI checks were configured on PR #1. Verification was local.
+- Production build, `tsc --noEmit`, and the full browser regression suite passed after the version bump and after each balance commit.
+- Signed release APK's certificate verified against `apksigner` (SHA-256 `f0da5384...`, matches `PLAY_STORE.md`'s recorded upload-key fingerprint).
+- A real Android phone was attached over `adb` this session (`adb devices` showed one) but was not used to playtest — only the balance simulation and automated regressions ran. Physical playtesting is still outstanding.
+- No GitHub CI checks are configured on this repo; verification is local only.
 
-Temporary screenshots were `/tmp/character-mastery.png` and `/tmp/runner-polish.png`. Treat them as disposable. Debug hook: `window.__game`.
-
-Local ports and `.git` writes were blocked by the sandbox during this session; approved escalation was needed for browser/server startup, browser connections, and Git/GitHub operations. Use the environment's normal approval mechanism if those restrictions recur.
+Local ports and `.git` writes needed approval via the sandbox's normal escalation prompt this session (browser/server startup, browser connections, Git/GitHub operations). Expect the same next time.
 
 ## Recommended next session
 
-No further feature was committed to by the user. Suggested order:
+1. **Cut a v0.4.1 (or v0.5.0) release bundling the balance commits.** v0.4.0 only has the mastery/gameplay-polish content; the three balance commits made after it aren't in any published APK yet.
+2. **Playtest on the attached phone.** A device was connected via `adb` this session but never used. Specifically worth checking: does Ada's 15%-longer jump/duck window feel meaningfully easier, or is the `flairMod` bump doing all the real work? That answer should drive whether `timingMod` needs its own tuning.
+3. **Re-run the balance simulation after any further character/scoring changes** rather than eyeballing new numbers — the simulator (Monte Carlo against RunScene's real formulas) caught a 20-30% structural gap that wasn't obvious from reading the character table alone.
 
-1. **Playtest the current build on a phone.** Check obstacle readability, swipe responsiveness, pause/focus behavior, and mastery-screen layout. The rebuilt debug APK includes today's changes. Follow `PLAY_STORE.md` for installation or a signed release build; older release APK/AAB files have not been updated.
-2. **Measure balance before further tuning.** Compare survival, score, and perceived usefulness across characters using similar runs and equipment. Pay particular attention to Ada's timing-plus-slowdown benefit, Leo's higher pickup rate, and the pace of 4/12/24/40 training milestones.
-3. **Consider automated CI or further presentation polish** after gathering gameplay feedback. These are recommendations, not existing implementations or authorization to publish a new release.
-
-Preserve the one-time refund, independent character credit, collection accessibility, and the 15%/30% caps unless the user changes those rules. Keep perk descriptions consistent with code. Run relevant regressions after changes; avoid repeatedly rerunning unchanged checks without a reason.
+Preserve the one-time mastery-refund migration, independent character credit, collection accessibility, and the 15%/30% Advantage caps unless the user changes those rules. Keep perk descriptions consistent with code — note Einstein and Ada's perk *text* still only describes their headline stat; the small flairMod bump is intentionally not called out in the UI, matching how Frida's speedMod isn't either.
 
 ## Collaboration retrospective
 
-The user asked to continue development, then clarified: polish/fix/balance the current graphics and gameplay while adding separate character mastery. They prefer concrete progress and later explicitly authorized commit, push, and merge. The requested implementation was delivered and merged; this document was requested afterwards.
+The user asked to finish the Android release, then to keep developing. Given an open choice of focus (playtest / balance / new feature / other), they picked balance tuning, then explicitly approved both the systemic flairMod fix and the Einstein/Ada fix via follow-up choices rather than open-ended requests.
 
-Three ways the assistant could improve:
+Two things worth carrying forward:
 
-1. Establish a small, explicit balance/migration rule table before editing multiple systems; distinguish assumptions from the user's exact requirements.
-2. Make browser assertions deterministic from the start: return serializable values instead of Phaser objects, and read action timers in the same evaluation that sets them.
-3. Replace stale handoff sections during the original update instead of appending current facts above contradictory historical instructions.
-
-Three ways the user could save time in future prompts:
-
-1. Put the specific objective in the opening request, as they did in the follow-up, rather than only asking to continue.
-2. Rank the priorities and identify the target experience or device, such as phone controls first, mastery second, and visual polish third.
-3. Specify what completion means: build and tests, screenshots, Android package, and/or commit/push/merge. This reduces follow-up turns; it is not required to make a useful request.
+1. Simulating the actual scoring code (not just reading character stats and reasoning about them) surfaced a real, non-obvious structural issue — survivability perks compound with run length in a way flat multipliers don't. Reasoning from the code alone likely would have missed the size of the gap.
+2. `npm run dev` in this environment binds IPv6-only (`localhost`, not `127.0.0.1`), and backgrounding a dev server with a bare `&` inside one Bash tool call can die when that call ends — costs a few minutes of confused debugging if not expected going in.
 
 Useful vocabulary:
 
