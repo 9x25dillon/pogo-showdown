@@ -1,8 +1,17 @@
 import Phaser from 'phaser';
 import { CHARACTERS, type Character } from '../data/characters';
-import { COLORS, HEIGHT, REGISTRY_KEY_CHARACTER, REGISTRY_KEY_LAST_PLATFORMER_RESULT, WIDTH } from '../config';
+import {
+  COLORS,
+  HEIGHT,
+  REGISTRY_KEY_CHARACTER,
+  REGISTRY_KEY_LAST_PLATFORMER_RESULT,
+  REGISTRY_KEY_PLATFORMER_LEVEL_INDEX,
+  WIDTH,
+} from '../config';
 import {
   ENEMY_PATROL_SPEED,
+  FLYER_BOB_HEIGHT,
+  FLYER_BOB_SPEED,
   GAP_DEATH_Y,
   GRAVITY_Y,
   LEVEL_WIDTH_PX,
@@ -10,6 +19,8 @@ import {
   MOVE_SPEED,
   PLATFORMER_INVULN_MS,
   PLAYER_LIVES,
+  PROJECTILE_LIFESPAN_MS,
+  PROJECTILE_SPEED,
   RIVAL_MOVE_SPEED,
   SPEED_BOOST_MS,
   SPEED_BOOST_MULTIPLIER,
@@ -18,8 +29,8 @@ import {
   STOMP_STUN_MS,
   STOMP_TOLERANCE_PX,
 } from '../data/platformerConfig';
-import { LEVEL_1, type LevelDef } from '../data/levels';
-import { PATROLLER } from '../data/platformerEnemies';
+import { LEVELS, type LevelDef } from '../data/levels';
+import { enemyDef, type PlatformerEnemyDef } from '../data/platformerEnemies';
 import {
   createControllerState,
   updateController,
@@ -28,16 +39,26 @@ import {
 } from '../systems/PlayerController';
 import { createRivalAIState, computeRivalInput, type RivalAIState } from '../systems/rivalAI';
 import { equippedLoadout, equippedPerks } from '../db/pogRepository';
-import type { PogDef } from '../data/pogs';
+import type { PogActiveEffect, PogDef } from '../data/pogs';
 import type { PogInstance } from '../db/pogSchema';
 import type { PlatformerResult } from '../db/platformerResult';
 
+const ITEM_ICON: Record<PogActiveEffect['kind'], string> = {
+  shieldBurst: '⛨',
+  speedBurst: '⚡',
+  extraLife: '❤',
+  projectile: '🔥',
+};
+
 interface PatrolEnemyState {
   sprite: Phaser.Physics.Arcade.Sprite;
+  def: PlatformerEnemyDef;
   originX: number;
   rangeX: number;
   dir: 1 | -1;
   alive: boolean;
+  baseY: number;
+  bobPhase: number;
 }
 
 interface MovingPlatformState {
@@ -87,7 +108,9 @@ export class PlatformerRunScene extends Phaser.Scene {
   private movingPlatforms: MovingPlatformState[] = [];
   private coinSprites: Phaser.Physics.Arcade.Sprite[] = [];
   private enemies: PatrolEnemyState[] = [];
+  private projectiles: Phaser.Physics.Arcade.Sprite[] = [];
   private goalSprite!: Phaser.Physics.Arcade.Sprite;
+  private levelIndex = 0;
 
   private shields = 0;
   private activeItem?: { instance: PogInstance; def: PogDef; chargesRemaining: number };
@@ -108,7 +131,8 @@ export class PlatformerRunScene extends Phaser.Scene {
   create(): void {
     const charId = this.registry.get(REGISTRY_KEY_CHARACTER) as string | undefined;
     this.character = CHARACTERS.find((c) => c.id === charId) ?? CHARACTERS[0];
-    this.level = LEVEL_1;
+    this.levelIndex = Phaser.Math.Clamp(Number(this.registry.get(REGISTRY_KEY_PLATFORMER_LEVEL_INDEX) ?? 0), 0, LEVELS.length - 1);
+    this.level = LEVELS[this.levelIndex];
 
     // reset run state (scene instance is reused between attempts)
     this.playerState = createControllerState();
@@ -136,6 +160,7 @@ export class PlatformerRunScene extends Phaser.Scene {
     this.movingPlatforms = [];
     this.coinSprites = [];
     this.enemies = [];
+    this.projectiles = [];
     this.activeItem = undefined;
 
     this.cameras.main.setBackgroundColor(COLORS.bg);
@@ -212,11 +237,16 @@ export class PlatformerRunScene extends Phaser.Scene {
     }
 
     for (const e of this.level.enemies) {
-      const sprite = this.physics.add.sprite(e.x, e.y, PATROLLER.textureKey).setOrigin(0.5, 1);
+      const def = enemyDef(e.type);
+      const sprite = this.physics.add.sprite(e.x, e.y, def.textureKey).setOrigin(0.5, def.flies ? 0.5 : 1);
       const body = sprite.body as Phaser.Physics.Arcade.Body;
-      body.setGravityY(GRAVITY_Y);
       body.setCollideWorldBounds(false);
-      this.enemies.push({ sprite, originX: e.x, rangeX: e.rangeX, dir: 1, alive: true });
+      if (def.flies) {
+        body.setAllowGravity(false);
+      } else {
+        body.setGravityY(GRAVITY_Y);
+      }
+      this.enemies.push({ sprite, def, originX: e.x, rangeX: e.rangeX, dir: 1, alive: true, baseY: e.y, bobPhase: Math.random() * Math.PI * 2 });
     }
 
     this.goalSprite = this.physics.add.sprite(this.level.goalX, this.level.goalY, 'goalFlag').setOrigin(0.5, 1);
@@ -242,7 +272,9 @@ export class PlatformerRunScene extends Phaser.Scene {
       this.physics.add.collider(this.player, mp.sprite);
       this.physics.add.collider(this.rival, mp.sprite);
     }
-    for (const e of this.enemies) this.physics.add.collider(e.sprite, this.staticSolids);
+    for (const e of this.enemies) {
+      if (!e.def.flies) this.physics.add.collider(e.sprite, this.staticSolids);
+    }
 
     // gameplay overlaps
     for (const coin of this.coinSprites) {
@@ -346,14 +378,31 @@ export class PlatformerRunScene extends Phaser.Scene {
     const has = !!this.activeItem && this.activeItem.chargesRemaining > 0;
     this.itemButtonBg.setAlpha(has ? 0.5 : 0.12);
     this.itemButtonLabel.setAlpha(has ? 1 : 0.4);
-    this.itemButtonLabel.setText(this.activeItem ? '⛨' : '—');
+    this.itemButtonLabel.setText(this.activeItem ? ITEM_ICON[this.activeItem.def.activeEffect!.kind] : '—');
   }
 
   private useItem(): void {
     if (!this.activeItem || this.activeItem.chargesRemaining <= 0 || this.gameOver) return;
+    const effect = this.activeItem.def.activeEffect!;
     this.activeItem.chargesRemaining -= 1;
-    this.invulnTimer = Math.max(this.invulnTimer, this.activeItem.def.activeEffect!.invulnMs);
-    this.cameras.main.flash(140, 56, 189, 248);
+
+    switch (effect.kind) {
+      case 'shieldBurst':
+        this.invulnTimer = Math.max(this.invulnTimer, effect.invulnMs);
+        this.cameras.main.flash(140, 56, 189, 248);
+        break;
+      case 'speedBurst':
+        this.speedBoostTimer = Math.max(this.speedBoostTimer, effect.boostMs);
+        this.cameras.main.flash(140, 250, 204, 21);
+        break;
+      case 'extraLife':
+        this.lives += 1;
+        this.cameras.main.flash(160, 249, 214, 75);
+        break;
+      case 'projectile':
+        this.spawnProjectile();
+        break;
+    }
     this.updateItemButton();
   }
 
@@ -399,13 +448,14 @@ export class PlatformerRunScene extends Phaser.Scene {
     this.rival.setFlipX(rivalBody.velocity.x < -5 ? true : rivalBody.velocity.x > 5 ? false : this.rival.flipX);
     this.player.setAlpha(this.invulnTimer > 0 && Math.floor(this.invulnTimer / 80) % 2 === 0 ? 0.4 : 1);
 
-    this.updatePatrolEnemies();
+    this.updatePatrolEnemies(dt);
+    this.updateProjectiles();
     this.updateMovingPlatforms();
     this.checkCheckpointsAndGaps();
     this.updateHud();
   }
 
-  private updatePatrolEnemies(): void {
+  private updatePatrolEnemies(dt: number): void {
     for (const e of this.enemies) {
       if (!e.alive) continue;
       const body = e.sprite.body as Phaser.Physics.Arcade.Body;
@@ -413,7 +463,15 @@ export class PlatformerRunScene extends Phaser.Scene {
       else if (e.sprite.x <= e.originX) e.dir = 1;
       body.setVelocityX(e.dir * ENEMY_PATROL_SPEED);
       e.sprite.setFlipX(e.dir < 0);
+      if (e.def.flies) {
+        e.bobPhase += (dt / 1000) * FLYER_BOB_SPEED;
+        e.sprite.setY(e.baseY + Math.sin(e.bobPhase) * FLYER_BOB_HEIGHT);
+      }
     }
+  }
+
+  private updateProjectiles(): void {
+    this.projectiles = this.projectiles.filter((p) => p.active);
   }
 
   private updateMovingPlatforms(): void {
@@ -484,20 +542,62 @@ export class PlatformerRunScene extends Phaser.Scene {
     const isStomp = playerBody.velocity.y > 0 && playerBody.bottom <= enemyBody.top + STOMP_TOLERANCE_PX;
 
     if (isStomp) {
-      enemy.alive = false;
-      this.tweens.add({
-        targets: enemy.sprite,
-        scaleY: 0.2,
-        alpha: 0,
-        duration: 160,
-        onComplete: () => enemy.sprite.destroy(),
-      });
       playerBody.setVelocityY(STOMP_BOUNCE_VELOCITY);
-      this.coins += PATROLLER.stompReward;
-      this.registerStomp();
+      this.defeatEnemy(enemy);
     } else {
-      this.takeDamage();
+      this.takeDamage(enemy.def.contactDamage);
     }
+  }
+
+  private defeatEnemy(enemy: PatrolEnemyState): void {
+    if (!enemy.alive) return;
+    enemy.alive = false;
+    this.tweens.add({
+      targets: enemy.sprite,
+      scaleY: 0.2,
+      alpha: 0,
+      duration: 160,
+      onComplete: () => enemy.sprite.destroy(),
+    });
+    this.coins += enemy.def.stompReward;
+    this.registerStomp();
+  }
+
+  private spawnProjectile(): void {
+    const facingLeft = this.player.flipX;
+    const sprite = this.physics.add.sprite(this.player.x + (facingLeft ? -20 : 20), this.player.y - 40, 'projectile');
+    const body = sprite.body as Phaser.Physics.Arcade.Body;
+    body.setAllowGravity(false);
+    body.setVelocityX(facingLeft ? -PROJECTILE_SPEED : PROJECTILE_SPEED);
+    this.projectiles.push(sprite);
+
+    for (const e of this.enemies) {
+      this.physics.add.overlap(sprite, e.sprite, () => this.hitEnemyWithProjectile(sprite, e));
+    }
+    this.physics.add.overlap(sprite, this.rival, () => this.hitRivalWithProjectile(sprite));
+
+    this.time.delayedCall(PROJECTILE_LIFESPAN_MS, () => {
+      if (sprite.active) sprite.destroy();
+    });
+  }
+
+  private hitEnemyWithProjectile(sprite: Phaser.Physics.Arcade.Sprite, enemy: PatrolEnemyState): void {
+    if (!sprite.active || !enemy.alive) return;
+    sprite.destroy();
+    this.defeatEnemy(enemy);
+  }
+
+  private hitRivalWithProjectile(sprite: Phaser.Physics.Arcade.Sprite): void {
+    if (!sprite.active || this.rivalStunTimer > 0) return;
+    sprite.destroy();
+    this.stunRival();
+  }
+
+  private stunRival(): void {
+    this.rivalStunTimer = STOMP_STUN_MS;
+    this.rival.setTint(0x475569);
+    this.time.delayedCall(STOMP_STUN_MS, () => this.rival.setTint(0x94a3b8));
+    this.registerStomp();
   }
 
   private resolvePlayerRivalContact(): void {
@@ -509,10 +609,7 @@ export class PlatformerRunScene extends Phaser.Scene {
 
     if (playerStomps && !rivalStomps) {
       playerBody.setVelocityY(STOMP_BOUNCE_VELOCITY);
-      this.rivalStunTimer = STOMP_STUN_MS;
-      this.rival.setTint(0x475569);
-      this.time.delayedCall(STOMP_STUN_MS, () => this.rival.setTint(0x94a3b8));
-      this.registerStomp();
+      this.stunRival();
     } else if (rivalStomps && !playerStomps) {
       rivalBody.setVelocityY(STOMP_BOUNCE_VELOCITY * 0.6);
       this.playerStunTimer = STOMP_STUN_MS;
@@ -529,14 +626,14 @@ export class PlatformerRunScene extends Phaser.Scene {
     }
   }
 
-  private takeDamage(): void {
+  private takeDamage(amount = 1): void {
     if (this.shields > 0) {
       this.shields -= 1;
       this.invulnTimer = PLATFORMER_INVULN_MS;
       this.cameras.main.flash(140, 56, 189, 248);
       return;
     }
-    this.lives -= 1;
+    this.lives -= amount;
     this.stompCombo = 0;
     this.invulnTimer = PLATFORMER_INVULN_MS;
     this.cameras.main.flash(140, 239, 68, 68);
@@ -552,6 +649,7 @@ export class PlatformerRunScene extends Phaser.Scene {
       elapsedSeconds: Math.round(this.elapsed * 10) / 10,
       bestStompCombo: this.bestStompCombo,
       characterId: this.character.id,
+      levelIndex: this.levelIndex,
     };
     this.registry.set(REGISTRY_KEY_LAST_PLATFORMER_RESULT, result);
     this.time.delayedCall(300, () => this.scene.start('PlatformerResult'));

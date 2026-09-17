@@ -19,6 +19,8 @@ export class BootScene extends Phaser.Scene {
     this.makePlatformTileTexture();
     this.makeCoinTexture();
     this.makePatrolEnemyTexture();
+    this.makeFlyingEnemyTexture();
+    this.makeProjectileTexture();
     this.makeGoalFlagTexture();
     this.makeShieldBurstTexture();
     this.scene.start('ModeSelect');
@@ -160,6 +162,41 @@ export class BootScene extends Phaser.Scene {
     g.fillRect(6, 34, 8, 6);
     g.fillRect(30, 34, 8, 6);
     g.generateTexture('patrolEnemy', 44, 40);
+    g.destroy();
+  }
+
+  private makeFlyingEnemyTexture(): void {
+    const g = this.add.graphics();
+    g.fillStyle(0xf43f5e, 1);
+    g.fillEllipse(20, 18, 34, 22);
+    g.fillStyle(0xfecdd3, 0.85);
+    g.fillTriangle(4, 16, -10, 8, 4, 22);
+    g.fillTriangle(36, 16, 50, 8, 36, 22);
+    g.fillStyle(0x1e1030, 1);
+    g.fillCircle(14, 16, 3.4);
+    g.fillCircle(26, 16, 3.4);
+    g.fillStyle(0xffffff, 1);
+    g.fillCircle(14, 15, 1.4);
+    g.fillCircle(26, 15, 1.4);
+    g.generateTexture('flyingEnemy', 40, 32);
+    g.destroy();
+  }
+
+  private makeProjectileTexture(): void {
+    const g = this.add.graphics();
+    g.fillStyle(0xdc2626, 1);
+    const cx = 12;
+    const cy = 12;
+    const points: Phaser.Math.Vector2[] = [];
+    for (let i = 0; i < 8; i++) {
+      const r = i % 2 === 0 ? 11 : 5;
+      const a = (Math.PI / 4) * i;
+      points.push(new Phaser.Math.Vector2(cx + Math.cos(a) * r, cy + Math.sin(a) * r));
+    }
+    g.fillPoints(points, true);
+    g.fillStyle(0xfecaca, 1);
+    g.fillCircle(cx, cy, 4);
+    g.generateTexture('projectile', 24, 24);
     g.destroy();
   }
 

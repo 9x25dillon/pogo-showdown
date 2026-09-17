@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { COLORS, HEIGHT, WIDTH } from '../config';
+import { COLORS, HEIGHT, REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, WIDTH } from '../config';
 import { ensureSeasonSimulated, getProfile } from '../db/repository';
 import { TIERS } from '../db/schema';
 
@@ -110,7 +110,10 @@ export class ModeSelectScene extends Phaser.Scene {
       sublabel: 'race to the flag · fight & stomp',
       color: 0x38bdf8,
       enabled: true,
-      onTap: () => this.scene.start('PlatformerRun'),
+      onTap: () => {
+        this.registry.set(REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, 0);
+        this.scene.start('PlatformerRun');
+      },
     });
 
     this.add

@@ -5,4 +5,5 @@ export interface PlatformerResult {
   elapsedSeconds: number;
   bestStompCombo: number;
   characterId: string;
+  levelIndex: number;
 }

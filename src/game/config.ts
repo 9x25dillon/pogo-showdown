@@ -20,6 +20,7 @@ export const REGISTRY_KEY_CHARACTER = 'selectedCharacterId';
 export const REGISTRY_KEY_LAST_RESULT = 'lastRunResult';
 export const REGISTRY_KEY_PERKS = 'equippedPogPerks';
 export const REGISTRY_KEY_LAST_PLATFORMER_RESULT = 'lastPlatformerResult';
+export const REGISTRY_KEY_PLATFORMER_LEVEL_INDEX = 'platformerLevelIndex';
 
 /**
  * Shared scoring/speed constants - used by RunScene for real gameplay

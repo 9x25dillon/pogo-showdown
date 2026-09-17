@@ -1,15 +1,19 @@
 /**
  * Platformer enemy type table, data-driven like characters.ts/pogs.ts.
- * Phase 1 ships one type; a boss type slots in the same way later.
+ * A boss type slots in the same way later.
  */
+export type PlatformerEnemyType = 'patroller' | 'flyer';
+
 export interface PlatformerEnemyDef {
-  id: string;
+  id: PlatformerEnemyType;
   name: string;
   textureKey: string;
   /** lives lost on a non-stomp hit */
   contactDamage: number;
   /** coins awarded for a successful stomp */
   stompReward: number;
+  /** hovers and bobs instead of walking a patrol strip on the ground */
+  flies: boolean;
 }
 
 export const PATROLLER: PlatformerEnemyDef = {
@@ -18,11 +22,23 @@ export const PATROLLER: PlatformerEnemyDef = {
   textureKey: 'patrolEnemy',
   contactDamage: 1,
   stompReward: 5,
+  flies: false,
 };
 
-export function enemyDef(type: 'patroller'): PlatformerEnemyDef {
+export const FLYER: PlatformerEnemyDef = {
+  id: 'flyer',
+  name: 'Flyer',
+  textureKey: 'flyingEnemy',
+  contactDamage: 1,
+  stompReward: 8,
+  flies: true,
+};
+
+export function enemyDef(type: PlatformerEnemyType): PlatformerEnemyDef {
   switch (type) {
     case 'patroller':
       return PATROLLER;
+    case 'flyer':
+      return FLYER;
   }
 }

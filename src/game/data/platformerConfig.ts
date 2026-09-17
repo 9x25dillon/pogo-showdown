@@ -33,6 +33,11 @@ export const LEVEL_WIDTH_PX = 3200;
 export const PLATFORMER_GROUND_Y = 700;
 
 export const ENEMY_PATROL_SPEED = 70;
+export const FLYER_BOB_SPEED = 2.2; // radians/sec
+export const FLYER_BOB_HEIGHT = 46; // px above/below its spawn height
+
+export const PROJECTILE_SPEED = 420;
+export const PROJECTILE_LIFESPAN_MS = 900;
 
 /** ~0.88x player top speed - an average player can win, but it stays close */
 export const RIVAL_MOVE_SPEED = 185;
