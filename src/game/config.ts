@@ -30,3 +30,12 @@ export const BASE_SPEED = 260;
 export const MAX_SPEED = 680;
 export const SPEED_RAMP = 5.5;
 export const PASSIVE_SCORE_RATE = 0.12;
+
+/**
+ * Lets flairMod also nudge the continuous passive score, not just trick
+ * points - passive score dominates total score over a run, so a
+ * combo-multiplier character (Cleo, Joan, Frida, Leo) previously scored
+ * well below a pure-survivability one (extra life/shield, flairMod 1)
+ * despite an equal-skill run. Value tuned against simulated full runs.
+ */
+export const PASSIVE_FLAIR_WEIGHT = 1.1;

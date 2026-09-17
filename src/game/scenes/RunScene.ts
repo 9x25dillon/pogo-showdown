@@ -8,6 +8,7 @@ import {
   HEIGHT,
   LANE_X,
   MAX_SPEED,
+  PASSIVE_FLAIR_WEIGHT,
   PASSIVE_SCORE_RATE,
   PLAYER_Y,
   REGISTRY_KEY_CHARACTER,
@@ -308,7 +309,8 @@ export class RunScene extends Phaser.Scene {
     this.elapsed += dt;
 
     this.speed = Math.min(MAX_SPEED, this.speed + SPEED_RAMP * this.character.speedMod * this.perks.speedScale * dt);
-    this.score += this.speed * dt * PASSIVE_SCORE_RATE;
+    const passiveMod = 1 + (this.character.flairMod - 1) * PASSIVE_FLAIR_WEIGHT;
+    this.score += this.speed * dt * PASSIVE_SCORE_RATE * passiveMod;
     this.scoreText.setText(Math.floor(this.score).toString());
 
     this.updateTimers(dt);
