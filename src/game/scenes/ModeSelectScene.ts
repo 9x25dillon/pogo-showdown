@@ -104,6 +104,15 @@ export class ModeSelectScene extends Phaser.Scene {
       onTap: () => this.scene.start('PogBinder'),
     });
 
+    this.makeModeButton({
+      y: 730,
+      label: '\u{1F3C1}  Pog Quest',
+      sublabel: 'race to the flag · fight & stomp',
+      color: 0x38bdf8,
+      enabled: true,
+      onTap: () => this.scene.start('PlatformerRun'),
+    });
+
     this.add
       .text(WIDTH / 2, HEIGHT - 40, 'swipe to dodge · up to bounce · down to duck', {
         fontSize: '13px',

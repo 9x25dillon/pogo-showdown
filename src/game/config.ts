@@ -19,6 +19,7 @@ export const COLORS = {
 export const REGISTRY_KEY_CHARACTER = 'selectedCharacterId';
 export const REGISTRY_KEY_LAST_RESULT = 'lastRunResult';
 export const REGISTRY_KEY_PERKS = 'equippedPogPerks';
+export const REGISTRY_KEY_LAST_PLATFORMER_RESULT = 'lastPlatformerResult';
 
 /**
  * Shared scoring/speed constants - used by RunScene for real gameplay

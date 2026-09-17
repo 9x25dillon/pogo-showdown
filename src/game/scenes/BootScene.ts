@@ -16,6 +16,11 @@ export class BootScene extends Phaser.Scene {
     this.makeBannerTexture();
     this.makeStarTexture();
     this.makeParticleTexture();
+    this.makePlatformTileTexture();
+    this.makeCoinTexture();
+    this.makePatrolEnemyTexture();
+    this.makeGoalFlagTexture();
+    this.makeShieldBurstTexture();
     this.scene.start('ModeSelect');
   }
 
@@ -109,6 +114,74 @@ export class BootScene extends Phaser.Scene {
     g.fillStyle(0xffffff, 1);
     g.fillCircle(6, 6, 6);
     g.generateTexture('particle', 12, 12);
+    g.destroy();
+  }
+
+  private makePlatformTileTexture(): void {
+    const g = this.add.graphics();
+    // grass-topped dirt block, tiled via TileSprite for any width/segment
+    g.fillStyle(0x3a2a1a, 1);
+    g.fillRect(0, 0, 40, 40);
+    g.fillStyle(0x4ade80, 1);
+    g.fillRect(0, 0, 40, 8);
+    g.fillStyle(0x22c55e, 1);
+    g.fillRect(0, 6, 40, 3);
+    g.fillStyle(0x2a1c10, 0.5);
+    g.fillRect(0, 39, 40, 1);
+    g.lineStyle(1, 0x2a1c10, 0.4);
+    g.lineBetween(0, 20, 40, 20);
+    g.generateTexture('platformTile', 40, 40);
+    g.destroy();
+  }
+
+  private makeCoinTexture(): void {
+    const g = this.add.graphics();
+    g.fillStyle(0xf9d64b, 1);
+    g.fillCircle(14, 14, 13);
+    g.fillStyle(0xfff3c4, 1);
+    g.fillCircle(14, 14, 8);
+    g.lineStyle(2, 0xb8860b, 0.7);
+    g.strokeCircle(14, 14, 13);
+    g.generateTexture('coin', 28, 28);
+    g.destroy();
+  }
+
+  private makePatrolEnemyTexture(): void {
+    const g = this.add.graphics();
+    g.fillStyle(0x7c3aed, 1);
+    g.fillRoundedRect(2, 8, 40, 30, 12);
+    g.fillStyle(0x1e1030, 1);
+    g.fillCircle(15, 20, 4);
+    g.fillCircle(31, 20, 4);
+    g.fillStyle(0xffffff, 1);
+    g.fillCircle(15, 19, 1.6);
+    g.fillCircle(31, 19, 1.6);
+    g.fillStyle(0x4c1d95, 1);
+    g.fillRect(6, 34, 8, 6);
+    g.fillRect(30, 34, 8, 6);
+    g.generateTexture('patrolEnemy', 44, 40);
+    g.destroy();
+  }
+
+  private makeGoalFlagTexture(): void {
+    const g = this.add.graphics();
+    g.fillStyle(0x94a3b8, 1);
+    g.fillRect(4, 0, 5, 120);
+    g.fillStyle(0xf9d64b, 1);
+    g.fillTriangle(9, 6, 9, 46, 50, 26);
+    g.generateTexture('goalFlag', 54, 120);
+    g.destroy();
+  }
+
+  private makeShieldBurstTexture(): void {
+    const g = this.add.graphics();
+    g.fillStyle(0x38bdf8, 1);
+    g.fillRoundedRect(4, 0, 32, 36, { tl: 14, tr: 14, bl: 4, br: 4 });
+    g.fillStyle(0x0b0714, 1);
+    g.fillTriangle(20, 8, 12, 16, 20, 16);
+    g.fillTriangle(20, 8, 28, 16, 20, 16);
+    g.fillRect(15, 15, 10, 12);
+    g.generateTexture('shieldBurst', 40, 36);
     g.destroy();
   }
 }

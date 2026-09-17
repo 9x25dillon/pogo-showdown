@@ -1,0 +1,559 @@
+import Phaser from 'phaser';
+import { CHARACTERS, type Character } from '../data/characters';
+import { COLORS, HEIGHT, REGISTRY_KEY_CHARACTER, REGISTRY_KEY_LAST_PLATFORMER_RESULT, WIDTH } from '../config';
+import {
+  ENEMY_PATROL_SPEED,
+  GAP_DEATH_Y,
+  GRAVITY_Y,
+  LEVEL_WIDTH_PX,
+  MOVE_ACCEL,
+  MOVE_SPEED,
+  PLATFORMER_INVULN_MS,
+  PLAYER_LIVES,
+  RIVAL_MOVE_SPEED,
+  SPEED_BOOST_MS,
+  SPEED_BOOST_MULTIPLIER,
+  STOMP_BOUNCE_VELOCITY,
+  STOMP_COMBO_THRESHOLD,
+  STOMP_STUN_MS,
+  STOMP_TOLERANCE_PX,
+} from '../data/platformerConfig';
+import { LEVEL_1, type LevelDef } from '../data/levels';
+import { PATROLLER } from '../data/platformerEnemies';
+import {
+  createControllerState,
+  updateController,
+  type ControllerInput,
+  type ControllerState,
+} from '../systems/PlayerController';
+import { createRivalAIState, computeRivalInput, type RivalAIState } from '../systems/rivalAI';
+import { equippedLoadout, equippedPerks } from '../db/pogRepository';
+import type { PogDef } from '../data/pogs';
+import type { PogInstance } from '../db/pogSchema';
+import type { PlatformerResult } from '../db/platformerResult';
+
+interface PatrolEnemyState {
+  sprite: Phaser.Physics.Arcade.Sprite;
+  originX: number;
+  rangeX: number;
+  dir: 1 | -1;
+  alive: boolean;
+}
+
+interface MovingPlatformState {
+  sprite: Phaser.Physics.Arcade.Sprite;
+  originX: number;
+  rangeX: number;
+  speed: number;
+  dir: 1 | -1;
+  prevX: number;
+}
+
+export class PlatformerRunScene extends Phaser.Scene {
+  private level!: LevelDef;
+  private character!: Character;
+
+  private player!: Phaser.Physics.Arcade.Sprite;
+  private rival!: Phaser.Physics.Arcade.Sprite;
+  private playerState: ControllerState = createControllerState();
+  private rivalState: ControllerState = createControllerState();
+  private rivalAI: RivalAIState = createRivalAIState();
+
+  private touchMoveLeft = false;
+  private touchMoveRight = false;
+  private keyLeftDown = false;
+  private keyRightDown = false;
+  private touchJumpHeld = false;
+  private keyJumpHeld = false;
+  private pendingJumpPress = false;
+  private pendingItemUse = false;
+
+  private lives = PLAYER_LIVES;
+  private coins = 0;
+  private stompCombo = 0;
+  private bestStompCombo = 0;
+  private elapsed = 0;
+  private invulnTimer = 0;
+  private playerStunTimer = 0;
+  private rivalStunTimer = 0;
+  private speedBoostTimer = 0;
+  private gameOver = false;
+  private ready = false;
+
+  private lastCheckpoint = { x: 0, y: 0 };
+  private rivalLastSafe = { x: 0, y: 0 };
+
+  private staticSolids!: Phaser.Physics.Arcade.StaticGroup;
+  private movingPlatforms: MovingPlatformState[] = [];
+  private coinSprites: Phaser.Physics.Arcade.Sprite[] = [];
+  private enemies: PatrolEnemyState[] = [];
+  private goalSprite!: Phaser.Physics.Arcade.Sprite;
+
+  private shields = 0;
+  private activeItem?: { instance: PogInstance; def: PogDef; chargesRemaining: number };
+  private itemButtonBg?: Phaser.GameObjects.Arc;
+  private itemButtonLabel?: Phaser.GameObjects.Text;
+
+  private coinsText!: Phaser.GameObjects.Text;
+  private livesText!: Phaser.GameObjects.Text;
+  private timeText!: Phaser.GameObjects.Text;
+  private comboText!: Phaser.GameObjects.Text;
+  private rivalPositionText!: Phaser.GameObjects.Text;
+  private loadingText?: Phaser.GameObjects.Text;
+
+  constructor() {
+    super('PlatformerRun');
+  }
+
+  create(): void {
+    const charId = this.registry.get(REGISTRY_KEY_CHARACTER) as string | undefined;
+    this.character = CHARACTERS.find((c) => c.id === charId) ?? CHARACTERS[0];
+    this.level = LEVEL_1;
+
+    // reset run state (scene instance is reused between attempts)
+    this.playerState = createControllerState();
+    this.rivalState = createControllerState();
+    this.rivalAI = createRivalAIState();
+    this.touchMoveLeft = false;
+    this.touchMoveRight = false;
+    this.keyLeftDown = false;
+    this.keyRightDown = false;
+    this.touchJumpHeld = false;
+    this.keyJumpHeld = false;
+    this.pendingJumpPress = false;
+    this.pendingItemUse = false;
+    this.lives = PLAYER_LIVES;
+    this.coins = 0;
+    this.stompCombo = 0;
+    this.bestStompCombo = 0;
+    this.elapsed = 0;
+    this.invulnTimer = 0;
+    this.playerStunTimer = 0;
+    this.rivalStunTimer = 0;
+    this.speedBoostTimer = 0;
+    this.gameOver = false;
+    this.ready = false;
+    this.movingPlatforms = [];
+    this.coinSprites = [];
+    this.enemies = [];
+    this.activeItem = undefined;
+
+    this.cameras.main.setBackgroundColor(COLORS.bg);
+    this.cameras.main.resetFX();
+    this.input.addPointer(2); // allow simultaneous move + jump touches
+
+    this.buildLevel();
+    this.buildHud();
+    this.buildControls();
+
+    this.cameras.main.setBounds(0, 0, LEVEL_WIDTH_PX, HEIGHT);
+    this.cameras.main.startFollow(this.player, true, 1, 0);
+
+    this.lastCheckpoint = { x: this.level.playerStart.x, y: this.player.y };
+    this.rivalLastSafe = { x: this.level.rivalStart.x, y: this.rival.y };
+
+    void this.loadLoadout();
+  }
+
+  private async loadLoadout(): Promise<void> {
+    const [perks, loadout] = await Promise.all([equippedPerks(), equippedLoadout()]);
+    if (!this.scene.isActive()) return;
+    this.shields = perks.shieldHits;
+    this.lives = PLAYER_LIVES + perks.extraLives;
+    const withActive = loadout.find((row) => row.def.activeEffect);
+    if (withActive) {
+      this.activeItem = { instance: withActive.instance, def: withActive.def, chargesRemaining: withActive.def.activeEffect!.charges };
+    }
+    this.updateItemButton();
+    this.updateHud();
+    this.loadingText?.destroy();
+    this.loadingText = undefined;
+    this.ready = true;
+  }
+
+  // ---------------- level construction ----------------
+
+  private buildLevel(): void {
+    // extra headroom below the visible area so bodies aren't clamped before
+    // the manual gap-death check (GAP_DEATH_Y) gets a chance to fire
+    this.physics.world.setBounds(0, 0, LEVEL_WIDTH_PX, HEIGHT + 200);
+    this.staticSolids = this.physics.add.staticGroup();
+
+    for (const seg of this.level.ground) {
+      // thin slab, not a full fill down to the screen bottom: a gap must
+      // stay genuinely lethal, not catchable by a neighboring segment's
+      // collision body if a fall drifts sideways into its x-range
+      const tile = this.add.tileSprite(seg.x, this.level.groundY, seg.width, 56, 'platformTile').setOrigin(0, 0);
+      this.physics.add.existing(tile, true);
+      this.staticSolids.add(tile);
+    }
+
+    for (const p of this.level.platforms) {
+      const tile = this.add.tileSprite(p.x, p.y, p.width, 20, 'platformTile').setOrigin(0, 0);
+      this.physics.add.existing(tile, true);
+      this.staticSolids.add(tile);
+    }
+
+    for (const mp of this.level.movingPlatforms) {
+      const sprite = this.physics.add.sprite(mp.x, mp.y, 'platformTile');
+      sprite.setOrigin(0, 0);
+      sprite.setDisplaySize(mp.width, 20);
+      const body = sprite.body as Phaser.Physics.Arcade.Body;
+      body.setSize(mp.width, 20);
+      body.setAllowGravity(false);
+      body.setImmovable(true);
+      this.movingPlatforms.push({ sprite, originX: mp.x, rangeX: mp.rangeX, speed: mp.speed, dir: 1, prevX: mp.x });
+    }
+
+    for (const c of this.level.coins) {
+      const coin = this.physics.add.sprite(c.x, c.y, 'coin');
+      (coin.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
+      this.coinSprites.push(coin);
+    }
+
+    for (const e of this.level.enemies) {
+      const sprite = this.physics.add.sprite(e.x, e.y, PATROLLER.textureKey).setOrigin(0.5, 1);
+      const body = sprite.body as Phaser.Physics.Arcade.Body;
+      body.setGravityY(GRAVITY_Y);
+      body.setCollideWorldBounds(false);
+      this.enemies.push({ sprite, originX: e.x, rangeX: e.rangeX, dir: 1, alive: true });
+    }
+
+    this.goalSprite = this.physics.add.sprite(this.level.goalX, this.level.goalY, 'goalFlag').setOrigin(0.5, 1);
+    (this.goalSprite.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
+
+    this.player = this.physics.add.sprite(this.level.playerStart.x, this.level.playerStart.y, 'player').setOrigin(0.5, 1);
+    this.player.setTint(this.character.color);
+    const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
+    playerBody.setGravityY(GRAVITY_Y);
+    playerBody.setCollideWorldBounds(false);
+
+    this.rival = this.physics.add.sprite(this.level.rivalStart.x, this.level.rivalStart.y, 'player').setOrigin(0.5, 1);
+    this.rival.setTint(0x94a3b8);
+    this.rival.setAlpha(0.92);
+    const rivalBody = this.rival.body as Phaser.Physics.Arcade.Body;
+    rivalBody.setGravityY(GRAVITY_Y);
+    rivalBody.setCollideWorldBounds(false);
+
+    // physical collision (stops falling through)
+    this.physics.add.collider(this.player, this.staticSolids);
+    this.physics.add.collider(this.rival, this.staticSolids);
+    for (const mp of this.movingPlatforms) {
+      this.physics.add.collider(this.player, mp.sprite);
+      this.physics.add.collider(this.rival, mp.sprite);
+    }
+    for (const e of this.enemies) this.physics.add.collider(e.sprite, this.staticSolids);
+
+    // gameplay overlaps
+    for (const coin of this.coinSprites) {
+      this.physics.add.overlap(this.player, coin, () => this.collectCoin(coin));
+    }
+    for (const e of this.enemies) {
+      this.physics.add.overlap(this.player, e.sprite, () => this.resolveEnemyContact(e));
+    }
+    this.physics.add.overlap(this.player, this.rival, () => this.resolvePlayerRivalContact());
+    this.physics.add.overlap(this.player, this.goalSprite, () => this.endLevel('playerWon'));
+    this.physics.add.overlap(this.rival, this.goalSprite, () => this.endLevel('rivalWon'));
+  }
+
+  // ---------------- HUD ----------------
+
+  private buildHud(): void {
+    const style = { fontSize: '15px', fontFamily: 'system-ui, sans-serif', fontStyle: 'bold', color: '#ffffff' };
+    this.coinsText = this.add.text(16, 16, '🪙 0', style).setScrollFactor(0).setDepth(30);
+    this.livesText = this.add.text(16, 40, `♥ ${this.lives}`, style).setScrollFactor(0).setDepth(30);
+    this.timeText = this.add.text(WIDTH - 16, 16, '0.0s', style).setOrigin(1, 0).setScrollFactor(0).setDepth(30);
+    this.comboText = this.add
+      .text(WIDTH / 2, 16, '', { fontSize: '15px', fontFamily: 'system-ui, sans-serif', color: '#f9d64b', fontStyle: 'bold' })
+      .setOrigin(0.5, 0)
+      .setScrollFactor(0)
+      .setDepth(30);
+    this.rivalPositionText = this.add
+      .text(WIDTH / 2, 40, '', { fontSize: '13px', fontFamily: 'system-ui, sans-serif', color: '#94a3b8' })
+      .setOrigin(0.5, 0)
+      .setScrollFactor(0)
+      .setDepth(30);
+    this.loadingText = this.add
+      .text(WIDTH / 2, HEIGHT / 2, 'loading loadout…', { fontSize: '14px', fontFamily: 'system-ui, sans-serif', color: '#b7aed0' })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(40);
+  }
+
+  private updateHud(): void {
+    this.coinsText.setText(`🪙 ${this.coins}`);
+    this.livesText.setText(`♥ ${Math.max(0, this.lives)}${this.shields ? `  ⛨ ${this.shields}` : ''}`);
+    this.timeText.setText(`${this.elapsed.toFixed(1)}s`);
+    this.comboText.setText(this.stompCombo >= 2 ? `stomp x${this.stompCombo}` : '');
+    const ahead = this.player.x - this.rival.x;
+    this.rivalPositionText.setText(ahead >= 0 ? `Rival: ahead by ${Math.round(ahead)}` : `Rival: behind by ${Math.round(-ahead)}`);
+  }
+
+  // ---------------- controls ----------------
+
+  private buildControls(): void {
+    const zoneAlpha = 0.16;
+    const leftZone = this.add.rectangle(70, HEIGHT - 74, 90, 90, 0xffffff, zoneAlpha).setScrollFactor(0).setDepth(30).setInteractive();
+    const rightZone = this.add.rectangle(170, HEIGHT - 74, 90, 90, 0xffffff, zoneAlpha).setScrollFactor(0).setDepth(30).setInteractive();
+    this.add.text(70, HEIGHT - 74, '◀', { fontSize: '26px', color: '#ffffff' }).setOrigin(0.5).setScrollFactor(0).setDepth(31);
+    this.add.text(170, HEIGHT - 74, '▶', { fontSize: '26px', color: '#ffffff' }).setOrigin(0.5).setScrollFactor(0).setDepth(31);
+
+    leftZone.on('pointerdown', () => { this.touchMoveLeft = true; });
+    leftZone.on('pointerup', () => { this.touchMoveLeft = false; });
+    leftZone.on('pointerout', () => { this.touchMoveLeft = false; });
+    rightZone.on('pointerdown', () => { this.touchMoveRight = true; });
+    rightZone.on('pointerup', () => { this.touchMoveRight = false; });
+    rightZone.on('pointerout', () => { this.touchMoveRight = false; });
+
+    const jumpBtn = this.add.circle(WIDTH - 70, HEIGHT - 74, 55, COLORS.accent, 0.32).setScrollFactor(0).setDepth(30).setInteractive();
+    this.add.text(WIDTH - 70, HEIGHT - 74, 'JUMP', { fontSize: '13px', fontFamily: 'system-ui, sans-serif', fontStyle: 'bold', color: '#ffffff' }).setOrigin(0.5).setScrollFactor(0).setDepth(31);
+    jumpBtn.on('pointerdown', () => { this.touchJumpHeld = true; this.pendingJumpPress = true; });
+    jumpBtn.on('pointerup', () => { this.touchJumpHeld = false; });
+    jumpBtn.on('pointerout', () => { this.touchJumpHeld = false; });
+
+    this.itemButtonBg = this.add.circle(WIDTH - 70, HEIGHT - 150, 38, 0x38bdf8, 0.28).setScrollFactor(0).setDepth(30).setInteractive();
+    this.itemButtonLabel = this.add.text(WIDTH - 70, HEIGHT - 150, '⛨', { fontSize: '22px' }).setOrigin(0.5).setScrollFactor(0).setDepth(31);
+    this.itemButtonBg.on('pointerdown', () => { this.pendingItemUse = true; });
+
+    const kb = this.input.keyboard;
+    if (kb) {
+      const onKeyDown = (e: KeyboardEvent) => {
+        const key = e.key.toLowerCase();
+        if (key === 'a' || key === 'arrowleft') this.keyLeftDown = true;
+        else if (key === 'd' || key === 'arrowright') this.keyRightDown = true;
+        else if ((key === 'w' || key === 'arrowup' || key === ' ') && !this.keyJumpHeld) {
+          this.keyJumpHeld = true;
+          this.pendingJumpPress = true;
+        } else if (key === 'f') this.pendingItemUse = true;
+      };
+      const onKeyUp = (e: KeyboardEvent) => {
+        const key = e.key.toLowerCase();
+        if (key === 'a' || key === 'arrowleft') this.keyLeftDown = false;
+        else if (key === 'd' || key === 'arrowright') this.keyRightDown = false;
+        else if (key === 'w' || key === 'arrowup' || key === ' ') this.keyJumpHeld = false;
+      };
+      kb.on('keydown', onKeyDown);
+      kb.on('keyup', onKeyUp);
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+        kb.off('keydown', onKeyDown);
+        kb.off('keyup', onKeyUp);
+      });
+    }
+  }
+
+  private updateItemButton(): void {
+    if (!this.itemButtonBg || !this.itemButtonLabel) return;
+    const has = !!this.activeItem && this.activeItem.chargesRemaining > 0;
+    this.itemButtonBg.setAlpha(has ? 0.5 : 0.12);
+    this.itemButtonLabel.setAlpha(has ? 1 : 0.4);
+    this.itemButtonLabel.setText(this.activeItem ? '⛨' : '—');
+  }
+
+  private useItem(): void {
+    if (!this.activeItem || this.activeItem.chargesRemaining <= 0 || this.gameOver) return;
+    this.activeItem.chargesRemaining -= 1;
+    this.invulnTimer = Math.max(this.invulnTimer, this.activeItem.def.activeEffect!.invulnMs);
+    this.cameras.main.flash(140, 56, 189, 248);
+    this.updateItemButton();
+  }
+
+  // ---------------- update loop ----------------
+
+  update(_time: number, deltaMs: number): void {
+    if (this.gameOver || !this.ready) return;
+    const dt = Math.min(deltaMs, 50);
+    this.elapsed += dt / 1000;
+
+    if (this.invulnTimer > 0) this.invulnTimer = Math.max(0, this.invulnTimer - dt);
+    if (this.playerStunTimer > 0) this.playerStunTimer = Math.max(0, this.playerStunTimer - dt);
+    if (this.rivalStunTimer > 0) this.rivalStunTimer = Math.max(0, this.rivalStunTimer - dt);
+    if (this.speedBoostTimer > 0) this.speedBoostTimer = Math.max(0, this.speedBoostTimer - dt);
+
+    if (this.pendingItemUse) {
+      this.useItem();
+      this.pendingItemUse = false;
+    }
+
+    const jumpPressed = this.pendingJumpPress;
+    this.pendingJumpPress = false;
+
+    const playerInput: ControllerInput =
+      this.playerStunTimer > 0
+        ? { left: false, right: false, jumpPressed: false, jumpHeld: false }
+        : {
+            left: this.touchMoveLeft || this.keyLeftDown,
+            right: this.touchMoveRight || this.keyRightDown,
+            jumpPressed,
+            jumpHeld: this.touchJumpHeld || this.keyJumpHeld,
+          };
+
+    const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
+    const playerMoveSpeed = this.speedBoostTimer > 0 ? MOVE_SPEED * SPEED_BOOST_MULTIPLIER : MOVE_SPEED;
+    updateController(playerBody, playerInput, this.playerState, { moveSpeed: playerMoveSpeed, moveAccel: MOVE_ACCEL }, dt);
+
+    const rivalInput = computeRivalInput(this.rival.x, this.level.rivalWaypoints, this.rivalAI, this.rivalStunTimer > 0, dt);
+    const rivalBody = this.rival.body as Phaser.Physics.Arcade.Body;
+    updateController(rivalBody, rivalInput, this.rivalState, { moveSpeed: RIVAL_MOVE_SPEED, moveAccel: MOVE_ACCEL }, dt);
+
+    this.player.setFlipX(playerBody.velocity.x < -5 ? true : playerBody.velocity.x > 5 ? false : this.player.flipX);
+    this.rival.setFlipX(rivalBody.velocity.x < -5 ? true : rivalBody.velocity.x > 5 ? false : this.rival.flipX);
+    this.player.setAlpha(this.invulnTimer > 0 && Math.floor(this.invulnTimer / 80) % 2 === 0 ? 0.4 : 1);
+
+    this.updatePatrolEnemies();
+    this.updateMovingPlatforms();
+    this.checkCheckpointsAndGaps();
+    this.updateHud();
+  }
+
+  private updatePatrolEnemies(): void {
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      const body = e.sprite.body as Phaser.Physics.Arcade.Body;
+      if (e.sprite.x >= e.originX + e.rangeX) e.dir = -1;
+      else if (e.sprite.x <= e.originX) e.dir = 1;
+      body.setVelocityX(e.dir * ENEMY_PATROL_SPEED);
+      e.sprite.setFlipX(e.dir < 0);
+    }
+  }
+
+  private updateMovingPlatforms(): void {
+    for (const mp of this.movingPlatforms) {
+      const body = mp.sprite.body as Phaser.Physics.Arcade.Body;
+      if (mp.sprite.x >= mp.originX + mp.rangeX) mp.dir = -1;
+      else if (mp.sprite.x <= mp.originX) mp.dir = 1;
+      body.setVelocityX(mp.dir * mp.speed);
+
+      const deltaX = mp.sprite.x - mp.prevX;
+      if (deltaX !== 0) {
+        if (this.isStandingOn(this.player, mp.sprite)) this.player.x += deltaX;
+        if (this.isStandingOn(this.rival, mp.sprite)) this.rival.x += deltaX;
+      }
+      mp.prevX = mp.sprite.x;
+    }
+  }
+
+  private isStandingOn(rider: Phaser.Physics.Arcade.Sprite, platformSprite: Phaser.Physics.Arcade.Sprite): boolean {
+    const rb = rider.body as Phaser.Physics.Arcade.Body;
+    const pb = platformSprite.body as Phaser.Physics.Arcade.Body;
+    return rb.bottom <= pb.top + 6 && rb.bottom >= pb.top - 6 && rb.right > pb.left && rb.left < pb.right && rb.velocity.y >= 0;
+  }
+
+  private checkCheckpointsAndGaps(): void {
+    const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
+    if (playerBody.blocked.down || playerBody.touching.down) {
+      this.lastCheckpoint = { x: this.player.x, y: this.player.y };
+    }
+    if (this.player.y > GAP_DEATH_Y) {
+      this.lives -= 1;
+      this.stompCombo = 0;
+      if (this.lives <= 0) {
+        this.endLevel('fell');
+        return;
+      }
+      this.respawnPlayer();
+    }
+
+    const rivalBody = this.rival.body as Phaser.Physics.Arcade.Body;
+    if (rivalBody.blocked.down || rivalBody.touching.down) {
+      this.rivalLastSafe = { x: this.rival.x, y: this.rival.y };
+    }
+    if (this.rival.y > GAP_DEATH_Y) {
+      this.rival.setPosition(this.rivalLastSafe.x, this.rivalLastSafe.y);
+      rivalBody.setVelocity(0, 0);
+    }
+  }
+
+  private respawnPlayer(): void {
+    this.player.setPosition(this.lastCheckpoint.x, this.lastCheckpoint.y);
+    (this.player.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+    this.invulnTimer = PLATFORMER_INVULN_MS;
+    this.cameras.main.flash(140, 239, 68, 68);
+  }
+
+  private collectCoin(coin: Phaser.Physics.Arcade.Sprite): void {
+    if (!coin.active) return;
+    coin.destroy();
+    this.coinSprites = this.coinSprites.filter((c) => c !== coin);
+    this.coins += 1;
+  }
+
+  private resolveEnemyContact(enemy: PatrolEnemyState): void {
+    if (!enemy.alive || this.gameOver || this.invulnTimer > 0 || this.playerStunTimer > 0) return;
+    const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
+    const enemyBody = enemy.sprite.body as Phaser.Physics.Arcade.Body;
+    const isStomp = playerBody.velocity.y > 0 && playerBody.bottom <= enemyBody.top + STOMP_TOLERANCE_PX;
+
+    if (isStomp) {
+      enemy.alive = false;
+      this.tweens.add({
+        targets: enemy.sprite,
+        scaleY: 0.2,
+        alpha: 0,
+        duration: 160,
+        onComplete: () => enemy.sprite.destroy(),
+      });
+      playerBody.setVelocityY(STOMP_BOUNCE_VELOCITY);
+      this.coins += PATROLLER.stompReward;
+      this.registerStomp();
+    } else {
+      this.takeDamage();
+    }
+  }
+
+  private resolvePlayerRivalContact(): void {
+    if (this.gameOver || this.playerStunTimer > 0 || this.rivalStunTimer > 0) return;
+    const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
+    const rivalBody = this.rival.body as Phaser.Physics.Arcade.Body;
+    const playerStomps = playerBody.velocity.y > 0 && playerBody.bottom <= rivalBody.top + STOMP_TOLERANCE_PX;
+    const rivalStomps = rivalBody.velocity.y > 0 && rivalBody.bottom <= playerBody.top + STOMP_TOLERANCE_PX;
+
+    if (playerStomps && !rivalStomps) {
+      playerBody.setVelocityY(STOMP_BOUNCE_VELOCITY);
+      this.rivalStunTimer = STOMP_STUN_MS;
+      this.rival.setTint(0x475569);
+      this.time.delayedCall(STOMP_STUN_MS, () => this.rival.setTint(0x94a3b8));
+      this.registerStomp();
+    } else if (rivalStomps && !playerStomps) {
+      rivalBody.setVelocityY(STOMP_BOUNCE_VELOCITY * 0.6);
+      this.playerStunTimer = STOMP_STUN_MS;
+      this.stompCombo = 0;
+      this.cameras.main.flash(120, 239, 68, 68);
+    }
+  }
+
+  private registerStomp(): void {
+    this.stompCombo += 1;
+    this.bestStompCombo = Math.max(this.bestStompCombo, this.stompCombo);
+    if (this.stompCombo % STOMP_COMBO_THRESHOLD === 0) {
+      this.speedBoostTimer = SPEED_BOOST_MS;
+    }
+  }
+
+  private takeDamage(): void {
+    if (this.shields > 0) {
+      this.shields -= 1;
+      this.invulnTimer = PLATFORMER_INVULN_MS;
+      this.cameras.main.flash(140, 56, 189, 248);
+      return;
+    }
+    this.lives -= 1;
+    this.stompCombo = 0;
+    this.invulnTimer = PLATFORMER_INVULN_MS;
+    this.cameras.main.flash(140, 239, 68, 68);
+    if (this.lives <= 0) this.endLevel('fell');
+  }
+
+  private endLevel(raceOutcome: PlatformerResult['raceOutcome']): void {
+    if (this.gameOver) return;
+    this.gameOver = true;
+    const result: PlatformerResult = {
+      raceOutcome,
+      coins: this.coins,
+      elapsedSeconds: Math.round(this.elapsed * 10) / 10,
+      bestStompCombo: this.bestStompCombo,
+      characterId: this.character.id,
+    };
+    this.registry.set(REGISTRY_KEY_LAST_PLATFORMER_RESULT, result);
+    this.time.delayedCall(300, () => this.scene.start('PlatformerResult'));
+  }
+}

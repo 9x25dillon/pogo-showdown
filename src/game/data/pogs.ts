@@ -26,6 +26,19 @@ export interface PogPerks {
   secondWind?: boolean;
 }
 
+/**
+ * A usable battle item, for the Pog Quest platformer mode - separate from
+ * the passive `perks` above, which keep applying unmodified in Pogo Dash
+ * and Pog Battles. A pog can define both (dual-purpose), just one, or
+ * neither.
+ */
+export interface PogActiveEffect {
+  kind: 'shieldBurst';
+  /** uses per level attempt; not persisted to IndexedDB in Phase 1 */
+  charges: number;
+  invulnMs: number;
+}
+
 export interface PogDef {
   id: string;
   name: string;
@@ -36,6 +49,7 @@ export interface PogDef {
   droppedBy: string;
   blurb: string;
   perks: PogPerks;
+  activeEffect?: PogActiveEffect;
 }
 
 export const RARITY_WEIGHT: Record<PogRarity, number> = { common: 1, rare: 2, epic: 3, legendary: 4 };
@@ -63,7 +77,8 @@ export const POG_CATALOG: PogDef[] = [
   { id: 'crown', name: 'Tin Crown', emoji: '\u{1F451}', rarity: 'rare', color: 0xf4c430, droppedBy: 'cleo',
     blurb: 'Cleo’s. Combos climb faster.', perks: { flair: 0.12 } },
   { id: 'bicep', name: 'Bicep Badge', emoji: '\u{1F4AA}', rarity: 'rare', color: 0xd9432f, droppedBy: 'khan',
-    blurb: 'Genghis’s. Absorbs one hit without breaking your combo.', perks: { shieldHits: 1 } },
+    blurb: 'Genghis’s. Absorbs one hit without breaking your combo. In Pog Quest, activate it for a shield burst.',
+    perks: { shieldHits: 1 }, activeEffect: { kind: 'shieldBurst', charges: 1, invulnMs: 3000 } },
   { id: 'foil', name: 'Foil Tip', emoji: '⚔️', rarity: 'common', color: 0xc0c0c8, droppedBy: 'joan',
     blurb: 'Jo’s. Cleaner dodges pay more.', perks: { trickBonus: 4 } },
   { id: 'chalk', name: 'Chalk Disc', emoji: '\u{1F9E0}', rarity: 'common', color: 0x3b82f6, droppedBy: 'einstein',
