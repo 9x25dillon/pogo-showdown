@@ -26,6 +26,18 @@ export interface PogPerks {
   secondWind?: boolean;
 }
 
+/**
+ * A usable battle item, for the Pog Quest platformer mode - separate from
+ * the passive `perks` above, which keep applying unmodified in Pogo Dash
+ * and Pog Battles. A pog can define both (dual-purpose), just one, or
+ * neither. `charges` are per level attempt; not persisted to IndexedDB.
+ */
+export type PogActiveEffect =
+  | { kind: 'shieldBurst'; charges: number; invulnMs: number }
+  | { kind: 'speedBurst'; charges: number; boostMs: number }
+  | { kind: 'extraLife'; charges: number }
+  | { kind: 'projectile'; charges: number };
+
 export interface PogDef {
   id: string;
   name: string;
@@ -36,6 +48,7 @@ export interface PogDef {
   droppedBy: string;
   blurb: string;
   perks: PogPerks;
+  activeEffect?: PogActiveEffect;
 }
 
 export const RARITY_WEIGHT: Record<PogRarity, number> = { common: 1, rare: 2, epic: 3, legendary: 4 };
@@ -63,7 +76,8 @@ export const POG_CATALOG: PogDef[] = [
   { id: 'crown', name: 'Tin Crown', emoji: '\u{1F451}', rarity: 'rare', color: 0xf4c430, droppedBy: 'cleo',
     blurb: 'Cleo’s. Combos climb faster.', perks: { flair: 0.12 } },
   { id: 'bicep', name: 'Bicep Badge', emoji: '\u{1F4AA}', rarity: 'rare', color: 0xd9432f, droppedBy: 'khan',
-    blurb: 'Genghis’s. Absorbs one hit without breaking your combo.', perks: { shieldHits: 1 } },
+    blurb: 'Genghis’s. Absorbs one hit without breaking your combo. In Pog Quest, activate it for a shield burst.',
+    perks: { shieldHits: 1 }, activeEffect: { kind: 'shieldBurst', charges: 1, invulnMs: 3000 } },
   { id: 'foil', name: 'Foil Tip', emoji: '⚔️', rarity: 'common', color: 0xc0c0c8, droppedBy: 'joan',
     blurb: 'Jo’s. Cleaner dodges pay more.', perks: { trickBonus: 4 } },
   { id: 'chalk', name: 'Chalk Disc', emoji: '\u{1F9E0}', rarity: 'common', color: 0x3b82f6, droppedBy: 'einstein',
@@ -85,13 +99,16 @@ export const POG_CATALOG: PogDef[] = [
   { id: 'propeller', name: 'Propeller Cap', emoji: '✈️', rarity: 'epic', color: 0x0ea5e9, droppedBy: 'earhart',
     blurb: 'Amelia’s. Faster ramp, and a shield for when it bites.', perks: { speedScale: 1.1, shieldHits: 1 } },
   { id: 'lantern', name: 'Lantern Pog', emoji: '\u{1F31F}', rarity: 'legendary', color: 0x78350f, droppedBy: 'tubman',
-    blurb: 'Harriet’s. Second wind: come back once from zero.', perks: { secondWind: true, starBonus: 8 } },
+    blurb: 'Harriet’s. Second wind: come back once from zero. In Pog Quest, activate it for an extra life.',
+    perks: { secondWind: true, starBonus: 8 }, activeEffect: { kind: 'extraLife', charges: 1 } },
   { id: 'radium', name: 'Radium Disc', emoji: '☢️', rarity: 'epic', color: 0x22d3ee, droppedBy: 'curie',
     blurb: 'Marie’s. Everything glows a bit brighter.', perks: { starBonus: 10, trickBonus: 4 } },
   { id: 'coil', name: 'Tesla Coil', emoji: '⚡', rarity: 'epic', color: 0x7c3aed, droppedBy: 'tesla',
-    blurb: 'Nikola’s. Fastest ramp on the circuit. Not for the timid.', perks: { speedScale: 1.15 } },
+    blurb: 'Nikola’s. Fastest ramp on the circuit. Not for the timid. In Pog Quest, activate it for a burst of speed.',
+    perks: { speedScale: 1.15 }, activeEffect: { kind: 'speedBurst', charges: 2, boostMs: 3500 } },
   { id: 'dragon', name: 'Dragon Slammer', emoji: '\u{1F409}', rarity: 'legendary', color: 0xdc2626, droppedBy: 'brucelee',
-    blurb: 'Bruce’s. Two shield hits and serious style.', perks: { shieldHits: 2, flair: 0.15 } },
+    blurb: 'Bruce’s. Two shield hits and serious style. In Pog Quest, activate it to hurl a slam projectile.',
+    perks: { shieldHits: 2, flair: 0.15 }, activeEffect: { kind: 'projectile', charges: 3 } },
   { id: 'pearl', name: 'Virgin Pearl', emoji: '\u{1F48E}', rarity: 'epic', color: 0xa855f7, droppedBy: 'elizabeth',
     blurb: 'Elizabeth’s. Slower ramp, one extra life. The long game.', perks: { speedScale: 0.9, extraLives: 1 } },
   { id: 'tusk', name: 'Tusk Cap', emoji: '\u{1F418}', rarity: 'epic', color: 0x92400e, droppedBy: 'hannibal',

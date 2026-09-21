@@ -84,6 +84,19 @@ export async function equippedPerks(): Promise<Required<PogPerks>> {
   return defs.length ? aggregatePerks(defs) : { ...EMPTY_PERKS };
 }
 
+/**
+ * Identity-preserving version of equippedPerks(), for modes (Pog Quest)
+ * that need to know *which* pog instance is carried - e.g. to track an
+ * individual item's remaining charges - not just a flattened stat bag.
+ */
+export async function equippedLoadout(): Promise<{ instance: PogInstance; def: PogDef }[]> {
+  const owned = await getCollection();
+  return owned
+    .filter((i) => i.equipped)
+    .map((instance) => ({ instance, def: pogDef(instance.defId) }))
+    .filter((row): row is { instance: PogInstance; def: PogDef } => !!row.def);
+}
+
 // ---------------- battles ----------------
 
 export interface BattleOpponent {

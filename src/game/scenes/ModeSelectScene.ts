@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
-import { COLORS, HEIGHT, WIDTH } from '../config';
+import { COLORS, HEIGHT, REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, WIDTH } from '../config';
 import { ensureSeasonSimulated, getProfile } from '../db/repository';
 import { TIERS } from '../db/schema';
+import { LEVELS } from '../data/levels';
 
 interface ModeButtonOpts {
   y: number;
@@ -103,6 +104,34 @@ export class ModeSelectScene extends Phaser.Scene {
       enabled: true,
       onTap: () => this.scene.start('PogBinder'),
     });
+
+    this.makeModeButton({
+      y: 730,
+      label: '\u{1F3C1}  Pog Quest',
+      sublabel: 'race to the flag · fight & stomp',
+      color: 0x38bdf8,
+      enabled: true,
+      onTap: () => {
+        this.registry.set(REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, 0);
+        this.scene.start('PlatformerRun');
+      },
+    });
+
+    const coopIndex = LEVELS.findIndex((l) => l.coop);
+    if (coopIndex >= 0) {
+      const coopLink = this.add
+        .text(WIDTH / 2, 790, '\u{1F91D} Co-op boss fight (2P, keyboard: WASD + arrows)', {
+          fontSize: '12px',
+          fontFamily: 'system-ui, sans-serif',
+          color: '#6ee7ff',
+        })
+        .setOrigin(0.5)
+        .setInteractive({ useHandCursor: true });
+      coopLink.on('pointerdown', () => {
+        this.registry.set(REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, coopIndex);
+        this.scene.start('PlatformerRun');
+      });
+    }
 
     this.add
       .text(WIDTH / 2, HEIGHT - 40, 'swipe to dodge · up to bounce · down to duck', {

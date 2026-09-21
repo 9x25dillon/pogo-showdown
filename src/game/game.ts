@@ -11,6 +11,9 @@ import { LoadoutScene } from './scenes/LoadoutScene';
 import { TrickLabScene } from './scenes/TrickLabScene';
 import { PogBinderScene } from './scenes/PogBinderScene';
 import { PogBattleScene } from './scenes/PogBattleScene';
+import { PlatformerRunScene } from './scenes/PlatformerRunScene';
+import { PlatformerResultScene } from './scenes/PlatformerResultScene';
+import { PlatformerPauseScene } from './scenes/PlatformerPauseScene';
 
 export function createGame(parent: string): Phaser.Game {
   const game = new Phaser.Game({
@@ -22,6 +25,12 @@ export function createGame(parent: string): Phaser.Game {
     scale: {
       mode: Phaser.Scale.FIT,
       autoCenter: Phaser.Scale.CENTER_BOTH,
+    },
+    // gravity is set per-body (see PlatformerRunScene) so this stays inert
+    // for every other scene, none of which call this.physics.add.*
+    physics: {
+      default: 'arcade',
+      arcade: { gravity: { x: 0, y: 0 }, debug: false },
     },
     scene: [
       BootScene,
@@ -35,6 +44,9 @@ export function createGame(parent: string): Phaser.Game {
       TrickLabScene,
       PogBinderScene,
       PogBattleScene,
+      PlatformerRunScene,
+      PlatformerResultScene,
+      PlatformerPauseScene,
     ],
   });
   (window as unknown as { __game?: Phaser.Game }).__game = game; // test hook for automated drives

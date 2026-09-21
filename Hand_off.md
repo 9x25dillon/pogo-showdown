@@ -1,193 +1,118 @@
 # Pogo Showdown — next-session handoff
 
-Updated after the September 17, 2026 session (release + balance tuning).
+## September 21 follow-up
+
+Continued on `feat/pog-quest-platformer`. Added a Pog Quest pause overlay (touch PAUSE or Escape) with resume, retry, and menu actions. The gameplay scene is paused so physics, timers, and tweens freeze together; held controls are cleared before pausing. Touch pointers are reused across retries. Camera and physics bounds now use each level's `widthPx`, fixing Signature Sprint's finish being outside the camera boundary.
+
+Platformer regression coverage now lives in `tests/platformer-regression.mjs`, called by `npm run test:browser` in its isolated browser context. Covers movement/jump, pause/resume/retry/menu, rival stomps, restart listeners/pointers, level bounds and real goal overlap, boss phases/victory, solo progression boundaries, co-op input/shared lives, coins, and gap defeat. The older notes below about missing committed test scripts are superseded. Economy integration, touch co-op, and human physics tuning remain open.
+
+Updated after the September 17, 2026 session (Android release cleanup, a balance pass, and a new platformer mode built across three phases).
 
 ## Start here
 
-This session: (1) rebuilt and published the Android release that had fallen a commit behind the last GitHub release, and (2) ran a data-driven character balance pass. Both are pushed to `master`.
+Two distinct pieces of work happened today, on two different lines of history:
 
-- Workspace: `/home/kill/pogo-showdown`.
-- Repository: https://github.com/9x25dillon/pogo-showdown, default branch `master`.
-- Android release **v0.4.0** is live: https://github.com/9x25dillon/pogo-showdown/releases/tag/v0.4.0 (signed APK attached, same upload key as v0.1.0–v0.3.0, installs as an update). `versionCode` 4, `versionName` "0.4.0".
-- Why a new release was needed: `b8df0da` (per-character mastery) merged *after* the v0.3.0 tag was cut, so the last published APK didn't include it. Fixed by bumping the version and cutting v0.4.0.
-- Character balance pass (see below) landed in three commits after v0.4.0 was tagged, so **the published v0.4.0 APK does not include the balance changes** — the next release should bundle them.
-- Local `master` is clean and pushed as of this handoff.
+1. **On `master`**: finished the v0.4.0 Android release (it had fallen a commit behind) and ran a data-driven balance pass. `master` is clean, pushed, and unchanged since.
+2. **On a new branch, `feat/pog-quest-platformer`** (branched from `master` at `f373e1e`, per the user's explicit request to keep the released game untouched): built "Pog Quest," a genuinely new 2D side-scroller mode — gravity/jump physics, an AI rival you race *and* fight, collectible pogs reworked into usable battle items, a boss fight, and local 2-player co-op. Four commits, ~1,626 lines across 14 files (10 new). **You are almost certainly continuing on this branch, not `master`.**
 
-Begin the next session by reading this file, checking `git status --short`, branch and remote state, and any applicable workspace instructions. Do not assume temporary processes or screenshots still exist. Preserve any user edits. Do not recreate completed modes or ask again whether mastery should be separate.
+```
+git branch --show-current   # should say feat/pog-quest-platformer
+git log --oneline master..feat/pog-quest-platformer
+```
 
-## Product and architecture
+**Known environment gotchas, hit and solved today — read before testing:**
 
-A portrait, web-first game using TypeScript, Phaser 4, Vite, and a Capacitor Android wrapper. Logical canvas size: **480 × 854**. Art is procedural geometry, generated textures, and emoji; no new raster assets were needed this session.
+- The **system Chromium is currently broken** (`~/.config/chromium` → "Transport endpoint is not connected"). This session accidentally killed the `fuse-overlayfs` mount backing it via an overly broad `pkill -f "chromium"` cleanup command that also matched an unrelated system process. Use the **Playwright-bundled Chromium** instead: `~/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome --headless --no-sandbox --disable-gpu --remote-debugging-port=9333 --user-data-dir=/tmp/<unique-dir> about:blank`. Never `pkill` by a bare substring again — kill by the specific PID you captured at launch, or match a unique `--user-data-dir` flag.
+- **Headless Chrome's requestAnimationFrame rate is inconsistent in this environment** (confirmed on more than one freshly-launched browser process — not just a stale-process artifact). Simulated physics `dt` per frame is always correct; the wall-clock-to-frame-count ratio is not fixed. A test that does "hold input, `pause(600ms)`, assert position moved by ~X px" will intermittently and falsely look like a regression. **Poll a condition instead** (e.g. `waitFor('player.body.velocity.x >= 209')`) rather than asserting on a fixed-pause position delta. This bit the movement check in `/tmp/.../verify-platformer.mjs` twice before being fixed properly.
 
-Everything is local. IndexedDB stores progression; the leaderboard uses localStorage. The Circuit is a deterministic daily simulation against historical pros, not online multiplayer. IndexedDB has an in-memory fallback when persistent storage is unavailable.
+## Product and architecture (orientation, unchanged today)
 
-Existing modes and screens:
+A portrait (480×854), web-first game: TypeScript, Phaser 4, Vite, wrapped for Android via Capacitor. No external art assets — everything is procedural Graphics→`generateTexture` or emoji. IndexedDB holds progression (`LocalDB.ts`); everything is local, no accounts or network calls.
 
-- **Pogo Dash:** endless three-lane runner, with lane changes, jumps, ducks, combos, character perks, and equipped collectible-pog perks.
-- **The Circuit:** daily simulated league against 11 pros. Unlocks at Pro career standing. The first eligible Pogo Dash run of the day resolves the player's scheduled match.
-- **Yoyo Trick Lab:** 60-second gesture-pattern sessions with three strings. Sessions count toward Yoyo Rig usage; profile stores sessions and best score.
-- **Pog Battles:** best-of-three timing slams. Highschooler practice is unstaked; ranked pros require Pro access and an owned stake. Wins can award one signature-pog drop per opponent per calendar day. Ranked losses remove the stake.
-- **Pog Binder:** collectible inventory and equipment. Collection grids now paginate rather than hiding all but the first nine items. Ranked stake grids paginate beyond fifteen items.
-- **The Locker:** shared Pog Stack and Yoyo Rig purchases plus a view of the selected character's earned mastery. Arrow controls change the active character.
+Existing modes (all on `master`, all untouched today): **Pogo Dash** (the 3-lane endless dodge/trick runner, `RunScene.ts`), **The Circuit** (daily simulated league vs. 11 historical pros, unlocks at Pro career standing), **Yoyo Trick Lab** (60s gesture-pattern combos), **Pog Battles** (turn-based best-of-3 timing slams, wagers collectible pogs), **Pog Binder** (collection/equip screen), plus per-character mastery, career tiers, and a Tech Point/Advantage gear economy. Full mechanics for all of that are documented in earlier `Hand_off.md` history (`git log -p -- Hand_off.md` on `master`, or the prior commit `f373e1e`) — trimmed here to make room for today's new material; nothing about them changed today.
 
-## What changed this session (balance tuning)
+**Pog Quest** (this branch only, not on `master`) is the new sixth mode — see the architecture table below.
 
-Simulated RunScene's actual scoring formulas outside Phaser (Monte Carlo, thousands of runs per character across fixed "skill" levels — probability of correctly timing a jump/duck — since real human reflex data doesn't exist yet) to compare characters head to head. Script was scratch work, not committed; rerun it from the formulas below if needed.
+## Key decisions made today
 
-**Finding:** pure-survivability characters (Khan's extra life, Sun Tzu's shield) beat every flairMod-based character (Cleo, Joan, Frida, Leo) by 20-30%, widening with skill/run length. Root cause: passive score (`speed * dt * PASSIVE_SCORE_RATE`, the dominant score channel over a full run) previously ignored `flairMod` entirely, so an extra life converted directly into more of the dominant channel while flairMod only touched the secondary trick-point channel. Einstein and Ada (no flairMod at baseline) trailed by a similar 23-30%, for a different reason: their identity stats (speedMod, timingMod) don't compound with survival time the way flairMod now does.
+- **New mode on a new branch, not a rewrite of Pogo Dash on `master`.** The original ask ("replace the core mode") got superseded by the user's explicit "this can be an additional branch... to preserve the pogo showdown work." Nothing about Pogo Dash, Circuit, career tiers, or Pog Battles changed.
+- **Phased build, not one pass.** Plan-mode produced a 4-phase plan (vertical slice → more content → boss → co-op); each phase was built, tested, and committed before starting the next, rather than attempting the full end-state vision in one sitting.
+- **Arcade Physics (Phaser's built-in), added globally but inert by default.** `game.ts` now has a `physics` block, but global gravity is `0` and every other scene is untouched (none of them call `this.physics.add.*`). Gravity is set per-body only on the platformer's sprites.
+- **Camera follows the player horizontally only, never vertically** (`startFollow(player, true, 1, 0)`), on a level built wide in world-space. Avoids jump-bounce camera jitter without touching the portrait 480×854 canvas the rest of the app (and the Android shell) assumes.
+- **Touch controls are twin hold-zones + jump/item circles, not swipes.** `RunScene`'s swipe classification can't express "hold to keep running" or "hold to jump higher"; a continuous platformer needs held state, so this is a new input pattern, not a reuse.
+- **Pogs became dual-purpose, not migrated.** `PogDef.activeEffect` sits alongside the existing `perks` field. `equippedPerks()` (used by Pogo Dash and Pog Battles) is untouched; a new `equippedLoadout()` was added for the platformer's identity-preserving needs. A pog can be passive-only, active-only, or both.
+- **The rival AI shares the exact same `PlayerController` the human uses**, fed synthetic input from `rivalAI.ts` (waypoint-following) instead of a separate movement implementation — tuning never has to be kept in sync across two systems.
+- **Player↔rival stomp exchanges stun, they don't eliminate or cost a life.** This is a *different* rule from environmental hazards (which do cost lives) — deliberately, so the race stays competitive instead of becoming a one-hit knockout.
+- **Boss health is a generalization of the existing enemy model** (`maxHealth`, default 1 for ordinary enemies), not a parallel system. `damageEnemy(enemy, amount)` is the one function both a one-hit patroller and a 3-hit boss go through.
+- **Co-op has a shared lives pool but per-player invulnerability.** Getting hit doesn't make your partner briefly invincible too. This was a specific, discussed tradeoff, not an accident of shared vs. separate state.
+- **Co-op's item button, and the camera, are P1-only in this first pass.** Documented scope cuts, not oversights — see "Not done yet" below.
 
-**Fixes (three commits, `src/game/config.ts`, `src/game/scenes/RunScene.ts`, `src/game/data/characters.ts`):**
+## Unresolved assumptions — flag these back to the user, don't silently resolve them
 
-- `PASSIVE_FLAIR_WEIGHT = 1.1` in `config.ts`: `passiveMod = 1 + (flairMod - 1) * PASSIVE_FLAIR_WEIGHT` now multiplies the passive score gain, not just trick points. Closes the flairMod-character gap to ~5-17%. `scoreCurve.ts` (career tiers, pro-opponent scoring) is untouched by design — it's flairMod-agnostic and stays the flairMod-1 baseline.
-- Einstein: `flairMod` 1 → 1.15 (keeps "Momentum+" as the headline stat).
-- Ada: `flairMod` 1 → 1.2 (chosen over a flat trickBonus because flairMod compounds with the passive-score fix the same way Frida's does; landed in Frida's ~11-18%-behind territory rather than Ada's own ~20-30%).
+1. **Whether Pog Quest should ever feed the existing economy** (career tiers, Circuit auto-resolve, character mastery credit). Currently `recordRun()` is never called from the new scenes — deliberate non-integration, not yet a real decision either way.
+2. **Whether Pog Quest eventually *replaces* Pogo Dash** or stays a permanent second mode. The very first clarifying question got "replace," but the branch-first framing sidestepped actually doing that — right now they coexist as siblings on the mode-select screen.
+3. **Touch-based 2-player input for co-op is still unsolved.** Keyboard-only (P1 WASD, P2 arrows) was always meant as the *first*, lower-risk step, not the answer — splitting touch input across one small portrait phone screen needs its own design pass.
+4. **How many pogs should get an active effect, and whether more than one should be equippable at once.** Only 4 of 20 pogs have one; `activeItem` is hard-limited to whichever equipped pog is found first.
+5. **None of the physics/pacing constants are human-validated** (`GRAVITY_Y`, `JUMP_VELOCITY`, `MOVE_SPEED`, `RIVAL_MOVE_SPEED`, boss `chargeSpeed`, `paceMultiplier`, etc.) — all reasonable defaults per the plan's own framing, proven only via headless-browser physics assertions, never a real thumb on a real screen.
+6. **The v0.4.0 Android release does not include today's balance-tuning commits** (they landed after the tag was cut) — flagged last session too, still true, still not released.
+7. **Merge strategy and timing for `feat/pog-quest-platformer` → `master`** has not been discussed at all.
 
-This is still an initial tuning pass grounded in simulated formulas, not real playtesting — Khan/Sun Tzu still lead by design (survivability archetype), and nobody has measured whether Ada's `timingMod` (15% longer jump/duck window) actually helps human reflexes as much as this pass assumes it might. Flag both to the user before further rebalancing.
-
-## What changed in the previous session (per-character mastery, 2026-09-16)
-
-### Separate character mastery
-
-`PlayerProfile.characters[characterId]` stores `runs`, `trainingRuns`, and `bestScore`. `lastCharacterId` records the last runner. These optional fields preserve compatibility with old profiles.
-
-- Completing a Pogo Dash run after **15 active seconds** earns one training run for that character. Paused time does not count. Short runs still count as runs and can update the personal best.
-- Every **four training runs** earns one character level, capped at **level 10**.
-- Mastery tier thresholds: **4 / 12 / 24 / 40** training runs.
-- Corresponding mastery points: **6 / 12 / 18 / 24**.
-- Mastery now costs **no Tech Points** and cannot be purchased or traded in.
-- Character selection, the Locker, and results expose individual progression.
-- Circuit scoring uses the actual runner's training. Ranked Pog Battles uses the registry's selected character, falling back to the last played character, then Cleo.
-- Only Pogo Dash currently awards character training. Trick Lab and Pog Battles do not.
-
-### Existing-save migration
-
-`getLoadout()` performs a one-time migration guarded by `characterMasteryMigrated`:
-
-1. Refund the cumulative TP cost of the old owned shared-mastery tier by reducing `techPointsSpent`.
-2. Reset the legacy mastery axis and record `masteryRefund`.
-3. Keep gear, currency earned, collections, and career records intact.
-
-Old aggregate runs were not reliably attributed to characters. Individual character records therefore begin with this update; historical career totals remain. Do not invent character-specific history from the aggregate count. Repeated reads must never issue another refund.
-
-IndexedDB remains **version 3**. New optional properties on existing objects need no store upgrade. New stores or indexes require an appropriate versioned upgrade.
-
-### Balance and economy
-
-- Natural advantage grows by **1.5 percentage points per character level**, capped at **15%**, while net TP spent is zero.
-- Otherwise gear points and that character's mastery combine, with +6 synergy for each maxed axis and a hard **30% total cap**.
-- This Advantage applies to Circuit scores and ranked slams. It does not multiply casual runner scores. Character and collectible-pog perks still affect the runner.
-- Crossing multiple career tiers in one run now awards a TP for **each** tier crossed. This fixes future awards; it does not retroactively reconstruct historically missed bonuses.
-- Gear step costs remain `[2, 4, 6, 6]`; cumulative costs `[0, 2, 6, 12, 18]`. Gear trade-in refunds half the cumulative cost.
-- Lifetime TP sources remain five career-tier awards plus up to twenty Circuit-win awards. Refunded TP is returned spending capacity, not new earnings.
-
-Character changes:
-
-| Character | Current distinction relevant to this pass |
-|---|---|
-| Cleo | Flair multiplier 1.3 |
-| Khan | One extra starting life |
-| Joan | +6 base points for successful hurdle/banner dodges; flair 1.15 |
-| Albert | Speed ramp multiplier 1.25 |
-| Ada | Jump and duck durations ×1.15; speed ramp ×0.9 |
-| Sun Tzu | One starting shield that absorbs a hit while preserving the combo |
-| Frida | Flair reduced from 1.4 to 1.2; retains speed ramp ×0.95 |
-| Leo | Star spawn probability 26%, versus the standard 16%; flair 1.1 |
-
-Career thresholds are unchanged: Rookie 0, Amateur 600, Varsity 2,000, Semi-Pro 5,000, Pro 10,000, Elite 20,000. Runner constants remain `BASE_SPEED=260`, `MAX_SPEED=680`, `SPEED_RAMP=5.5`, `PASSIVE_SCORE_RATE=0.12`. Consult `scoreCurve.ts` when changing these; opponent scoring depends on them.
-
-This is an initial tuning pass. Automated checks establish the implemented rules, not equal character strength or enjoyable pacing. Human playtesting remains necessary.
-
-### Graphics, controls, and reliability
-
-- Hurdles have orange raised-barrier silhouettes and upward chevrons; banners have purple hanging silhouettes and downward chevrons.
-- Added rider details, landing shadow, character-colored road edges, compact life/shield HUD, and a fading control hint.
-- Added pause button, P/Esc pause/resume, and auto-pause on focus loss.
-- Bounce animation uses elapsed time; repeated lane changes replace competing movement tweens.
-- Destroyed obstacles are removed from the update list.
-- Run, Trick Lab, and Pog Battle keyboard listeners are cleaned up on shutdown; Run and Trick Lab pointer handlers are also cleaned up.
-- Fixed menu updates targeting destroyed text after an early scene exit, the Binder's initial perk-summary race, and repeated activation of several transition buttons.
-
-## Where to work
+## Pog Quest architecture — file map
 
 | File | Responsibility |
 |---|---|
-| `src/game/systems/characterMastery.ts` | Training minimum, thresholds, progress lookup, mastery summary |
-| `src/game/db/schema.ts` | Profile and per-character record shape; career tiers |
-| `src/game/db/repository.ts` | Run recording, character credit, tier rewards, Circuit simulation |
-| `src/game/db/loadoutRepository.ts` | Legacy refund migration, TP economy, Advantage calculation |
-| `src/game/db/loadoutSchema.ts` | Gear axes and migration fields |
-| `src/game/data/characters.ts` | Character perk values and descriptions |
-| `src/game/data/loadoutData.ts` | Gear flavors, costs, caps, character-level constants |
-| `src/game/data/pogs.ts` | Collectible catalog, rarity weights, perk clamps |
-| `src/game/db/pogRepository.ts` | Collection, equipment, daily drops, battle results |
-| `src/game/scenes/BootScene.ts` | Procedural texture generation |
-| `src/game/scenes/RunScene.ts` | Runner loop, controls, pause, collisions, scoring |
-| `src/game/scenes/CharacterSelectScene.ts` | Roster picker and mastery preview |
-| `src/game/scenes/LoadoutScene.ts` | Gear shop and character mastery view |
-| `src/game/scenes/GameOverScene.ts` | Results, mastery summary, score submission |
-| `src/game/ui/pageControls.ts` | Shared inventory page controls |
-| `tests/browser-regression.mjs` | Isolated browser regression suite |
-| `PLAY_STORE.md` | Existing Android build/signing/release instructions |
+| `src/game/data/platformerConfig.ts` | Every physics/gameplay tunable in one place (gravity, jump, move speed, stomp/combo rules, boss timings, projectile speed) |
+| `src/game/data/levels.ts` | `LevelDef` type, builder helpers, `LEVEL_1`–`LEVEL_4`, `LEVELS` array |
+| `src/game/data/platformerEnemies.ts` | Enemy type table (`patroller`, `flyer`, `boss`) — texture, contact damage, stomp reward, `maxHealth`, `chargeSpeed` |
+| `src/game/data/pogs.ts` | `PogActiveEffect` (discriminated union: `shieldBurst`/`speedBurst`/`extraLife`/`projectile`), alongside the pre-existing passive `perks` |
+| `src/game/systems/PlayerController.ts` | Shared movement/physics: accel, coyote time, jump buffer, jump-cut — used by the human player, P2, and the AI rival alike |
+| `src/game/systems/rivalAI.ts` | Turns a level's authored waypoints into `ControllerInput` for the rival |
+| `src/game/db/platformerResult.ts` | `PlatformerResult` (win/loss/coins/combo/level index) — separate from `runResult.ts`, which is score/tier-shaped for Pogo Dash |
+| `src/game/db/pogRepository.ts` | `equippedLoadout()` (new, identity-preserving) alongside the untouched `equippedPerks()` |
+| `src/game/scenes/PlatformerRunScene.ts` | The gameplay scene — by far the largest file (~860 lines): movement, stomp/damage resolution, boss AI, co-op, items, HUD, controls |
+| `src/game/scenes/PlatformerResultScene.ts` | Win/loss/fell screen; offers NEXT LEVEL only when it wouldn't dump a solo player into the co-op level |
+| `src/game/scenes/ModeSelectScene.ts` | "Pog Quest" button (resets to level 0) + a compact co-op text link (`LEVELS.findIndex(l => l.coop)`) |
+| `src/game/scenes/BootScene.ts` | New procedural textures: platform tile, coin, patrol/flying/boss enemies, projectile, goal flag, shield-burst icon |
+
+Levels: `LEVEL_1` "Footpeg Flats" and `LEVEL_2` "Signature Sprint" are normal race-and-fight levels; `LEVEL_3` "Circuit Showdown" is the boss arena (`bossLevel: true`, no rival, no goal flag); `LEVEL_4` "Co-op Circuit" is the same boss shape at `paceMultiplier: 0.65` (`coop: true`, spawns via `player2Start`).
 
 ## Run and verify
 
-```bash
-npm run dev
-npm run build
-git diff --check
-```
+Same commands as always (`npm run dev`, `npm run build`, `npx tsc --noEmit`, `npm run test:browser`), but for the platformer specifically there is **no committed regression coverage yet** — every check this session lived in ad hoc scripts under the scratchpad (`verify-platformer.mjs`, `verify-phase2.mjs`, `verify-boss.mjs`, `verify-coop.mjs`), which are **not saved in the repo** and won't survive to next session. If picking this back up, either:
+- recreate similar scripts (the existing `tests/browser-regression.mjs` shows the CDP-over-WebSocket pattern — `Target.createBrowserContext` per test group, `window.__game.scene.getScene('PlatformerRun')` to reach in directly), or
+- fold the platformer checks into `tests/browser-regression.mjs` itself so they're not lost again.
 
-The browser regression suite needs a Vite **development** server and Chromium with remote debugging. It imports source modules through Vite and is not designed to run against production preview.
+Use `scene.restart()` (Phaser's own API) to restart the *current* scene — a manual `for (...) s.scene.stop(); scene.start(key)` loop races Phaser's scene queue when the target is already the active scene and can leave it stuck at `SHUTDOWN` status. This cost real debugging time twice today before being traced correctly.
 
-This session used the system Chromium instead of a Playwright-managed one:
-
-```bash
-/usr/bin/chromium --headless --no-sandbox --disable-gpu \
-  --remote-debugging-port=9333 \
-  --user-data-dir=/tmp/pogo-browser-check about:blank
-```
-
-`npm run dev` binds to `localhost` (IPv6 `::1`) — `curl 127.0.0.1:PORT` will get connection-refused even though the server is up; use `localhost` or `::1`. Also: a `Bash` tool call backgrounded with a trailing `&` in this environment can get torn down when that specific tool call ends — use the tool's own `run_in_background` option instead, or the dev server dies silently between calls.
-
-Check whether that executable and the ports are available rather than assuming they persist. With the server and browser running:
-
-```bash
-npm run test:browser
-# Optional screenshots:
-POGO_SCREENSHOT_DIR=/tmp npm run test:browser
-```
-
-Defaults: `POGO_URL=http://127.0.0.1:5173`, `CDP_URL=http://127.0.0.1:9333`. Both can be overridden. The suite uses modern Node's native `fetch` and `WebSocket`; this session used Node 26.8.2. It creates and disposes an isolated browser context, leaving ordinary player saves untouched. No Playwright package install is required.
-
-Verified this session:
-
-- Production build, `tsc --noEmit`, and the full browser regression suite passed after the version bump and after each balance commit.
-- Signed release APK's certificate verified against `apksigner` (SHA-256 `f0da5384...`, matches `PLAY_STORE.md`'s recorded upload-key fingerprint).
-- A real Android phone was attached over `adb` this session (`adb devices` showed one) but was not used to playtest — only the balance simulation and automated regressions ran. Physical playtesting is still outstanding.
-- No GitHub CI checks are configured on this repo; verification is local only.
-
-Local ports and `.git` writes needed approval via the sandbox's normal escalation prompt this session (browser/server startup, browser connections, Git/GitHub operations). Expect the same next time.
+When forcing a stomp/hit test by setting `sprite.setPosition(...)` directly (bypassing real gameplay), call `body.updateFromGameObject()` on both bodies immediately after — Arcade bodies cache their bounds and won't reflect a manual position change until the next physics step otherwise, which looks exactly like a broken hit-detection bug but isn't.
 
 ## Recommended next session
 
-1. **Cut a v0.4.1 (or v0.5.0) release bundling the balance commits.** v0.4.0 only has the mastery/gameplay-polish content; the three balance commits made after it aren't in any published APK yet.
-2. **Playtest on the attached phone.** A device was connected via `adb` this session but never used. Specifically worth checking: does Ada's 15%-longer jump/duck window feel meaningfully easier, or is the `flairMod` bump doing all the real work? That answer should drive whether `timingMod` needs its own tuning.
-3. **Re-run the balance simulation after any further character/scoring changes** rather than eyeballing new numbers — the simulator (Monte Carlo against RunScene's real formulas) caught a 20-30% structural gap that wasn't obvious from reading the character table alone.
+1. **Playtest on a phone or at least a real browser tab**, not just headless assertions — none of the physics tuning has had human eyes/thumbs on it yet.
+2. **Decide the economy question** (unresolved assumption #1 above) before building more content that might need to change shape depending on the answer.
+3. **Save the platformer test scripts into the repo** (see "Run and verify") before they're lost to a fresh scratchpad next session.
+4. If continuing content breadth: more active pogs, more enemy variety, more levels — all follow the same data-driven patterns already established (`platformerEnemies.ts`, `levels.ts`, `PogActiveEffect`).
+5. If continuing toward the original Smash-Bros framing: touch-split co-op input is the next real design problem, not just more code.
 
-Preserve the one-time mastery-refund migration, independent character credit, collection accessibility, and the 15%/30% Advantage caps unless the user changes those rules. Keep perk descriptions consistent with code — note Einstein and Ada's perk *text* still only describes their headline stat; the small flairMod bump is intentionally not called out in the UI, matching how Frida's speedMod isn't either.
+## Collaboration retrospective (today)
 
-## Collaboration retrospective
+Three ways the assistant could have been more efficient:
 
-The user asked to finish the Android release, then to keep developing. Given an open choice of focus (playtest / balance / new feature / other), they picked balance tuning, then explicitly approved both the systemic flairMod fix and the Einstein/Ada fix via follow-up choices rather than open-ended requests.
+1. Diagnosed a "movement regression" across two full debug cycles before landing on the real, durable fix (poll a condition, don't assert on a fixed-pause position delta) — the first diagnosis (blamed a stale browser process) was itself incomplete, since the identical symptom reappeared on a genuinely fresh process and should have been treated with more skepticism before being called solved.
+2. Forced a test-state change via `sprite.setPosition()` without calling `body.updateFromGameObject()`, producing a false "stomp didn't register" failure that took a debugging detour to trace — should have anticipated the caching behavior, having already used Arcade Physics bodies elsewhere in the same session.
+3. Used broad `pkill -f "chromium"` cleanup commands more than once despite having the specific PID or a unique `--user-data-dir` flag on hand from the corresponding launch command — the one time this went wrong, it broke something outside the repo that couldn't be un-broken from within the session.
 
-Two things worth carrying forward:
+Three ways the user's prompting could get more out of these sessions:
 
-1. Simulating the actual scoring code (not just reading character stats and reasoning about them) surfaced a real, non-obvious structural issue — survivability perks compound with run length in a way flat multipliers don't. Reasoning from the code alone likely would have missed the size of the gap.
-2. `npm run dev` in this environment binds IPv6-only (`localhost`, not `127.0.0.1`), and backgrounding a dev server with a bare `&` inside one Bash tool call can die when that call ends — costs a few minutes of confused debugging if not expected going in.
+1. The opening ask ("make it into a 2d side scroller kind of like mario") turned out to want something much bigger — a Smash-Bros-style VS mode, bosses, co-op, an item-battle system — that only surfaced across three rounds of clarifying questions. Front-loading the fuller vision, even as a rough bullet list, would let the phased plan get scoped correctly on the first pass instead of needing that back-and-forth.
+2. Momentum phrases like "keep cooking king" are great fuel but bundle multiple possible directions into one line — naming which phase or aspect to prioritize (as happened for boss-vs-co-op, resolved via a clarifying question) saves a round trip.
+3. This very message bundles seven distinct deliverables into one ask (review, decisions, assumptions, two sets of three examples, vocabulary, a full handoff rewrite) — reasonable for a wrap-up, but for ongoing work, splitting "give me the quick version" from "now go build the long document" lets you redirect the cheap part before committing to the expensive part.
 
-Useful vocabulary:
+**New vocabulary, both earned today:**
 
-- **Acceptance criteria:** observable conditions that define completion. Example: each character retains separate mastery after restarting the app.
-- **Invariant:** a rule that must remain true through changes. Example: legacy mastery TP is refunded at most once.
+- **Scope cut** — a boundary drawn on purpose and communicated, not an oversight. ("Co-op's item button is a scope cut, not a bug — P2 can't use items yet.") Naming it this way instead of leaving it implicit is exactly what separates "we know and chose this" from "we forgot."
+- **Flaky** (test) — a check that intermittently fails for reasons unrelated to whether the code is correct (timing, environment, load), as opposed to a real regression. Today's movement-check saga was a flaky test, not a flaky game — worth naming precisely, because the fix for a flaky test (make the assertion deterministic) is completely different from the fix for a regression (find and revert/repair the bad change).
 
-Example next prompt: “Continue from Hand_off.md. Prioritize Android touch feel and character balance. Preserve existing saves and the 30% Advantage cap. Acceptance criteria: no duplicate inputs after restarts, readable controls on my phone, and passing regression tests. Make routine implementation choices, report balance assumptions, and commit, push, and merge when verified.”
+Useful older vocabulary, still relevant: **acceptance criteria** (observable conditions that define "done") and **invariant** (a rule that must stay true through changes) — both from the prior handoff, both still apply, e.g. "no life loss from a player↔rival stomp exchange" is an invariant of the race mechanic.
+
+Example next prompt: *"Continue on feat/pog-quest-platformer. I played it on my phone — jump feels floaty, tighten GRAVITY_Y. Before adding more content, save the verify scripts into tests/ so we stop losing them. Don't touch master."*
