@@ -13,6 +13,7 @@ import { PogBinderScene } from './scenes/PogBinderScene';
 import { PogBattleScene } from './scenes/PogBattleScene';
 import { PlatformerRunScene } from './scenes/PlatformerRunScene';
 import { PlatformerResultScene } from './scenes/PlatformerResultScene';
+import { PlatformerPauseScene } from './scenes/PlatformerPauseScene';
 
 export function createGame(parent: string): Phaser.Game {
   const game = new Phaser.Game({
@@ -45,6 +46,7 @@ export function createGame(parent: string): Phaser.Game {
       PogBattleScene,
       PlatformerRunScene,
       PlatformerResultScene,
+      PlatformerPauseScene,
     ],
   });
   (window as unknown as { __game?: Phaser.Game }).__game = game; // test hook for automated drives

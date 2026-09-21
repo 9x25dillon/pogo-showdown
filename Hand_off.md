@@ -1,5 +1,11 @@
 # Pogo Showdown — next-session handoff
 
+## September 21 follow-up
+
+Continued on `feat/pog-quest-platformer`. Added a Pog Quest pause overlay (touch PAUSE or Escape) with resume, retry, and menu actions. The gameplay scene is paused so physics, timers, and tweens freeze together; held controls are cleared before pausing. Touch pointers are reused across retries. Camera and physics bounds now use each level's `widthPx`, fixing Signature Sprint's finish being outside the camera boundary.
+
+Platformer regression coverage now lives in `tests/platformer-regression.mjs`, called by `npm run test:browser` in its isolated browser context. Covers movement/jump, pause/resume/retry/menu, rival stomps, restart listeners/pointers, level bounds and real goal overlap, boss phases/victory, solo progression boundaries, co-op input/shared lives, coins, and gap defeat. The older notes below about missing committed test scripts are superseded. Economy integration, touch co-op, and human physics tuning remain open.
+
 Updated after the September 17, 2026 session (Android release cleanup, a balance pass, and a new platformer mode built across three phases).
 
 ## Start here

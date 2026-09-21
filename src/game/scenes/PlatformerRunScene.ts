@@ -18,7 +18,6 @@ import {
   FLYER_BOB_SPEED,
   GAP_DEATH_Y,
   GRAVITY_Y,
-  LEVEL_WIDTH_PX,
   MOVE_ACCEL,
   MOVE_SPEED,
   PLATFORMER_INVULN_MS,
@@ -194,13 +193,14 @@ export class PlatformerRunScene extends Phaser.Scene {
 
     this.cameras.main.setBackgroundColor(COLORS.bg);
     this.cameras.main.resetFX();
-    this.input.addPointer(2); // allow simultaneous move + jump touches
+    // Pointers belong to the game, so retries must reuse them.
+    if (this.input.manager.pointersTotal < 3) this.input.addPointer(3 - this.input.manager.pointersTotal);
 
     this.buildLevel();
     this.buildHud();
     this.buildControls();
 
-    this.cameras.main.setBounds(0, 0, LEVEL_WIDTH_PX, HEIGHT);
+    this.cameras.main.setBounds(0, 0, this.level.widthPx, HEIGHT);
     this.cameras.main.startFollow(this.player, true, 1, 0);
 
     this.lastCheckpoint = { x: this.level.playerStart.x, y: this.player.y };
@@ -231,7 +231,7 @@ export class PlatformerRunScene extends Phaser.Scene {
   private buildLevel(): void {
     // extra headroom below the visible area so bodies aren't clamped before
     // the manual gap-death check (GAP_DEATH_Y) gets a chance to fire
-    this.physics.world.setBounds(0, 0, LEVEL_WIDTH_PX, HEIGHT + 200);
+    this.physics.world.setBounds(0, 0, this.level.widthPx, HEIGHT + 200);
     this.staticSolids = this.physics.add.staticGroup();
 
     for (const seg of this.level.ground) {
@@ -379,6 +379,11 @@ export class PlatformerRunScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(40);
+    const pauseButton = this.add.rectangle(WIDTH - 42, 70, 64, 40, 0x362a52)
+      .setScrollFactor(0).setDepth(30).setInteractive({ useHandCursor: true });
+    this.add.text(WIDTH - 42, 70, 'PAUSE', { ...style, fontSize: '12px' })
+      .setOrigin(0.5).setScrollFactor(0).setDepth(31);
+    pauseButton.on('pointerdown', () => this.pauseRun());
   }
 
   private updateHud(): void {
@@ -428,6 +433,7 @@ export class PlatformerRunScene extends Phaser.Scene {
       // simple). Solo modes keep accepting both WASD and arrows for P1.
       const onKeyDown = (e: KeyboardEvent) => {
         const key = e.key.toLowerCase();
+        if (key === 'escape' && !e.repeat) { this.pauseRun(); return; }
         if (key === 'a' || (!this.coopMode && key === 'arrowleft')) this.keyLeftDown = true;
         else if (key === 'd' || (!this.coopMode && key === 'arrowright')) this.keyRightDown = true;
         else if ((key === 'w' || (!this.coopMode && key === 'arrowup') || key === ' ') && !this.keyJumpHeld) {
@@ -457,6 +463,18 @@ export class PlatformerRunScene extends Phaser.Scene {
         kb.off('keyup', onKeyUp);
       });
     }
+  }
+
+  private pauseRun(): void {
+    if (!this.ready || this.gameOver || !this.scene.isActive()) return;
+    // Key/pointer releases can happen while the scene is paused.
+    this.touchMoveLeft = this.touchMoveRight = false;
+    this.keyLeftDown = this.keyRightDown = false;
+    this.touchJumpHeld = this.keyJumpHeld = this.pendingJumpPress = false;
+    this.pendingItemUse = false;
+    this.p2LeftDown = this.p2RightDown = this.p2JumpHeld = this.pendingP2JumpPress = false;
+    this.scene.launch('PlatformerPause');
+    this.scene.pause();
   }
 
   private updateItemButton(): void {
