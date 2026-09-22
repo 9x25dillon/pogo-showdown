@@ -31,6 +31,10 @@ export const T = {
   TOMB: 22,
   PORTAL: 23, // not solid: stand in it and press down
   SHRINE: 24, // unbreakable shrine and realm-wall stone
+  // Phase 3: the Forever Gate
+  GATE: 25, // sealed: solid until all four relics are held
+  ETERNAL: 26, // the opened gate / the Hall's portals: stand in it and press down
+  OBSIDIAN: 27, // the Eternal Hall's throne-room stone
 } as const;
 export type TileId = (typeof T)[keyof typeof T];
 
@@ -74,6 +78,9 @@ export const TILE_INFO: Record<number, TileInfo> = {
   [T.TOMB]: { name: 'Tomb', solid: true, hardness: 1200, minPick: 1, drop: 'dust', color: [0x292524, 0x57534e] },
   [T.PORTAL]: { name: 'Portal', solid: false, hardness: Infinity, minPick: 99, light: 110, color: [0x4c1d95, 0xe879f9] },
   [T.SHRINE]: { name: 'Shrine Stone', solid: true, hardness: Infinity, minPick: 99, color: [0x1f1a2e, 0x3f3560] },
+  [T.GATE]: { name: 'The Forever Gate', solid: true, hardness: Infinity, minPick: 99, color: [0x0f0a18, 0xfacc15] },
+  [T.ETERNAL]: { name: 'Eternal Gateway', solid: false, hardness: Infinity, minPick: 99, light: 150, color: [0x111827, 0xfde68a] },
+  [T.OBSIDIAN]: { name: 'Obsidian', solid: true, hardness: Infinity, minPick: 99, color: [0x0c0a14, 0x2e1065] },
 };
 
 /** tiles you're *in* rather than standing on */

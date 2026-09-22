@@ -1,6 +1,5 @@
 import Phaser from 'phaser';
-import { CHARACTERS } from '../data/characters';
-import { COLORS, HEIGHT, REGISTRY_KEY_CHARACTER, WIDTH } from '../config';
+import { COLORS, HEIGHT, WIDTH } from '../config';
 import { PHYS } from '../data/platformerConfig';
 import { applyHeroGravity, createControllerState, updateController, type ControllerState } from '../systems/PlayerController';
 import { mergePads, readPads, rumble, type PadFrame } from '../systems/gamepad';
@@ -11,11 +10,11 @@ import {
 } from '../realm/items';
 import { generatePocket, type PocketWorld } from '../realm/pocketGen';
 import { BOSSES, createBoss, enraged, hitBoss, updateBoss, type BossCtx, type BossState, type HazardSpec } from '../realm/realmBosses';
-import { POCKETS, POCKET_ORDER, RELICS, type PocketId, type RelicId } from '../realm/realms';
+import { FOREVER_SEGMENTS, POCKETS, POCKET_ORDER, RELICS, type PocketId, type RelicId } from '../realm/realms';
 import { REALM_ENEMIES, spawnCap, spawnTable, type RealmEnemyDef } from '../realm/realmEnemies';
-import { loadRealm, newSeed, saveRealm, type RealmSave } from '../realm/realmSave';
+import { emptyStats, loadRealm, newSeed, packBits, saveRealm, unpackBits, type RealmSave, type RealmStats } from '../realm/realmSave';
 import { SOLID_TILES, T, TILE_INFO, isSolid } from '../realm/tiles';
-import { TILE, generateWorld, type World } from '../realm/worldGen';
+import { GATE_H, GATE_W, TILE, generateWorld, type World } from '../realm/worldGen';
 
 /**
  * The Forever Realm: an open, procedurally generated world you can dig
@@ -122,6 +121,21 @@ export class RealmScene extends Phaser.Scene {
   private gateTiles: { tx: number; ty: number }[] = [];
   private hazards: Hazard[] = [];
   private portalLabels: Phaser.GameObjects.GameObject[] = [];
+  private champion = false;
+  private stats: RealmStats = emptyStats();
+  /** the Reaper's last stage darkens its arena (null = the realm's own darkness) */
+  private darkOverride: number | null = null;
+  private ending?: Phaser.GameObjects.Container;
+  private endingReady = false;
+  // minimap: one pixel per tile; the overworld's is fogged until explored (Terraria-style)
+  private explored?: Uint8Array;
+  private minimapTex?: Phaser.Textures.CanvasTexture;
+  private minimapData?: ImageData;
+  private minimapDirty: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  private minimapParts: Phaser.GameObjects.GameObject[] = [];
+  private minimapDot?: Phaser.GameObjects.Rectangle;
+  private minimapBox = { x: 0, y: 0, w: 0, h: 0 };
+  private minimapTimer = 0;
 
   private hp = BASE_HP;
   private invuln = 0;
@@ -198,7 +212,11 @@ export class RealmScene extends Phaser.Scene {
     return this.pocket ? (this.world as PocketWorld) : undefined;
   }
 
-  create(data: { newWorld?: boolean; pocket?: PocketId } = {}): void {
+  /** seeded per world so a realm's wind (and anything else chancy) replays exactly for a given seed */
+  private rand: () => number = Math.random;
+  private pocketSeed?: number;
+
+  create(data: { newWorld?: boolean; pocket?: PocketId; seed?: number } = {}): void {
     // Phaser hands a scene its previous start data again when started with none;
     // "new world" must apply once, or the next visit would wipe the save again
     this.sys.settings.data = {};
@@ -208,8 +226,12 @@ export class RealmScene extends Phaser.Scene {
       void this.save();
       this.scale.setGameSize(WIDTH, HEIGHT);
     });
+    // the camera outlives restarts: clear travel()'s fade-out, or every portal trip ends on a black screen
+    this.cameras.main.resetFX();
+    this.cameras.main.setFollowOffset(0, 0);
     this.resetState();
     this.pocket = data.pocket;
+    this.pocketSeed = data.seed;
     this.cameras.main.setBackgroundColor(this.pocket ? POCKETS[this.pocket].sky : COLORS.bg);
     music.play('explore');
     const loading = this.add.text(RW / 2, RH / 2, this.pocket ? `crossing into the ${POCKETS[this.pocket].name}…` : 'raising the Forever Realm…', {
@@ -239,6 +261,18 @@ export class RealmScene extends Phaser.Scene {
     this.hazards = [];
     this.portalLabels = [];
     this.windStreaks = [];
+    this.champion = false;
+    this.stats = emptyStats();
+    this.darkOverride = null;
+    this.ending = undefined;
+    this.endingReady = false;
+    this.explored = undefined;
+    this.minimapTex = undefined;
+    this.minimapData = undefined;
+    this.minimapDirty = null;
+    this.minimapParts = [];
+    this.minimapDot = undefined;
+    this.minimapTimer = 0;
     this.hp = BASE_HP;
     this.invuln = 0;
     this.sinceHit = 0;
@@ -274,7 +308,9 @@ export class RealmScene extends Phaser.Scene {
 
   private build(save: RealmSave | undefined): void {
     // portal realms are regenerated every visit; only the overworld keeps its edits
-    this.world = this.pocket ? generatePocket(this.pocket, newSeed()) : generateWorld(save?.seed ?? newSeed());
+    this.world = this.pocket ? generatePocket(this.pocket, this.pocketSeed ?? newSeed()) : generateWorld(save?.seed ?? newSeed());
+    let r = this.world.seed >>> 0 || 1;
+    this.rand = () => ((r = Math.imul(r ^ (r >>> 15), 2246822519) + 0x6d2b79f5) >>> 0) / 4294967296;
     const { w, h, tiles } = this.world;
     if (save) {
       if (!this.pocket) {
@@ -290,7 +326,10 @@ export class RealmScene extends Phaser.Scene {
       this.sword = save.sword;
       this.pickaxe = save.pickaxe;
       this.relics = new Set(save.relics ?? []);
+      this.champion = !!save.champion;
+      this.stats = { ...emptyStats(), ...save.stats };
     }
+    if (!this.pocket) this.openGateIfWorthy();
 
     this.map = this.make.tilemap({ tileWidth: TILE, tileHeight: TILE, width: w, height: h });
     const tileset = this.map.addTilesetImage('realmTiles', 'realmTiles', TILE, TILE, 0, 0)!;
@@ -315,11 +354,10 @@ export class RealmScene extends Phaser.Scene {
     this.spawnPoint = this.pocket ? spawn : save?.spawn ?? spawn;
     const at = this.pocket ? spawn : save?.player ?? spawn;
     this.lastSafe = { ...at };
-    const charId = this.registry.get(REGISTRY_KEY_CHARACTER) as string | undefined;
-    const character = CHARACTERS.find((c) => c.id === charId) ?? CHARACTERS[0];
-    this.player = this.physics.add.sprite(at.x, at.y, 'player').setOrigin(0.5, 1).setScale(0.55).setTint(character.color).setDepth(10);
+    // the Forever Realm's hero is Chakan-styled: skull face, wide-brimmed hat, cloak
+    this.player = this.physics.add.sprite(at.x, at.y, 'realm_hero').setOrigin(0.5, 1).setDepth(10);
     const body = this.player.body as Phaser.Physics.Arcade.Body;
-    body.setSize(34, 70).setOffset(13, 4);
+    body.setSize(16, 40).setOffset(6, 6);
     body.setCollideWorldBounds(true);
     body.setGravityY(PHYS.gravityY);
     this.physics.add.collider(this.player, this.layer);
@@ -332,7 +370,7 @@ export class RealmScene extends Phaser.Scene {
     // background wall behind everything below the original surface, so dug-out
     // tunnels and caves read as dark rock rather than open sky
     const wall = this.add.graphics().setDepth(-1);
-    const wallColor: Record<string, number> = { overworld: 0x1b1226, ember: 0x1c0a07, tide: 0x071a2c, gale: 0x000000, grave: 0x0b0810 };
+    const wallColor: Record<string, number> = { overworld: 0x1b1226, ember: 0x1c0a07, tide: 0x071a2c, gale: 0x000000, grave: 0x0b0810, forever: 0x0c0714 };
     wall.fillStyle(wallColor[this.pocket ?? 'overworld'], this.pocket === 'gale' ? 0 : 1); // the Gale Realm is open sky
     const pts: Phaser.Math.Vector2[] = [];
     for (let x = 0; x < w; x++) {
@@ -352,10 +390,23 @@ export class RealmScene extends Phaser.Scene {
 
     this.buildPortalLabels();
     this.buildHud();
+    this.buildMinimap(save);
     this.buildInput();
     this.ready = true;
     if (this.pocket) this.banner(`${POCKETS[this.pocket].name}`, POCKETS[this.pocket].blurb);
+    this.cameras.main.fadeIn(300, 0, 0, 0);
     void this.save();
+  }
+
+  /** with all four relics, the Forever Gate's seal becomes a gateway (not saved as an edit: it follows the relics) */
+  private openGateIfWorthy(): void {
+    const gate = this.world.foreverGate;
+    if (!gate || this.relics.size < POCKET_ORDER.length) return;
+    const { w, tiles } = this.world;
+    for (let dx = 0; dx < GATE_W; dx++) for (let dy = 0; dy < GATE_H; dy++) {
+      const index = (gate.ty + dy) * w + gate.tx + dx;
+      if (tiles[index] === T.GATE) tiles[index] = T.ETERNAL;
+    }
   }
 
   /** names and colors over each shrine portal (overworld), or the way home (portal realms) */
@@ -379,6 +430,13 @@ export class RealmScene extends Phaser.Scene {
       const done = this.relics.has(p.pocket);
       label((p.tx + 1) * TILE, p.ty * TILE - (i % 2) * 30, `${done ? '✓ ' : ''}${def.name} ${'★'.repeat(def.tier)}\n${def.blurb}`, def.portalColor);
     });
+    const gate = this.world.foreverGate;
+    if (gate) {
+      const sockets = POCKET_ORDER.map((id) => (this.relics.has(id) ? RELICS[id].icon : '◌')).join(' ');
+      const open = this.relics.size >= POCKET_ORDER.length;
+      const title = this.champion ? '✦ THE FOREVER GATE ✦ (champion)' : 'THE FOREVER GATE';
+      label((gate.tx + GATE_W / 2) * TILE, (gate.ty - 1) * TILE, `${title}\n${sockets}${open ? '' : '   sealed'}`, open ? 0xfde68a : 0x57534e);
+    }
   }
 
   private tileAt(tx: number, ty: number): number {
@@ -397,6 +455,7 @@ export class RealmScene extends Phaser.Scene {
     if (id === T.TORCH) this.torches.add(index);
     else this.torches.delete(index);
     this.lightScanTimer = 0;
+    this.paintMinimap(index);
   }
 
   private addItem(item: ItemId, n: number, at?: { x: number; y: number }): void {
@@ -427,6 +486,7 @@ export class RealmScene extends Phaser.Scene {
       return;
     }
     this.setTile(tx, ty, T.AIR);
+    this.stats.mined += 1;
     if (info.drop) this.addItem(info.drop, 1, at);
     // plants and torches don't float: whatever sat on this tile drops too
     const above = this.tileAt(tx, ty - 1);
@@ -446,6 +506,7 @@ export class RealmScene extends Phaser.Scene {
     }
     this.setTile(tx, ty, id);
     this.inventory[item] = this.count(item) - 1;
+    this.stats.placed += 1;
     return true;
   }
 
@@ -528,7 +589,7 @@ export class RealmScene extends Phaser.Scene {
     this.hpText.setText(`HP ${Math.ceil(Math.max(0, this.hp))} / ${this.maxHp}`);
     this.relicText.setText(POCKET_ORDER.map((id) => (this.relics.has(id) ? RELICS[id].icon : '◌')).join(' '));
     this.buffText.setText(BREW_IDS.filter((b) => (this.buffs[b] ?? 0) > 0).map((b) => `${ITEM_ICON[b]} ${Math.ceil(this.buffs[b]! / 1000)}s`).join('  ')
-      + (this.pocket === 'ember' && !this.heatProof() ? '   🔥 HEAT' : ''));
+      + (this.hazardHere() === 'ember' && !this.heatProof() ? '   🔥 HEAT' : ''));
     const showBreath = this.breath < BREATH_MAX;
     this.breathBack.setVisible(showBreath);
     this.breathBar.setVisible(showBreath).width = 118 * (this.breath / BREATH_MAX);
@@ -571,11 +632,15 @@ export class RealmScene extends Phaser.Scene {
       a: K.A, d: K.D, w: K.W, space: K.SPACE, j: K.J, k: K.K, e: K.E, q: K.Q, esc: K.ESC,
       up: K.UP, down: K.DOWN, left: K.LEFT, right: K.RIGHT,
       one: K.ONE, two: K.TWO, three: K.THREE, four: K.FOUR, five: K.FIVE, six: K.SIX,
-      seven: K.SEVEN, eight: K.EIGHT, nine: K.NINE, zero: K.ZERO, s: K.S,
+      seven: K.SEVEN, eight: K.EIGHT, nine: K.NINE, zero: K.ZERO, s: K.S, tab: K.TAB,
     }) as Record<string, Phaser.Input.Keyboard.Key>;
     this.input.mouse?.disableContextMenu();
     this.input.on('pointermove', () => { this.lastMouseMove = this.time.now; });
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
+      if (this.ending) {
+        if (this.endingReady) void this.travel('home');
+        return;
+      }
       if (over.length > 0 || this.craftPanel?.visible) return; // a HUD button, not the world
       this.lastMouseMove = this.time.now;
       if (pointer.rightButtonDown()) this.swing();
@@ -661,6 +726,7 @@ export class RealmScene extends Phaser.Scene {
       return false;
     }
     for (const [item, n] of Object.entries(recipe.cost)) this.inventory[item as ItemId] = this.count(item as ItemId) - (n ?? 0);
+    this.stats.crafted += 1;
     const g = recipe.gives;
     if ('item' in g) this.addItem(g.item, g.count);
     else if ('sword' in g) this.sword = g.sword;
@@ -681,10 +747,15 @@ export class RealmScene extends Phaser.Scene {
     const k = this.keys;
     const J = Phaser.Input.Keyboard.JustDown;
 
+    if (this.ending) {
+      if (this.endingReady && (pad.pressed.a || J(k.space) || J(k.k) || J(k.j))) void this.travel('home');
+      return;
+    }
     if (pad.pressed.menu || J(k.esc)) {
       this.pauseRealm();
       return;
     }
+    if (pad.pressed.view || J(k.tab)) for (const o of this.minimapParts) (o as unknown as Phaser.GameObjects.Components.Visible).setVisible(!(o as unknown as Phaser.GameObjects.Components.Visible).visible);
     if (pad.pressed.y || J(k.e)) this.toggleCraft();
     if (this.craftPanel?.visible) {
       this.updateCraftInput(pad, k);
@@ -692,6 +763,7 @@ export class RealmScene extends Phaser.Scene {
     }
 
     if (!this.pocket) this.clock += dt;
+    this.stats.playMs += dt;
     this.updateLighting(dt);
 
     if (this.dead) {
@@ -718,7 +790,11 @@ export class RealmScene extends Phaser.Scene {
 
     // portals: stand in one and press down
     const portal = this.portalHere();
-    this.promptText.setVisible(!!portal).setText(portal ? `▼ ${portal === 'home' ? 'return to the Overworld' : `enter the ${POCKETS[portal].name}`}` : '');
+    const sealed = !portal && this.nearSealedGate();
+    this.promptText.setVisible(!!portal || sealed).setText(
+      portal ? `▼ ${portal === 'home' ? 'return to the Overworld' : portal === 'forever' ? 'pass through the Forever Gate' : `enter the ${POCKETS[portal].name}`}`
+      : sealed ? `the Forever Gate is sealed · ${this.relics.size}/${POCKET_ORDER.length} relics` : '',
+    );
     if (portal && (pad.pressed.down || J(k.down) || J(k.s))) {
       void this.travel(portal);
       return;
@@ -740,6 +816,7 @@ export class RealmScene extends Phaser.Scene {
     if (left && !right) this.facing = -1;
     else if (right && !left) this.facing = 1;
     this.player.setFlipX(this.facing < 0);
+    this.player.setScale(1, grounded && Math.abs(body.velocity.x) > 30 ? 1 + Math.sin(this.time.now / 55) * 0.04 : 1);
     this.invuln = Math.max(0, this.invuln - dt);
     this.player.setAlpha(this.invuln > 0 && Math.floor(this.invuln / 80) % 2 === 0 ? 0.45 : 1);
 
@@ -759,6 +836,7 @@ export class RealmScene extends Phaser.Scene {
     if (this.sinceHit > REGEN_DELAY_MS && this.hp < this.maxHp) this.hp = Math.min(this.maxHp, this.hp + (REGEN_PER_S * dt) / 1000);
     for (const b of BREW_IDS) if ((this.buffs[b] ?? 0) > 0) this.buffs[b] = Math.max(0, this.buffs[b]! - dt);
 
+    this.updateMinimap(dt);
     this.updateEnemies(dt);
     this.updateHazards();
     this.updateBossFight(dt);
@@ -819,10 +897,12 @@ export class RealmScene extends Phaser.Scene {
     } else if (s.grounded) {
       this.lastSafe = { x: this.player.x, y: this.player.y };
     }
-    if (this.pocket === 'ember' && !this.heatProof()) this.drain(HEAT_DRAIN_PER_S * secs);
+    if (this.hazardHere() === 'ember' && !this.heatProof()) this.drain(HEAT_DRAIN_PER_S * secs);
 
     // the Gale void: falling off the islands costs HP and puts you back on the last ground
-    if (this.pocket === 'gale') {
+    const galeHere = this.hazardHere() === 'gale';
+    this.windStreaks.forEach((r) => { if (!galeHere) r.setVisible(false); });
+    if (galeHere) {
       if (this.player.y > (this.world.h - 3) * TILE) {
         body.reset(this.lastSafe.x, this.lastSafe.y);
         this.invuln = 1000;
@@ -831,8 +911,8 @@ export class RealmScene extends Phaser.Scene {
       }
       this.wind.timer -= dt;
       if (this.wind.timer <= 0) {
-        if (this.wind.force === 0) { this.wind.force = Math.random() < 0.5 ? -1 : 1; this.wind.timer = 1600; }
-        else { this.wind.force = 0; this.wind.timer = 3500 + Math.random() * 2500; }
+        if (this.wind.force === 0) { this.wind.force = this.rand() < 0.5 ? -1 : 1; this.wind.timer = 1600; }
+        else { this.wind.force = 0; this.wind.timer = 3500 + this.rand() * 2500; }
       }
       if (this.wind.force !== 0 && !s.grounded) {
         body.setVelocityX(Phaser.Math.Clamp(body.velocity.x + this.wind.force * WIND_ACCEL * secs, -260, 260));
@@ -859,10 +939,26 @@ export class RealmScene extends Phaser.Scene {
   private portalHere(): PocketId | 'home' | null {
     const tx = Math.floor(this.player.x / TILE);
     const ty = Math.floor((this.player.y - 8) / TILE);
+    if (this.tileAt(tx, ty) === T.ETERNAL) return 'forever';
     if (this.tileAt(tx, ty) !== T.PORTAL) return null;
     if (this.pocket) return 'home';
     const p = (this.world.portals ?? []).find((q) => tx >= q.tx && tx < q.tx + 2);
     return p?.pocket ?? null;
+  }
+
+  private nearSealedGate(): boolean {
+    const gate = this.world.foreverGate;
+    if (!gate || this.pocket) return false;
+    const tx = Math.floor(this.player.x / TILE);
+    return tx >= gate.tx - 2 && tx < gate.tx + GATE_W + 2 && this.tileAt(gate.tx, gate.ty) === T.GATE && Math.abs(this.player.y - (gate.ty + GATE_H) * TILE) < 40;
+  }
+
+  /** which realm's hazard applies here: the realm itself, or in the Eternal Hall the segment you're in */
+  private hazardHere(): RelicId | undefined {
+    if (!this.pocket) return undefined;
+    if (this.pocket !== 'forever') return this.pocket;
+    const tx = Math.floor(this.player.x / TILE);
+    return FOREVER_SEGMENTS.find((s) => tx >= s.x0 && tx < s.x1)?.like;
   }
 
   private async travel(to: PocketId | 'home'): Promise<void> {
@@ -1052,6 +1148,7 @@ export class RealmScene extends Phaser.Scene {
 
   private killEnemy(e: RealmEnemy): void {
     this.enemies = this.enemies.filter((x) => x !== e);
+    this.stats.slain += 1;
     for (const c of e.colliders) c.destroy();
     const drops = 1 + Math.floor(Math.random() * e.def.dropMax);
     this.addItem(e.def.drop, drops, { x: e.sprite.x, y: e.sprite.y - 30 });
@@ -1073,6 +1170,7 @@ export class RealmScene extends Phaser.Scene {
 
   private die(): void {
     this.dead = true;
+    this.stats.deaths += 1;
     this.deathTimer = RESPAWN_MS;
     this.player.setVisible(false);
     (this.player.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0).enable = false;
@@ -1116,6 +1214,8 @@ export class RealmScene extends Phaser.Scene {
       summon: (id, x, y) => { this.spawnEnemy(REALM_ENEMIES[id], x, y); },
       shake: (ms, intensity) => this.cameras.main.shake(ms, intensity),
       float: (x, y, text, color) => this.floatText(x, y, text, color),
+      announce: (title, sub) => this.banner(title, sub),
+      darken: (alpha) => { this.darkOverride = alpha; },
     };
   }
 
@@ -1174,6 +1274,7 @@ export class RealmScene extends Phaser.Scene {
     if (!b) return;
     this.boss = undefined;
     this.cameras.main.setFollowOffset(0, 0);
+    this.darkOverride = null;
     const pw = this.pocketWorld!;
     const refill = pw.pocket === 'tide' ? T.WATER : T.AIR;
     for (const g of this.gateTiles) this.setTile(g.tx, g.ty, pw.waterTop !== undefined && g.ty >= pw.waterTop ? refill : T.AIR);
@@ -1193,14 +1294,22 @@ export class RealmScene extends Phaser.Scene {
     const at = { x: this.boss!.sprite.x, y: this.boss!.sprite.y - 40 };
     this.endBossFight(true);
     this.bossDefeated = true;
+    this.darkOverride = null;
+    this.stats.bosses += 1;
     for (const e of [...this.enemies]) this.killEnemy(e);
-    const firstTime = !this.relics.has(pw.pocket);
-    this.relics.add(pw.pocket);
     this.addItem(def.loot.item, def.loot.count, at);
-    const relic = RELICS[pw.pocket];
-    this.banner(`${relic.icon} ${relic.name}`, relic.power);
-    if (firstTime && this.relics.size === POCKET_ORDER.length) {
-      this.time.delayedCall(3600, () => this.banner('THE FOREVER GATE STIRS…', 'all four relics are yours'));
+    if (pw.pocket === 'forever') {
+      this.champion = true;
+      if (this.sword < 4) this.sword = 4;
+      this.time.delayedCall(1800, () => this.showEnding());
+    } else {
+      const firstTime = !this.relics.has(pw.pocket);
+      this.relics.add(pw.pocket);
+      const relic = RELICS[pw.pocket];
+      this.banner(`${relic.icon} ${relic.name}`, relic.power);
+      if (firstTime && this.relics.size === POCKET_ORDER.length) {
+        this.time.delayedCall(3600, () => this.banner('THE FOREVER GATE STIRS…', 'all four relics are yours'));
+      }
     }
     // a way home, in the middle of the arena
     const tx = Math.floor((pw.arena.x0 + pw.arena.x1) / 2);
@@ -1352,6 +1461,11 @@ export class RealmScene extends Phaser.Scene {
 
   /** dark by night and underground; torches and soulstone push it back */
   private darknessAlpha(): number {
+    if (this.darkOverride !== null) return this.darkOverride;
+    if (this.pocket === 'forever') {
+      const seg = this.hazardHere();
+      return seg ? (seg === 'gale' ? 0.35 : POCKETS[seg].darkness) : POCKETS.forever.darkness;
+    }
     if (this.pocket) return POCKETS[this.pocket].darkness;
     const underground = Phaser.Math.Clamp((this.depthTiles() - 3) / 14, 0, 1);
     return Math.max(nightFactor(this.clock) * 0.62, underground * 0.93);
@@ -1425,6 +1539,154 @@ export class RealmScene extends Phaser.Scene {
     rt.render();
   }
 
+  // ---------------- the ending ----------------
+
+  private showEnding(): void {
+    const font = 'system-ui, sans-serif';
+    const c = this.add.container(0, 0).setScrollFactor(0).setDepth(95);
+    this.ending = c;
+    const bg = this.add.rectangle(RW / 2, RH / 2, RW, RH, 0x030106, 1).setAlpha(0);
+    c.add(bg);
+    this.tweens.add({ targets: bg, alpha: 0.94, duration: 1400 });
+    const s = this.stats;
+    const hours = Math.floor(s.playMs / 3_600_000);
+    const minutes = Math.floor((s.playMs % 3_600_000) / 60_000);
+    const lines: [string, number, string][] = [
+      ['THE ETERNAL REAPER IS UNMADE', 28, '#fde68a'],
+      ['Four relics. One gate. The curse of forever, broken — for now.', 15, '#e9d5ff'],
+      ['The Forever Realm endures, and so do you.', 15, '#e9d5ff'],
+      ['', 10, '#ffffff'],
+      [`⛏ ${s.mined} mined   🧱 ${s.placed} placed   ⚒ ${s.crafted} crafted`, 14, '#ffffff'],
+      [`⚔ ${s.slain} slain   👑 ${s.bosses} bosses   ✝ ${s.deaths} deaths   ⏳ ${hours}h ${minutes}m`, 14, '#ffffff'],
+      ['', 10, '#ffffff'],
+      [`✦ ${SWORDS[4].name} (${SWORDS[4].damage}) is yours · Forever Champion ✦`, 16, '#facc15'],
+      ['the realms remain; their bosses will fight you again', 12, '#b7aed0'],
+      ['', 10, '#ffffff'],
+      ['soundtrack: score · 110 points · 50 points · chaose mode max · woned · Loss', 11, '#8b80a8'],
+      ['', 16, '#ffffff'],
+      ['press A / Space / tap to return home', 14, '#fef08a'],
+    ];
+    let y = 70;
+    lines.forEach(([text, size, color], i) => {
+      const t = this.add.text(RW / 2, y, text, { fontSize: `${size}px`, fontFamily: font, fontStyle: i === 0 ? 'bold' : 'normal', color, align: 'center' })
+        .setOrigin(0.5, 0).setAlpha(0);
+      c.add(t);
+      this.tweens.add({ targets: t, alpha: 1, delay: 1400 + i * 450, duration: 700 });
+      y += size + 14;
+    });
+    this.time.delayedCall(1400 + lines.length * 450, () => { this.endingReady = true; });
+    void this.save();
+  }
+
+  // ---------------- minimap ----------------
+
+  private buildMinimap(save: RealmSave | undefined): void {
+    const { w, h } = this.world;
+    const key = 'realmMinimap';
+    if (this.textures.exists(key)) this.textures.remove(key);
+    const tex = this.textures.createCanvas(key, w, h);
+    if (!tex) return;
+    this.minimapTex = tex;
+    this.minimapData = tex.getContext().createImageData(w, h);
+    this.explored = this.pocket ? undefined : save?.explored ? unpackBits(save.explored, w * h) : new Uint8Array(w * h);
+    for (let i = 0; i < w * h; i++) this.paintMinimap(i, false);
+    tex.getContext().putImageData(this.minimapData, 0, 0);
+    tex.refresh();
+
+    const dw = 220;
+    const dh = Math.round((dw * h) / w);
+    const box = { x: RW - 16 - dw, y: 100, w: dw, h: dh };
+    this.minimapBox = box;
+    const frame = this.add.rectangle(box.x - 2, box.y - 2, dw + 4, dh + 4, 0x000000, 0.6).setOrigin(0).setStrokeStyle(1, 0x7c3aed)
+      .setScrollFactor(0).setDepth(58);
+    const img = this.add.image(box.x, box.y, key).setOrigin(0).setDisplaySize(dw, dh).setScrollFactor(0).setDepth(59);
+    this.minimapDot = this.add.rectangle(0, 0, 4, 4, 0xffffff).setScrollFactor(0).setDepth(60);
+    this.minimapParts = [frame, img, this.minimapDot];
+    const mark = (tx: number, ty: number, color: number) => {
+      this.minimapParts.push(this.add.rectangle(box.x + (tx / w) * dw, box.y + (ty / h) * dh, 4, 4, color).setScrollFactor(0).setDepth(60));
+    };
+    for (const p of this.world.portals ?? []) mark(p.tx + 1, p.ty + 1, POCKETS[p.pocket].portalColor);
+    if (this.world.foreverGate) mark(this.world.foreverGate.tx + 2, this.world.foreverGate.ty + 2, 0xfde68a);
+    if (this.pocketWorld) mark((this.pocketWorld.arena.x0 + this.pocketWorld.arena.x1) / 2, this.pocketWorld.arena.floorY - 4, 0xe11d48);
+    this.revealAround(true);
+  }
+
+  /** write one tile's color into the minimap buffer (flushed in batches by updateMinimap) */
+  private paintMinimap(index: number, markDirty = true): void {
+    const data = this.minimapData;
+    if (!data) return;
+    const { w, tiles, surface } = this.world;
+    const x = index % w;
+    const y = Math.floor(index / w);
+    const id = tiles[index];
+    let color: number;
+    let alpha = 235;
+    if (id === T.AIR) {
+      const below = y > surface[x] + 1;
+      color = below ? 0x120c1f : this.pocket ? POCKETS[this.pocket].sky : 0x2a3a5c;
+      alpha = below ? 235 : 180;
+    } else {
+      const info = TILE_INFO[id];
+      const bright = [T.GRASS, T.COPPER, T.IRON, T.SOULSTONE, T.TORCH, T.LAVA, T.PORTAL, T.ETERNAL, T.GATE, T.HERB, T.WATER];
+      color = info ? (bright.includes(id as never) ? info.color[1] : info.color[0]) : 0xff00ff;
+    }
+    if (this.explored && !this.explored[index]) alpha = 0;
+    const o = index * 4;
+    data.data[o] = (color >> 16) & 0xff;
+    data.data[o + 1] = (color >> 8) & 0xff;
+    data.data[o + 2] = color & 0xff;
+    data.data[o + 3] = alpha;
+    if (markDirty) {
+      const d = this.minimapDirty;
+      this.minimapDirty = d
+        ? { x0: Math.min(d.x0, x), y0: Math.min(d.y0, y), x1: Math.max(d.x1, x), y1: Math.max(d.y1, y) }
+        : { x0: x, y0: y, x1: x, y1: y };
+    }
+  }
+
+  /** uncover the map in a circle around the player (overworld only) */
+  private revealAround(flush = false): void {
+    const ex = this.explored;
+    if (ex) {
+      const { w, h } = this.world;
+      const cx = Math.floor(this.player.x / TILE);
+      const cy = Math.floor(this.player.y / TILE);
+      const r = 16;
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          const x = cx + dx;
+          const y = cy + dy;
+          if (x < 0 || y < 0 || x >= w || y >= h || dx * dx + dy * dy > r * r) continue;
+          const i = y * w + x;
+          if (!ex[i]) {
+            ex[i] = 1;
+            this.paintMinimap(i);
+          }
+        }
+      }
+    }
+    if (flush) this.flushMinimap();
+  }
+
+  private flushMinimap(): void {
+    const d = this.minimapDirty;
+    if (!d || !this.minimapTex || !this.minimapData) return;
+    this.minimapTex.getContext().putImageData(this.minimapData, 0, 0, d.x0, d.y0, d.x1 - d.x0 + 1, d.y1 - d.y0 + 1);
+    this.minimapTex.refresh();
+    this.minimapDirty = null;
+  }
+
+  private updateMinimap(dt: number): void {
+    if (!this.minimapDot) return;
+    const b = this.minimapBox;
+    this.minimapDot.setPosition(b.x + (this.player.x / TILE / this.world.w) * b.w, b.y + (this.player.y / TILE / this.world.h) * b.h);
+    this.minimapTimer -= dt;
+    if (this.minimapTimer <= 0) {
+      this.minimapTimer = 200;
+      this.revealAround(true);
+    }
+  }
+
   // ---------------- save ----------------
 
   private async save(): Promise<void> {
@@ -1434,7 +1696,10 @@ export class RealmScene extends Phaser.Scene {
       const base = await loadRealm();
       if (!base) return;
       const { id: _id, version: _v, savedAt: _at, ...rest } = base;
-      await saveRealm({ ...rest, inventory: this.inventory, sword: this.sword, pickaxe: this.pickaxe, relics: [...this.relics] });
+      await saveRealm({
+        ...rest, inventory: this.inventory, sword: this.sword, pickaxe: this.pickaxe, relics: [...this.relics],
+        champion: this.champion, stats: this.stats,
+      });
       return;
     }
     await saveRealm({
@@ -1447,6 +1712,9 @@ export class RealmScene extends Phaser.Scene {
       pickaxe: this.pickaxe,
       clock: this.clock,
       relics: [...this.relics],
+      champion: this.champion,
+      stats: this.stats,
+      explored: this.explored ? packBits(this.explored) : undefined,
     });
   }
 }

@@ -31,6 +31,7 @@ export const SWORDS = [
   { name: 'Copper Falchion', damage: 16 },
   { name: 'Iron Claymore', damage: 24 },
   { name: 'Soul Reaver', damage: 40 },
+  { name: 'Eternity', damage: 60 }, // taken from the Eternal Reaper; can't be crafted
 ] as const;
 
 /** mining speed multiplier by tier; tier also gates ore (TileInfo.minPick) */

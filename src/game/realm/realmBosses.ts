@@ -13,6 +13,10 @@ import { TILE } from './worldGen';
  *   Harpy Queen    hover (feather fans) -> windup -> dive -> climb
  *   Hollow King    stalk (guards his front) -> windup -> dash -> reel (open to hits);
  *                  raises two knights at 2/3 and 1/3 health
+ *   Eternal Reaper the final boss, in four stages by health, one per realm:
+ *                  1 soul bolts + scythe sweeps · 2 fire falls from above ·
+ *                  3 tidal waves along the floor · 4 the dark: vanish -> strike -> exposed.
+ *                  Each stage opens with an immune 'call' that summons that realm's dead.
  */
 export interface BossDef {
   id: BossId;
@@ -28,6 +32,19 @@ export const BOSSES: Record<BossId, BossDef> = {
   leviathan: { id: 'leviathan', name: 'Leviathan', texture: 'boss_leviathan', hp: 260, contactDamage: 18, flies: true },
   harpy: { id: 'harpy', name: 'Harpy Queen', texture: 'boss_harpy', hp: 240, contactDamage: 16, flies: true },
   king: { id: 'king', name: 'Hollow King', texture: 'boss_king', hp: 320, contactDamage: 22, flies: false },
+  reaper: { id: 'reaper', name: 'The Eternal Reaper', texture: 'boss_reaper', hp: 900, contactDamage: 24, flies: true },
+};
+
+/** Reaper stage (1-4) from health: every quarter lost calls the next realm's power */
+export function reaperStage(b: BossState): number {
+  const p = b.hp / b.def.hp;
+  return p > 0.75 ? 1 : p > 0.5 ? 2 : p > 0.25 ? 3 : 4;
+}
+
+const REAPER_CALLS: Record<number, { title: string; sub: string; summon: RealmEnemyId }> = {
+  2: { title: 'THE REAPER CALLS THE FLAME', sub: 'fire falls from above', summon: 'imp' },
+  3: { title: 'THE REAPER CALLS THE TIDE', sub: 'jump the waves', summon: 'harpy' },
+  4: { title: 'THE REAPER CALLS THE DARK', sub: 'it strikes from behind', summon: 'knight' },
 };
 
 export interface HazardSpec {
@@ -51,6 +68,9 @@ export interface BossCtx {
   summon(id: RealmEnemyId, x: number, y: number): void;
   shake(ms: number, intensity: number): void;
   float(x: number, y: number, text: string, color: string): void;
+  announce(title: string, sub: string): void;
+  /** override the arena's darkness (null = the realm default) */
+  darken(alpha: number | null): void;
 }
 
 export interface BossState {
@@ -64,8 +84,8 @@ export interface BossState {
 }
 
 export function createBoss(def: BossDef, sprite: Phaser.Physics.Arcade.Sprite): BossState {
-  const first: Record<BossId, string> = { tyrant: 'walk', leviathan: 'circle', harpy: 'hover', king: 'stalk' };
-  return { def, sprite, hp: def.hp, phase: first[def.id], timer: 2000, data: { summons: 0, fire: 900 } };
+  const first: Record<BossId, string> = { tyrant: 'walk', leviathan: 'circle', harpy: 'hover', king: 'stalk', reaper: 'drift' };
+  return { def, sprite, hp: def.hp, phase: first[def.id], timer: 2000, data: { summons: 0, fire: 900, stage: 1, waves: 2500 } };
 }
 
 export const enraged = (b: BossState) => b.hp <= b.def.hp / 2;
@@ -244,6 +264,112 @@ export function updateBoss(b: BossState, ctx: BossCtx, dt: number): void {
       }
       break;
     }
+    case 'reaper':
+      updateReaper(b, ctx, dt, toward, clampX);
+      break;
+  }
+}
+
+function updateReaper(b: BossState, ctx: BossCtx, dt: number, toward: number, clampX: (x: number) => number): void {
+  const { player, arena } = ctx;
+  const stage = reaperStage(b);
+  const driftY = arena.floorY - 120;
+  // a new quarter of health lost: stop everything and call the next realm
+  if (stage > b.data.stage && b.phase !== 'call') {
+    b.data.stage = stage;
+    b.phase = 'call';
+    b.timer = 1400;
+    b.sprite.setAlpha(1).setTint(0xfde68a);
+    const call = REAPER_CALLS[stage];
+    ctx.announce(call.title, call.sub);
+    ctx.summon(call.summon, clampX(b.sprite.x - 160), arena.floorY - 10);
+    ctx.summon(call.summon, clampX(b.sprite.x + 160), arena.floorY - 10);
+    ctx.darken(stage === 4 ? 0.93 : null);
+    return;
+  }
+  const bd = body(b);
+  switch (b.phase) {
+    case 'call':
+      bd.setVelocity(0, 0);
+      if (b.timer <= 0) { b.phase = stage === 4 ? 'vanish' : 'drift'; b.timer = stage === 4 ? 900 : 3500; b.sprite.clearTint(); }
+      break;
+    case 'drift': {
+      b.data.t = (b.data.t ?? 0) + dt / 1000;
+      flyTo(b, clampX(player.x + Math.sin(b.data.t) * 180), driftY + Math.sin(b.data.t * 2.3) * 30, 170);
+      b.sprite.setFlipX(toward < 0);
+      b.data.fire -= dt;
+      if (b.data.fire <= 0) {
+        if (stage === 2) {
+          // fire falls from the ceiling around you
+          b.data.fire = 1100;
+          for (const off of [-90, 0, 90]) {
+            ctx.hazard({ x: player.x + off, y: arena.floorY - 330, texture: 'fx_flame', vx: 0, vy: 60, gravity: 700, damage: 16, lifespanMs: 2400, solidStops: true });
+          }
+        } else {
+          b.data.fire = stage === 3 ? 2200 : 1500;
+          const v = aimAt(b, ctx, 220);
+          ctx.hazard({ x: b.sprite.x, y: b.sprite.y, texture: 'fx_soul', vx: v.vx, vy: v.vy, damage: 14, lifespanMs: 2600, solidStops: true });
+        }
+      }
+      if (stage === 3) {
+        // tidal waves from both walls: jump them (the Gale Plume helps)
+        b.data.waves -= dt;
+        if (b.data.waves <= 0) {
+          b.data.waves = 2600;
+          ctx.hazard({ x: arena.x0 + 24, y: arena.floorY - 22, texture: 'fx_wave', vx: 300, vy: 0, damage: 18, lifespanMs: 3600 });
+          ctx.hazard({ x: arena.x1 - 24, y: arena.floorY - 22, texture: 'fx_wave', vx: -300, vy: 0, damage: 18, lifespanMs: 3600 });
+        }
+      }
+      if (b.timer <= 0) { b.phase = 'windup'; b.timer = 600; bd.setVelocity(0, 0); b.sprite.setTint(0xffffff); }
+      break;
+    }
+    case 'windup':
+      if (b.timer <= 0) {
+        // the scythe sweep: a fast glide across the arena at your height
+        b.phase = 'sweep';
+        b.timer = 1100;
+        b.sprite.clearTint();
+        b.data.dir = toward;
+        b.data.sweepY = player.y - 24;
+      }
+      break;
+    case 'sweep':
+      flyTo(b, b.data.dir > 0 ? arena.x1 - 40 : arena.x0 + 40, b.data.sweepY, 560);
+      if (b.timer <= 0) { b.phase = 'rise'; b.timer = 700; }
+      break;
+    case 'rise':
+      if (flyTo(b, clampX(b.sprite.x), driftY, 260) || b.timer <= 0) { b.phase = 'drift'; b.timer = stage >= 2 ? 3000 : 3800; }
+      break;
+    // stage 4: vanish, reappear behind you, strike, and stand exposed
+    case 'vanish':
+      bd.setVelocity(0, 0);
+      b.sprite.setAlpha(0.15);
+      if (b.timer <= 0) {
+        const behind = player.flipX ? 1 : -1;
+        b.sprite.setPosition(clampX(player.x + behind * 110), player.y - 30);
+        bd.reset(b.sprite.x, b.sprite.y);
+        b.sprite.setAlpha(1).setTint(0xfca5a5).setFlipX(behind > 0);
+        b.phase = 'strike';
+        b.timer = 450;
+      }
+      break;
+    case 'strike':
+      if (b.timer <= 0 && !b.data.striking) {
+        b.data.striking = 1;
+        b.timer = 350;
+        b.sprite.clearTint();
+        bd.setVelocityX((b.sprite.flipX ? -1 : 1) * 520);
+      } else if (b.timer <= 0) {
+        b.data.striking = 0;
+        b.phase = 'exposed';
+        b.timer = 1300;
+        bd.setVelocity(0, 0);
+      }
+      break;
+    case 'exposed':
+      b.sprite.setAngle(Math.sin(b.timer / 70) * 6);
+      if (b.timer <= 0) { b.phase = 'vanish'; b.timer = 900; b.sprite.setAngle(0); }
+      break;
   }
 }
 
@@ -252,6 +378,10 @@ export function updateBoss(b: BossState, ctx: BossCtx, dt: number): void {
  * turns aside blows to his front unless he's reeling from a dash.
  */
 export function hitBoss(b: BossState, damage: number, fromX: number): number {
+  if (b.def.id === 'reaper') {
+    if (b.phase === 'call' || b.phase === 'vanish') return 0; // untouchable while calling or unseen
+    if (b.phase === 'exposed') damage = Math.round(damage * 1.5);
+  }
   if (b.def.id === 'king') {
     const facing = b.sprite.flipX ? -1 : 1;
     const fromFront = Math.sign(fromX - b.sprite.x) === facing;

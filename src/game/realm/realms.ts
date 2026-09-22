@@ -7,9 +7,10 @@ import type { RealmEnemyId } from './realmEnemies';
  * a home), ends in a boss arena, and its boss drops a relic that
  * permanently changes how you play.
  */
-export type PocketId = 'ember' | 'tide' | 'gale' | 'grave';
-export type RelicId = PocketId;
-export type BossId = 'tyrant' | 'leviathan' | 'harpy' | 'king';
+export type PocketId = 'ember' | 'tide' | 'gale' | 'grave' | 'forever';
+/** the four relics come from the four elemental realms; the Eternal Hall has none */
+export type RelicId = Exclude<PocketId, 'forever'>;
+export type BossId = 'tyrant' | 'leviathan' | 'harpy' | 'king' | 'reaper';
 
 export interface PocketDef {
   id: PocketId;
@@ -48,9 +49,24 @@ export const POCKETS: Record<PocketId, PocketDef> = {
     id: 'grave', name: 'Grave Realm', blurb: 'the dark · the dead', tier: 4, portalColor: 0xa78bfa, sky: 0x050308, darkness: 0.97,
     hazard: 'dark', enemies: ['knight', 'knight', 'wraith'], spawnCap: 6, boss: 'king', bossName: 'Hollow King', loot: { item: 'dust', count: 10 },
   },
+  // behind the Forever Gate: all four realms in one gauntlet, then the throne. Its hazard and
+  // darkness change by segment (see FOREVER_SEGMENTS); the values here are the throne room's.
+  forever: {
+    id: 'forever', name: 'The Eternal Hall', blurb: 'every realm at once · the end of it', tier: 5, portalColor: 0xfde68a, sky: 0x07040c, darkness: 0.8,
+    hazard: 'dark', enemies: ['imp', 'harpy', 'knight', 'wraith'], spawnCap: 5, boss: 'reaper', bossName: 'The Eternal Reaper', loot: { item: 'soulstone', count: 20 },
+  },
 };
 
-export const POCKET_ORDER: PocketId[] = ['ember', 'tide', 'gale', 'grave'];
+/** the four elemental realms, in suggested order (the shrine's portals) */
+export const POCKET_ORDER: RelicId[] = ['ember', 'tide', 'gale', 'grave'];
+
+/** the Eternal Hall's gauntlet: [x0, x1) tile columns and the realm each one borrows its hazard from */
+export const FOREVER_SEGMENTS: { x0: number; x1: number; like: RelicId }[] = [
+  { x0: 0, x1: 52, like: 'ember' },
+  { x0: 52, x1: 100, like: 'tide' },
+  { x0: 100, x1: 150, like: 'gale' },
+  { x0: 150, x1: 196, like: 'grave' },
+];
 
 export const RELICS: Record<RelicId, { name: string; icon: string; power: string }> = {
   ember: { name: 'Ember Heart', icon: '🔥', power: 'immune to heat and lava · +4 sword damage' },

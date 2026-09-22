@@ -6,6 +6,7 @@ import { writeFile } from 'node:fs/promises';
 import { verifyPlatformer } from './platformer-regression.mjs';
 import { verifyRealm } from './realm-regression.mjs';
 import { verifyPortalRealms } from './realm-portals-regression.mjs';
+import { verifyForeverGate } from './realm-forever-regression.mjs';
 
 const cdpUrl = process.env.CDP_URL ?? 'http://127.0.0.1:9333';
 const gameUrl = process.env.POGO_URL ?? 'http://127.0.0.1:5173';
@@ -196,6 +197,7 @@ try {
   await verifyPlatformer({ execute, evaluate, waitFor, start, scene, textExists });
   await verifyRealm({ execute, evaluate, waitFor, start, scene, textExists });
   await verifyPortalRealms({ execute, evaluate, waitFor, start, scene, textExists });
+  await verifyForeverGate({ execute, evaluate, waitFor, start, scene, textExists });
   assert.equal(page.errors.length, 0, JSON.stringify(page.errors));
   console.log('PASS: collection paging, migration, independent mastery, training gate, tier awards, advantage caps, character UI, battle listeners, runner restart/pause, shield behavior, Trick Lab restart, obstacle cleanup, save persistence; no browser exceptions.');
 } finally {

@@ -18,9 +18,46 @@ export interface RealmSave {
   pickaxe: number;
   /** boss relics won in the portal realms (optional: saves from before Phase 2 have none) */
   relics?: RelicId[];
+  /** beat the Eternal Reaper behind the Forever Gate */
+  champion?: boolean;
+  stats?: RealmStats;
+  /** overworld minimap fog of war: one bit per tile, base64 */
+  explored?: string;
   /** ms into the day/night cycle */
   clock: number;
   savedAt: string;
+}
+
+/** the journey, shown in the ending */
+export interface RealmStats {
+  mined: number;
+  placed: number;
+  slain: number;
+  bosses: number;
+  deaths: number;
+  crafted: number;
+  playMs: number;
+}
+
+export function emptyStats(): RealmStats {
+  return { mined: 0, placed: 0, slain: 0, bosses: 0, deaths: 0, crafted: 0, playMs: 0 };
+}
+
+export function packBits(bits: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bits.length; i += 0x8000) s += String.fromCharCode(...bits.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+export function unpackBits(b64: string, length: number): Uint8Array {
+  const out = new Uint8Array(length);
+  try {
+    const s = atob(b64);
+    for (let i = 0; i < Math.min(s.length, length); i++) out[i] = s.charCodeAt(i);
+  } catch {
+    // corrupt: start unexplored
+  }
+  return out;
 }
 
 export async function loadRealm(): Promise<RealmSave | undefined> {

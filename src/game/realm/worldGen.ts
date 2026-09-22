@@ -1,5 +1,5 @@
 import { T } from './tiles';
-import { POCKET_ORDER, type PocketId } from './realms';
+import { POCKET_ORDER, type RelicId } from './realms';
 
 /**
  * Forever Realm world generation. Pure and seeded: the same seed always
@@ -24,12 +24,17 @@ export interface World {
   surface: Int16Array;
   spawn: { tx: number; ty: number };
   /** overworld: the shrine's four realm portals (top-left tile, 2x3) */
-  portals?: { pocket: PocketId; tx: number; ty: number }[];
+  portals?: { pocket: RelicId; tx: number; ty: number }[];
+  /** overworld: the Forever Gate at the shrine's east end (top-left tile, 4x5), sealed until all four relics */
+  foreverGate?: { tx: number; ty: number };
 }
+
+export const GATE_W = 4;
+export const GATE_H = 5;
 
 /** the shrine sits a short walk right of spawn on flattened ground */
 export const SHRINE_OFFSET = 14;
-export const SHRINE_W = 28;
+export const SHRINE_W = 36;
 
 function hash(x: number, y: number, seed: number): number {
   let h = (x * 374761393 + y * 668265263 + seed * 2246822519) | 0;
@@ -166,5 +171,10 @@ export function generateWorld(seed: number, w = WORLD_W, h = WORLD_H): World {
     portals.push({ pocket, tx: px, ty: floorY - 3 });
   });
 
-  return { seed, w, h, tiles, surface, spawn: { tx: spawnX, ty: surface[spawnX] - 1 }, portals };
+  // the Forever Gate: a sealed arch past the fourth portal
+  const gx = shrineX + 30;
+  for (let dx = 0; dx < GATE_W; dx++) for (let dy = 1; dy <= GATE_H; dy++) set(gx + dx, floorY - dy, T.GATE);
+  for (let dx = -1; dx <= GATE_W; dx++) set(gx + dx, floorY - GATE_H - 1, T.SHRINE); // lintel
+
+  return { seed, w, h, tiles, surface, spawn: { tx: spawnX, ty: surface[spawnX] - 1 }, portals, foreverGate: { tx: gx, ty: floorY - GATE_H } };
 }

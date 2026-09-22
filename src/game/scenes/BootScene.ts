@@ -543,6 +543,24 @@ export class BootScene extends Phaser.Scene {
             ctx.fillStyle = hex(base); ctx.fillRect(ox, 2, TILE, TILE - 2);
             ctx.fillStyle = hex(hi); ctx.beginPath(); ctx.arc(ox + 4, 5, 4, 0, Math.PI * 2); ctx.arc(ox + 11, 4, 5, 0, Math.PI * 2); ctx.fill();
             break;
+          case T.GATE:
+            ctx.fillStyle = hex(base); ctx.fillRect(ox, 0, TILE, TILE);
+            ctx.strokeStyle = '#3f3560'; ctx.strokeRect(ox + 0.5, 0.5, TILE - 1, TILE - 1);
+            ctx.fillStyle = hex(hi); ctx.fillRect(ox + 7, 3, 2, 10); ctx.fillRect(ox + 4, 7, 8, 2);
+            break;
+          case T.ETERNAL: {
+            const grad = ctx.createLinearGradient(ox, 0, ox, TILE);
+            grad.addColorStop(0, 'rgba(253, 230, 138, 0.9)');
+            grad.addColorStop(1, 'rgba(147, 51, 234, 0.75)');
+            ctx.fillStyle = grad; ctx.fillRect(ox, 0, TILE, TILE);
+            speckle('rgba(255,255,255,0.9)', 3, 1);
+            break;
+          }
+          case T.OBSIDIAN:
+            ctx.fillStyle = hex(base); ctx.fillRect(ox, 0, TILE, TILE);
+            speckle(hex(hi), 5, 3);
+            ctx.fillStyle = 'rgba(167, 139, 250, 0.35)'; ctx.fillRect(ox + 2, 2, 1, 5);
+            break;
           case T.SHRINE:
             ctx.fillStyle = hex(base); ctx.fillRect(ox, 0, TILE, TILE);
             ctx.strokeStyle = hex(hi); ctx.strokeRect(ox + 1.5, 1.5, TILE - 3, TILE - 3);
@@ -663,6 +681,40 @@ export class BootScene extends Phaser.Scene {
       gg.fillStyle(0xa8a29e, 1).fillRect(18, 62, 10, 26).fillRect(36, 62, 10, 26);
       gg.fillStyle(0x71717a, 1).fillRoundedRect(46, 30, 16, 30, 4); // shield on his facing side
       gg.fillStyle(0xd4d4d8, 1).fillRect(4, 20, 4, 50);
+    });
+    // ---- Phase 3: the Chakan-styled hero, the Eternal Reaper, its soul bolts and tidal waves ----
+    make('realm_hero', 28, 46, (gg) => {
+      gg.fillStyle(0x1e1b2e, 1).fillRect(0, 9, 28, 3); // hat brim
+      gg.fillStyle(0x2a2540, 1).fillRoundedRect(7, 0, 14, 10, 3); // crown
+      gg.fillStyle(0x7f1d1d, 1).fillRect(7, 7, 14, 2); // hatband
+      gg.fillStyle(0xe7e5e4, 1).fillRoundedRect(8, 12, 12, 11, 4); // skull
+      gg.fillStyle(0x0c0a09, 1).fillCircle(11, 16, 2).fillCircle(17, 16, 2).fillRect(12, 20, 4, 1);
+      gg.fillStyle(0x6b7280, 1).lineStyle(2, 0x9ca3af, 1).lineBetween(2, 20, 11, 30).lineBetween(26, 20, 17, 30); // crossed blades on the back
+      gg.fillStyle(0x1f1b2d, 1).fillTriangle(4, 44, 14, 22, 24, 44); // cloak
+      gg.fillStyle(0x2e2a42, 1).fillRect(9, 23, 10, 16);
+      gg.fillStyle(0x991b1b, 1).fillRect(9, 31, 10, 2); // sash
+      gg.fillStyle(0x0c0a09, 1).fillRect(9, 39, 4, 7).fillRect(15, 39, 4, 7);
+    });
+    make('boss_reaper', 96, 110, (gg) => {
+      gg.fillStyle(0x0c0a14, 0.95).fillTriangle(10, 108, 48, 20, 86, 108); // robe
+      gg.fillStyle(0x1e1b2e, 1).fillTriangle(22, 108, 48, 36, 74, 108);
+      gg.fillStyle(0x0c0a14, 1).fillCircle(48, 24, 20); // hood
+      gg.fillStyle(0xe7e5e4, 1).fillCircle(48, 28, 11); // skull
+      gg.fillStyle(0xfde68a, 1).fillCircle(44, 27, 2.5).fillCircle(52, 27, 2.5); // burning eyes
+      gg.fillStyle(0x0c0a09, 1).fillRect(45, 34, 6, 2);
+      gg.lineStyle(3, 0x78716c, 1).lineBetween(84, 6, 70, 104); // scythe haft
+      gg.fillStyle(0xd4d4d8, 1).fillTriangle(84, 6, 40, 0, 60, 14); // blade
+      gg.fillStyle(0xfde68a, 1);
+      for (const [x, y] of [[20, 70], [76, 76], [30, 96], [66, 98]]) gg.fillCircle(x, y, 2); // the four relic embers it wears
+    });
+    make('fx_soul', 20, 20, (gg) => {
+      gg.fillStyle(0xa78bfa, 0.45).fillCircle(10, 10, 10);
+      gg.fillStyle(0xf5f3ff, 1).fillCircle(10, 10, 4);
+    });
+    make('fx_wave', 40, 44, (gg) => {
+      gg.fillStyle(0x1d4ed8, 0.75).fillTriangle(0, 44, 40, 44, 34, 4);
+      gg.fillStyle(0x93c5fd, 0.9).fillTriangle(18, 44, 40, 44, 36, 14);
+      gg.fillStyle(0xeff6ff, 1).fillCircle(34, 6, 4);
     });
     make('fx_flame', 22, 30, (gg) => {
       gg.fillStyle(0xdc2626, 0.9).fillTriangle(0, 30, 11, 0, 22, 30);

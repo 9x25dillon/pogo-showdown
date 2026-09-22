@@ -44,8 +44,10 @@ export async function verifyPortalRealms({ execute, evaluate, waitFor, scene }) 
   });
 
   // the shrine: four portals east of spawn; stand in one, press down, and you're in its realm
-  await execute(`for (const s of window.__game.scene.getScenes(true)) s.scene.stop(); window.__game.scene.start('Realm', { newWorld: true });`);
-  await waitFor(`${r}.ready`);
+  // restart() if the realm is already running: stop-all + start on an active scene races Phaser's queue
+  await execute(`window.__oldWorld = ${r}.world; if (window.__game.scene.isActive('Realm')) ${r}.scene.restart({ newWorld: true });
+    else { for (const s of window.__game.scene.getScenes(true)) s.scene.stop(); window.__game.scene.start('Realm', { newWorld: true }); }`);
+  await waitFor(`${r}.ready && ${r}.world !== window.__oldWorld`);
   const shrine = await execute(`const s = ${r}; s.inventory.copper = 7; s.inventory.herb = 5;
     const p = s.world.portals; const ember = p[0]; s.player.body.reset((ember.tx + 1) * 16, (ember.ty + 3) * 16);
     return [p.map(q => q.pocket).join(','), ember.tx];`);
@@ -83,17 +85,18 @@ export async function verifyPortalRealms({ execute, evaluate, waitFor, scene }) 
     else if (grounded && (wall || gap) && !window.__jumping) { window.__btn(0, true); window.__jumping = window.__f; }
     else if (window.__jumping && grounded && window.__f - window.__jumping > 6) { window.__btn(0, false); window.__jumping = 0; }
     if (s.pocket === 'gale' && s.player.y > (s.world.h - 3) * 16 - 4) window.__falls = (window.__falls ?? 0) + 1;
-    return s.player.x > (s.pocketWorld.arena.x0 + 2) * 16;`;
+    return s.player.x > (s.pocketWorld.arena.x0 + 6) * 16;`;
   await execute(`const { T, isSolid } = await import('/src/game/realm/tiles.ts'); window.__T = T; window.__solid = isSolid;`);
   for (const pocket of ['ember', 'tide', 'gale', 'grave']) {
     if (pocket !== 'ember') {
-      await execute(`${r}.scene.restart({ pocket: '${pocket}' });`);
+      // a fixed seed per realm so the traversal replays exactly (every seed's layout rules are checked above)
+      await execute(`${r}.scene.restart({ pocket: '${pocket}', seed: 1234 });`);
       await waitFor(`${r}.ready && ${r}.pocket === '${pocket}'`);
     }
     await execute(`window.__falls = 0; window.__f = 0; window.__jumping = 0; const s = ${r}; s.enemies.slice().forEach(e => s.despawn(e)); s.spawnTimer = 1e9;`);
     const took = await step(90, `const s = ${r}; s.spawnTimer = 1e9; ${bot}`);
     await execute(`window.__pads[0].axes[0] = 0; window.__btn(0, false);`);
-    const [reached, falls] = await evaluate(`[${r}.player.x > (${r}.pocketWorld.arena.x0 + 2) * 16, window.__falls]`);
+    const [reached, falls] = await evaluate(`[${r}.player.x > (${r}.pocketWorld.arena.x0 + 6) * 16, window.__falls]`);
     assert.equal(reached, true, `bot reached the ${pocket} arena (after ${took.toFixed(1)}s)`);
     assert.ok(took < 80, `${pocket} took ${took}s`);
     if (pocket === 'gale') assert.ok(falls <= 3, `gale void falls: ${falls}`);
