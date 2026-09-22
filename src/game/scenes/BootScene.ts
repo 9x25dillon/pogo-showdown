@@ -495,6 +495,13 @@ export class BootScene extends Phaser.Scene {
           for (let i = 0; i < n; i++) ctx.fillRect(ox + Math.floor(rand() * (TILE - size)), Math.floor(rand() * (TILE - size)), size, size);
         };
         switch (id) {
+          case T.FOUNDRY_WALL:
+          case T.FOUNDRY_GATE:
+            ctx.fillStyle = hex(base); ctx.fillRect(ox, 0, TILE, TILE);
+            ctx.fillStyle = hex(hi); ctx.fillRect(ox, 0, TILE, 1); ctx.fillRect(ox, 0, 1, TILE);
+            ctx.fillRect(ox + 3, 3, 2, 2); ctx.fillRect(ox + 12, 12, 2, 2);
+            if (id === T.FOUNDRY_GATE) { ctx.fillRect(ox + 6, 0, 4, TILE); ctx.fillStyle = '#1d2932'; ctx.fillRect(ox, 7, TILE, 3); }
+            break;
           case T.TRUNK:
             ctx.fillStyle = hex(base); ctx.fillRect(ox + 4, 0, 8, TILE);
             ctx.fillStyle = hex(hi); ctx.fillRect(ox + 6, 0, 2, TILE);
@@ -670,6 +677,28 @@ export class BootScene extends Phaser.Scene {
       gg.fillStyle(0xfacc15, 1).fillTriangle(34, 10, 38, 0, 42, 8).fillTriangle(42, 8, 46, 0, 50, 8).fillTriangle(50, 8, 54, 0, 56, 10);
       gg.fillStyle(0x7f1d1d, 1).fillCircle(40, 18, 2).fillCircle(48, 18, 2);
       gg.fillStyle(0xf59e0b, 1).fillTriangle(36, 60, 40, 66, 44, 58).fillTriangle(44, 58, 48, 66, 52, 60);
+    });
+    make('realm_scrapper', 34, 26, (gg) => {
+      gg.fillStyle(0xb58d4e).fillRect(2, 16, 6, 10).fillRect(26, 16, 6, 10);
+      gg.fillStyle(0x426577).fillRoundedRect(5, 5, 24, 16, 5);
+      gg.lineStyle(2, 0xe5b55c).strokeCircle(17, 13, 9);
+      gg.fillStyle(0x67e8f9).fillCircle(17, 13, 4);
+    });
+    make('boss_warden', 72, 76, (gg) => {
+      gg.fillStyle(0x293f49).fillRoundedRect(10, 18, 52, 39, 8);
+      gg.fillStyle(0xa78347).fillRect(4, 25, 12, 29).fillRect(56, 25, 12, 29).fillRect(14, 56, 16, 20).fillRect(42, 56, 16, 20);
+      gg.fillStyle(0xe5b55c).fillRoundedRect(23, 3, 26, 23, 4);
+      gg.fillStyle(0x14232f).fillRect(26, 11, 20, 5);
+      gg.fillStyle(0x67e8f9).fillRect(28, 12, 5, 3).fillRect(39, 12, 5, 3);
+      gg.lineStyle(4, 0xd5a85a).strokeCircle(36, 39, 13);
+      gg.fillStyle(0x67e8f9).fillCircle(36, 39, 7);
+      gg.lineStyle(3, 0xd5a85a).lineBetween(19, 3, 19, 18).lineBetween(53, 3, 53, 18);
+      gg.fillStyle(0x526c77).fillRect(11, 70, 21, 6).fillRect(40, 70, 21, 6);
+    });
+    make('fx_gear', 24, 24, (gg) => {
+      gg.fillStyle(0xe5b55c).fillCircle(12, 12, 9).fillRect(10, 0, 4, 24).fillRect(0, 10, 24, 4);
+      gg.fillStyle(0x203640).fillCircle(12, 12, 5);
+      gg.fillStyle(0x67e8f9).fillCircle(12, 12, 2);
     });
     make('boss_king', 64, 88, (gg) => {
       gg.fillStyle(0xfacc15, 1).fillRect(18, 0, 28, 6).fillTriangle(18, 6, 22, 0, 26, 6).fillTriangle(38, 6, 42, 0, 46, 6);

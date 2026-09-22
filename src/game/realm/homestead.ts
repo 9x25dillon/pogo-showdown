@@ -1,7 +1,7 @@
 import { ITEM_NAME, type ItemId } from './items';
 import { isSolid, T } from './tiles';
 
-export type FurnitureKind = 'bed' | 'chest' | 'campfire';
+export type FurnitureKind = 'bed' | 'chest' | 'campfire' | 'wardenCore';
 export type Stock = Partial<Record<ItemId, number>>;
 export interface Furniture {
   id: number;
@@ -15,10 +15,11 @@ export interface HomesteadSave {
   furniture: Furniture[];
   homeId?: number;
 }
-export const FURNITURE: Record<FurnitureKind, { width: number; clearance: number; cost: Stock; description: string }> = {
+export const FURNITURE: Record<FurnitureKind, { width: number; clearance: number; cost: Stock; description: string; earnedOnly?: boolean }> = {
   bed: { width: 3, clearance: 3, cost: { wood: 12, gel: 4 }, description: 'Claim a home. Rest under a roof to heal and skip the night.' },
   chest: { width: 2, clearance: 1, cost: { wood: 8, copper: 2 }, description: 'Store 12 item types. Your supplies stay here across expeditions.' },
   campfire: { width: 2, clearance: 1, cost: { stone: 8, wood: 4 }, description: 'A permanent light. Recover faster nearby when enemies are away.' },
+  wardenCore: { width: 2, clearance: 2, cost: {}, earnedOnly: true, description: 'A glowing trophy for your home. Earned from the Clockwork Warden.' },
 };
 export const FURNITURE_KINDS = Object.keys(FURNITURE) as FurnitureKind[];
 export const CHEST_SLOTS = 12;

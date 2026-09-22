@@ -69,7 +69,7 @@ export class RealmHomestead {
   }
 
   lights(): { x: number; y: number; r: number }[] {
-    return this.data.furniture.filter(f => f.kind === 'campfire').map(f => ({ x: (f.tx + 1) * 16, y: f.ty * 16, r: 160 }));
+    return this.data.furniture.filter(f => f.kind === 'campfire' || f.kind === 'wardenCore').map(f => ({ x: (f.tx + 1) * 16, y: f.ty * 16, r: f.kind === 'wardenCore' ? 100 : 160 }));
   }
 
   protects(tx: number, ty: number, support = false): boolean {
@@ -106,6 +106,7 @@ export class RealmHomestead {
 
   private canAfford(kind: FurnitureKind): boolean {
     const pack = this.host.pack();
+    if (FURNITURE[kind].earnedOnly) return (pack[kind] ?? 0) > 0;
     return (pack[kind] ?? 0) > 0 || Object.entries(FURNITURE[kind].cost).every(([id, n]) => (pack[id as ItemId] ?? 0) >= n);
   }
 
@@ -191,7 +192,7 @@ export class RealmHomestead {
   private makeRows(): MenuRow[] {
     if (this.mode === 'build') return FURNITURE_KINDS.map(kind => {
       const pack = this.host.pack();
-      const cost = (pack[kind] ?? 0) > 0 ? `Packed: ${pack[kind]} · no material cost` : Object.entries(FURNITURE[kind].cost)
+      const cost = (pack[kind] ?? 0) > 0 ? `Packed: ${pack[kind]} · no material cost` : FURNITURE[kind].earnedOnly ? 'Expedition reward' : Object.entries(FURNITURE[kind].cost)
         .map(([id, n]) => `${ITEM_NAME[id as ItemId]} ${pack[id as ItemId] ?? 0}/${n}`).join('    ');
       return { label: `${ITEM_NAME[kind]}    ${cost}\n${FURNITURE[kind].description}`, action: () => this.prepare(kind), enabled: this.canAfford(kind) };
     });
@@ -218,7 +219,7 @@ export class RealmHomestead {
     } else if (f.kind === 'bed') {
       rows.push({ label: this.data.homeId === f.id ? '✓ Your home · respawn here in the overworld' : 'Set home · respawn at this bed', action: () => { this.claim(f); this.feedback = 'Home set. Follow the HOME compass to return.'; this.render(); } });
       rows.push({ label: 'Rest · restore health and sleep until dawn', action: () => this.rest(f) });
-    } else rows.push({ label: 'Warmth · faster healing within 6 tiles, away from enemies', action: () => {}, enabled: false });
+    } else rows.push({ label: f.kind === 'wardenCore' ? 'Clockwork Warden defeated · a permanent light for your home' : 'Warmth · faster healing within 6 tiles, away from enemies', action: () => {}, enabled: false });
     rows.push({ label: 'Pack up furnishing', action: () => this.packFurniture(f) });
     return rows;
   }
@@ -248,9 +249,9 @@ export class RealmHomestead {
     const pageRows = this.rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
     pageRows.forEach((row, i) => {
       const idx = page * PAGE_SIZE + i;
-      const y = this.mode === 'build' ? -110 + i * 90 : -122 + i * 39;
+      const y = this.mode === 'build' ? -110 + i * 72 : -122 + i * 39;
       const selected = idx === this.index;
-      const b = this.scene.add.rectangle(0, y, 664, this.mode === 'build' ? 78 : 34, selected ? 0x29474b : 0x192e39)
+      const b = this.scene.add.rectangle(0, y, 664, this.mode === 'build' ? 64 : 34, selected ? 0x29474b : 0x192e39)
         .setStrokeStyle(selected ? 2 : 1, selected ? 0x6ee7b7 : 0x2d4b55).setInteractive({ useHandCursor: true });
       b.on('pointerdown', () => { this.index = idx; if (row.enabled !== false) row.action(); else this.render(); });
       panel.add(b);
@@ -309,6 +310,12 @@ export class RealmHomestead {
         g.fillStyle(0xa37240).fillRect(2, 2, 28, 5);
         g.lineStyle(2, 0xe0b969).strokeRect(2, 1, 28, 14).lineBetween(1, 8, 31, 8);
         g.fillStyle(0xfde68a).fillRect(14, 6, 4, 5);
+      } else if (f.kind === 'wardenCore') {
+        g.fillStyle(0x756348).fillRect(3, 10, 26, 6).fillRect(11, 0, 10, 12);
+        g.fillStyle(0x263b46).fillCircle(16, -5, 13);
+        g.lineStyle(3, 0xe5b55c).strokeCircle(16, -5, 12);
+        g.fillStyle(0x67e8f9).fillCircle(16, -5, 6);
+        g.fillStyle(0xe0fcff).fillCircle(14, -7, 2);
       } else {
         g.fillStyle(0x69717a).fillEllipse(16, 13, 32, 7);
         g.fillStyle(0x704332).fillRect(5, 10, 22, 4);

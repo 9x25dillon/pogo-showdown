@@ -28,6 +28,7 @@ export interface BossDef {
 }
 
 export const BOSSES: Record<BossId, BossDef> = {
+  warden: { id: 'warden', name: 'Clockwork Warden', texture: 'boss_warden', hp: 420, contactDamage: 16, flies: false },
   tyrant: { id: 'tyrant', name: 'Cinder Tyrant', texture: 'boss_tyrant', hp: 300, contactDamage: 20, flies: false },
   leviathan: { id: 'leviathan', name: 'Leviathan', texture: 'boss_leviathan', hp: 260, contactDamage: 18, flies: true },
   harpy: { id: 'harpy', name: 'Harpy Queen', texture: 'boss_harpy', hp: 240, contactDamage: 16, flies: true },
@@ -84,7 +85,7 @@ export interface BossState {
 }
 
 export function createBoss(def: BossDef, sprite: Phaser.Physics.Arcade.Sprite): BossState {
-  const first: Record<BossId, string> = { tyrant: 'walk', leviathan: 'circle', harpy: 'hover', king: 'stalk', reaper: 'drift' };
+  const first: Record<BossId, string> = { tyrant: 'walk', leviathan: 'circle', harpy: 'hover', king: 'stalk', reaper: 'drift', warden: 'patrol' };
   return { def, sprite, hp: def.hp, phase: first[def.id], timer: 2000, data: { summons: 0, fire: 900, stage: 1, waves: 2500 } };
 }
 
@@ -122,6 +123,35 @@ export function updateBoss(b: BossState, ctx: BossCtx, dt: number): void {
   const clampX = (x: number) => Phaser.Math.Clamp(x, arena.x0 + 3 * TILE, arena.x1 - 3 * TILE);
 
   switch (b.def.id) {
+    case 'warden': {
+      if (b.phase === 'patrol') {
+        bd.setVelocityX(toward * 60); b.sprite.setFlipX(toward < 0);
+        if (b.timer <= 0) {
+          b.phase = 'telegraph'; b.timer = 950; b.data.dir = toward;
+          bd.setVelocityX(0); b.sprite.setTint(0xffc16b);
+          ctx.announce('CHARGE INCOMING', 'Jump over the Warden. Its core opens after the gear waves.');
+        }
+      } else if (b.phase === 'telegraph') {
+        if (b.timer <= 0) { b.phase = 'charge'; b.timer = enraged(b) ? 650 : 550; b.sprite.clearTint(); bd.setVelocityX(b.data.dir * 390); }
+      } else if (b.phase === 'charge') {
+        if (b.timer <= 0 || bd.blocked.left || bd.blocked.right) {
+          b.phase = 'slam'; b.timer = 650; bd.setVelocityX(0); b.sprite.setTint(0xf97316);
+        }
+      } else if (b.phase === 'slam') {
+        if (b.timer <= 0) {
+          for (const dir of [-1, 1]) for (let n = 0; n < (enraged(b) ? 2 : 1); n++) ctx.hazard({
+            x: b.sprite.x + dir * (35 + n * 34), y: arena.floorY - 10, texture: 'fx_gear', vx: dir * (155 + n * 55), vy: 0,
+            damage: 14, lifespanMs: 2600,
+          });
+          b.phase = 'recover'; b.timer = 2400; b.sprite.setTint(0x67e8f9); ctx.shake(180, 0.006);
+          ctx.announce('CORE EXPOSED', 'Strike now!');
+        }
+      } else if (b.phase === 'recover') {
+        bd.setVelocityX(0); b.sprite.setTint(0x67e8f9);
+        if (b.timer <= 0) { b.phase = 'patrol'; b.timer = enraged(b) ? 700 : 1200; b.sprite.clearTint(); }
+      }
+      break;
+    }
     case 'tyrant': {
       if (b.phase === 'walk') {
         bd.setVelocityX(toward * (enraged(b) ? 105 : 70));
@@ -378,6 +408,10 @@ function updateReaper(b: BossState, ctx: BossCtx, dt: number, toward: number, cl
  * turns aside blows to his front unless he's reeling from a dash.
  */
 export function hitBoss(b: BossState, damage: number, fromX: number): number {
+  if (b.def.id === 'warden') {
+    if (b.phase !== 'recover') return 0;
+    damage = Math.round(damage * 1.5);
+  }
   if (b.def.id === 'reaper') {
     if (b.phase === 'call' || b.phase === 'vanish') return 0; // untouchable while calling or unseen
     if (b.phase === 'exposed') damage = Math.round(damage * 1.5);

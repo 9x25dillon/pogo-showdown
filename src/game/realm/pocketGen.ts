@@ -1,6 +1,7 @@
 import { T } from './tiles';
 import type { World } from './worldGen';
 import { FOREVER_SEGMENTS, type PocketId } from './realms';
+import { generateFoundry } from './foundryGen';
 
 /**
  * Portal-realm generation: a left-to-right expedition that ends in a
@@ -27,6 +28,7 @@ function rng(seed: number): () => number {
 }
 
 export function generatePocket(pocket: PocketId, seed: number): PocketWorld {
+  if (pocket === 'foundry') return generateFoundry(seed);
   if (pocket === 'forever') return generateForever(seed);
   const w = POCKET_W;
   const h = POCKET_H;

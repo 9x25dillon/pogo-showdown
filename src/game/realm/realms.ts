@@ -7,10 +7,10 @@ import type { RealmEnemyId } from './realmEnemies';
  * a home), ends in a boss arena, and its boss drops a relic that
  * permanently changes how you play.
  */
-export type PocketId = 'ember' | 'tide' | 'gale' | 'grave' | 'forever';
+export type PocketId = 'ember' | 'tide' | 'gale' | 'grave' | 'forever' | 'foundry';
 /** the four relics come from the four elemental realms; the Eternal Hall has none */
-export type RelicId = Exclude<PocketId, 'forever'>;
-export type BossId = 'tyrant' | 'leviathan' | 'harpy' | 'king' | 'reaper';
+export type RelicId = Exclude<PocketId, 'forever' | 'foundry'>;
+export type BossId = 'tyrant' | 'leviathan' | 'harpy' | 'king' | 'reaper' | 'warden';
 
 export interface PocketDef {
   id: PocketId;
@@ -23,7 +23,7 @@ export interface PocketDef {
   sky: number;
   /** how dark it is with no light at all (0-1) */
   darkness: number;
-  hazard: 'heat' | 'water' | 'void' | 'dark';
+  hazard: 'heat' | 'water' | 'void' | 'dark' | 'machinery';
   enemies: RealmEnemyId[];
   spawnCap: number;
   boss: BossId;
@@ -33,6 +33,10 @@ export interface PocketDef {
 }
 
 export const POCKETS: Record<PocketId, PocketDef> = {
+  foundry: {
+    id: 'foundry', name: 'Buried Foundry', blurb: 'lost ruins · steam halls · hidden caches', tier: 1, portalColor: 0xfbbf24, sky: 0x101c25, darkness: 0.38,
+    hazard: 'machinery', enemies: ['crawler'], spawnCap: 0, boss: 'warden', bossName: 'Clockwork Warden', loot: { item: 'iron', count: 12 },
+  },
   ember: {
     id: 'ember', name: 'Ember Realm', blurb: 'heat · lava · imps', tier: 1, portalColor: 0xf97316, sky: 0x2a0a06, darkness: 0.55,
     hazard: 'heat', enemies: ['imp', 'imp', 'slime'], spawnCap: 5, boss: 'tyrant', bossName: 'Cinder Tyrant', loot: { item: 'ember', count: 12 },

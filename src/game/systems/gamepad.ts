@@ -25,6 +25,7 @@ export interface PadButtons {
   rt: boolean;
   view: boolean;
   menu: boolean;
+  r3: boolean;
 }
 
 export interface PadFrame {
@@ -38,10 +39,10 @@ export interface PadFrame {
 }
 
 const STICK_DEADZONE = 0.4;
-const KEYS: (keyof PadButtons)[] = ['left', 'right', 'up', 'down', 'a', 'b', 'x', 'y', 'lb', 'rb', 'lt', 'rt', 'view', 'menu'];
+const KEYS: (keyof PadButtons)[] = ['left', 'right', 'up', 'down', 'a', 'b', 'x', 'y', 'lb', 'rb', 'lt', 'rt', 'view', 'menu', 'r3'];
 
 export function emptyButtons(): PadButtons {
-  return { left: false, right: false, up: false, down: false, a: false, b: false, x: false, y: false, lb: false, rb: false, lt: false, rt: false, view: false, menu: false };
+  return { left: false, right: false, up: false, down: false, a: false, b: false, x: false, y: false, lb: false, rb: false, lt: false, rt: false, view: false, menu: false, r3: false };
 }
 
 function button(pad: Gamepad, i: number): boolean {
@@ -67,6 +68,7 @@ function toButtons(pad: Gamepad): PadButtons {
     rt: button(pad, 7),
     view: button(pad, 8),
     menu: button(pad, 9),
+    r3: button(pad, 11),
   };
 }
 

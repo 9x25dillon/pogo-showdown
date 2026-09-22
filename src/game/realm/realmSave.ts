@@ -2,6 +2,7 @@ import { dbGet, dbPut } from '../db/LocalDB';
 import type { ItemId } from './items';
 import type { RelicId } from './realms';
 import type { HomesteadSave } from './homestead';
+import type { ExpeditionProgress } from './expeditions';
 
 /**
  * One saved world. The world itself is regenerated from `seed`; only the
@@ -26,6 +27,7 @@ export interface RealmSave {
   explored?: string;
   /** Optional so worlds created before homesteads still load. Overworld only. */
   homestead?: HomesteadSave;
+  expeditions?: ExpeditionProgress;
   /** ms into the day/night cycle */
   clock: number;
   savedAt: string;

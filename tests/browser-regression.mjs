@@ -8,6 +8,7 @@ import { verifyRealm } from './realm-regression.mjs';
 import { verifyPortalRealms } from './realm-portals-regression.mjs';
 import { verifyForeverGate } from './realm-forever-regression.mjs';
 import { verifyHomestead } from './realm-homestead-regression.mjs';
+import { verifyFoundry } from './realm-foundry-regression.mjs';
 
 const cdpUrl = process.env.CDP_URL ?? 'http://127.0.0.1:9333';
 const gameUrl = process.env.POGO_URL ?? 'http://127.0.0.1:5173';
@@ -47,12 +48,15 @@ const version = await (await fetch(`${cdpUrl}/json/version`)).json();
 const browser = await connect(version.webSocketDebuggerUrl);
 const { browserContextId } = await browser.call('Target.createBrowserContext');
 let page;
+let completed = false;
 try {
   const { targetId } = await browser.call('Target.createTarget', { url: 'about:blank', browserContextId });
   const targets = await (await fetch(`${cdpUrl}/json/list`)).json();
   page = await connect(targets.find(target => target.id === targetId).webSocketDebuggerUrl);
   const evaluate = async expression => {
-    const result = await page.call('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+    const result = await page.call('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }).catch(error => {
+      throw new Error(`${error.message}\nEvaluating: ${expression.slice(0, 700)}`);
+    });
     if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
     return result.result.value;
   };
@@ -84,7 +88,7 @@ try {
   await page.call('Page.navigate', { url: gameUrl });
   await waitFor('!!window.__game?.scene.isActive("ModeSelect")');
 
-  if (process.env.POGO_SUITE !== 'homestead') {
+  if (!['homestead', 'foundry'].includes(process.env.POGO_SUITE)) {
 
   // Starter perks must reflect the starter created during this visit.
   await start('PogBinder');
@@ -217,14 +221,21 @@ try {
     await page.call('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     await pause();
   };
-  await verifyHomestead({ execute, evaluate, waitFor, scene, key, tap, screenshot: process.env.POGO_SCREENSHOT_DIR ? async name => {
+  const screenshot = process.env.POGO_SCREENSHOT_DIR ? async name => {
     const { data } = await page.call('Page.captureScreenshot');
     await writeFile(`${process.env.POGO_SCREENSHOT_DIR}/${name}.png`, Buffer.from(data, 'base64'));
-  } : undefined });
+  } : undefined;
+  if (process.env.POGO_SUITE !== 'foundry') await verifyHomestead({ execute, evaluate, waitFor, scene, key, tap, screenshot });
+  if (process.env.POGO_SUITE !== 'homestead') await verifyFoundry({ execute, evaluate, waitFor, scene, key, tap, screenshot });
   assert.equal(page.errors.length, 0, JSON.stringify(page.errors));
-  console.log(process.env.POGO_SUITE === 'homestead' ? 'PASS: no browser exceptions.' : 'PASS: collection paging, migration, independent mastery, training gate, tier awards, advantage caps, character UI, battle listeners, runner restart/pause, shield behavior, Trick Lab restart, obstacle cleanup, save persistence; no browser exceptions.');
+  console.log(process.env.POGO_SUITE ? 'PASS: no browser exceptions.' : 'PASS: collection paging, migration, independent mastery, training gate, tier awards, advantage caps, character UI, battle listeners, runner restart/pause, shield behavior, Trick Lab restart, obstacle cleanup, save persistence; no browser exceptions.');
+  completed = true;
 } finally {
   page?.socket.close();
-  await browser.call('Target.disposeBrowserContext', { browserContextId });
-  browser.socket.close();
+  try {
+    await browser.call('Target.disposeBrowserContext', { browserContextId });
+  } catch (error) {
+    if (completed) throw error;
+    console.error(`Browser cleanup failed after the test failure: ${error.message}`);
+  } finally { browser.socket.close(); }
 }

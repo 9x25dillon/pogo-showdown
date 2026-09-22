@@ -1,153 +1,175 @@
-# Pogo Showdown — next-session handoff
+# Pogo Showdown — session handoff
 
-## September 22, 2026 — Homestead expansion (current workspace)
+Updated September 22, 2026. This replaces the layered September 21/22 handoffs; earlier detail remains in Git history.
 
-Forever Realm now has a persistent home-building loop. This expansion is committed locally; it has not been pushed or released to Android.
+## Start here next session
 
-- **Open HOME:** H, controller LT, or the HOME button. Select a furnishing, aim at a flat floor, then click / K / RT to place it. H / LT or B / Esc cancels placement without spending materials.
-- **Wayfarer Bed:** 12 wood + 4 gel; three tiles wide with three tiles of headroom. Interact to set your overworld respawn. A roof 3–7 tiles above all three bed tiles and no enemies within 10 tiles allow a full heal and sleep to dawn. A HOME compass shows direction and distance.
-- **Storage Chest:** 8 wood + 2 copper; two tiles wide; 12 distinct item types. Deposit or withdraw one item with A / click / K, a whole stack with X / J or the on-screen button. Quick stack transfers matching item types. LB/RB or arrows page through larger inventories. Contents persist across reloads and portal expeditions.
-- **Campfire:** 8 stone + 4 wood; two tiles wide; permanent light and +4 HP/s within six tiles when enemies are away, after the existing damage recovery delay.
-- **Interact:** S / D-pad down, or tap the contextual prompt. Beds and fires can be packed; chests must be empty first. Packed furnishings can be placed again without another resource cost. Packing the active bed restores the original spawn.
-- Furniture is passable, but reserves its space and supporting tiles against mining/building. It belongs only to the overworld. Portal entrances and boss behavior are unchanged.
+1. Read this file, any applicable `AGENTS.md`, `git status --short --branch`, and `git log -5 --oneline`. Preserve unrelated local changes. Check the remote before publishing.
+2. September 22 delivered two Forever Realm expansions: persistent homesteads (`d9cb7a3`) and Buried Foundry expeditions (the subsequent commit containing this handoff; find it with `git log`). Work was developed on `master`; there is no separate September 22 feature branch requiring a merge. Verify publication from Git rather than treating this document as live remote status.
+3. The user authorized committing, pushing, and merging this work. That is source publication, not an Android release. No Android package was built or published this session. The last recorded Play release in the previous handoff was v0.4.0; current store status has not been independently checked.
+4. Recommended next task: playtest and tune the complete home → Foundry → permanent reward loop. Human feel and balance are the largest remaining uncertainties. A second dungeon is a later option, not an agreed next deliverable.
+5. The user values autonomous completion and concise progress updates. Continue authorized implementation through appropriate checks. Their “please continue” was encouragement to finish the active expansion, not a request to start another feature. Ask only for information that materially affects the next task; routine reversible work does not need repeated confirmation.
 
-Implementation: `realm/homestead.ts` contains save types, placement rules, storage transfers, and restoration; `realm/RealmHomestead.ts` owns furniture rendering, placement preview, and the paged UI; `RealmScene.ts` supplies world/combat/save hooks. The optional `RealmSave.homestead` field keeps version-1 saves compatible. No database upgrade is needed. A separate existing bug was fixed: saving while dead now writes both spawn coordinates, instead of combining the death X with spawn Y.
+## Repository and existing game
 
-Pointer regression found and fixed: screen-fixed container children need their own `setScrollFactor(0)` for hit tests. Phaser 4's `container.setScrollFactor(0, 0, true)` does not propagate to inherited scroll-factor properties. Both homestead and the existing crafting panel now set children explicitly. The suite exercises real keyboard and touch events after the world camera has scrolled.
+Phaser 4, TypeScript, Vite, and a Capacitor Android shell. Procedural art lives in `src/game/scenes/BootScene.ts`. Data is local IndexedDB: database version 4, Realm save version 1. Tile IDs are persisted keys: append new IDs rather than renumbering. Preserve item keys and compatibility with saves missing optional fields.
 
-Tests: `tests/realm-homestead-regression.mjs` runs as part of `npm run test:browser`. Set `POGO_SUITE=homestead` for the focused suite. Tests use an isolated browser context, so player saves are untouched. Development testing uses a separate server at `http://127.0.0.1:5174`.
+The eight modes are Pogo Dash, The Circuit, Pog Battles, Yoyo Trick Lab, Leaderboard, Pog Binder, Pog Quest, and Forever Realm. September 22 extended Forever Realm; it did not introduce another main-menu mode.
 
-Validation completed: `npm run build`, `git diff --check`, and the full browser suite (existing modes, Pog Quest, Realm core, four portals, Forever Gate/Reaper, homesteads) all passed; zero browser exceptions. Desktop menu screenshots were inspected. Real keyboard and emulated touch interactions passed; physical controller/phone feel still needs a human playtest.
+Prior-session context, not work completed today:
 
-The previous handoff below describes the state **before** this expansion. Its “everything merged” statement applies only to the September 21 work.
+- Pog Quest has 12 solo levels including a boss-rush finale, three co-op levels, pickups, and the `?tune` physics panel. Its economy gives mastery training for qualifying attempts and first-clear Tech Points/reward pogs, without changing career tiers or Circuit matches.
+- Forever Realm has a 640×200 overworld, mining/building/crafting, day/night, four elemental portal realms, four relics, the Forever Gate, Eternal Hall, and Eternal Reaper. Ordinary pockets are 220×70; the Hall is 260×70.
+- Realm uses a 960×540 landscape game size and restores portrait when exiting. The Android shell is still portrait-locked.
+- Cue-based music streams through HTML audio; M mutes. User source tracks are in ignored `/music/`; shipped compressed copies are in `public/music/`. Artist credit remains unspecified.
+- Standard-mapping controller input is polled directly and cached per frame. Recorded user hardware: Xbox One Elite 2 on Linux's `xpad` driver.
 
----
+## What September 22 added
 
-_Last updated after the September 21, 2026 session (one long day): Pog Quest expansion → power-ups → Forever Realm Phases 1–3 + soundtrack. Previous handoffs are in git history (`git log -p -- Hand_off.md`)._
+### Persistent homesteads
 
-## Start here
+The HOME menu provides furniture placement previews and confirms costs only on valid placement. Canceling costs nothing. Furniture is passable but reserves clearance and supporting tiles against building/mining. It belongs to the overworld.
 
-- **Everything is merged to `master` and pushed** (merge commit `ab929cd`). Today's work came in through `feat/forever-realm`, which contains `feat/pog-quest-expansion` and `feat/pog-quest-powerups`. The next session can branch fresh from `master`.
-- **Release status: nothing from today has been released to Android.** The last Play build is v0.4.0. Everything since (Pog Quest onward) is unreleased.
-- **The user's hardware:** a desktop with a **Microsoft Xbox One Elite 2** controller on the Linux `xpad` driver. The user plays in the browser at `http://localhost:5173` (`npm run dev`).
-- **Their own music** lives in `music/` (WAV and MP3, git-ignored with an anchored `/music/`). The game ships 128 kbps copies in `public/music/`.
-
-```
-git switch master && git pull
-npm run dev                      # the user plays here
-npx tsc --noEmit && npm run build
-# tests: a headless Chromium with CDP on 9333, then:
-POGO_URL=http://localhost:5173 npm run test:browser   # 5 suites, ~3-4 min
-```
-
-Headless browser for tests (never `pkill` by pattern; kill the PID you launched):
-```
-~/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome --headless --no-sandbox --disable-gpu \
-  --remote-debugging-port=9333 --user-data-dir=<scratch>/chrome-profile about:blank &
-```
-
-## What the game is now
-
-A web-first Phaser 4 + TypeScript + Vite game with a Capacitor Android shell. All art is procedural (`BootScene`), all data is local (IndexedDB, `db/LocalDB.ts`, **DB version 4**). The main menu has 8 modes:
-
-| Mode | Where | Notes |
+| Furniture | Cost and space | Behavior |
 |---|---|---|
-| Pogo Dash, The Circuit, Pog Battles, Yoyo Trick Lab, Leaderboard, Pog Binder | unchanged, portrait | see older handoffs |
-| **Pog Quest** | `scenes/Platformer*`, `data/levels.ts`, `data/platformerConfig.ts` | 12 solo levels (3 bosses + a boss rush finale) and 3 co-op levels, in a tabbed level select; economy hooks (`db/questRepository.ts`); 8 active pog item kinds; 5 power-up pickups; springs, spikes; `?tune` live physics panel |
-| **Forever Realm** | `scenes/RealmScene.ts`, `realm/*` | **landscape 960×540** open world (Terraria + Chakan). Phase 1: dig, build, craft, day/night, lighting, 3 creatures. Phase 2: a portal shrine, 4 elemental realms (Ember/Tide/Gale/Grave), 4 bosses, relics, brews. Phase 3: the Forever Gate, the Eternal Hall, the Eternal Reaper, the ending, a minimap, the Chakan hero |
+| Wayfarer Bed | 12 wood + 4 gel; three tiles wide, three tiles headroom | Sets overworld respawn. A roof 3–7 tiles above every bed column and no enemies within 10 tiles allow full healing and sleep to dawn. A compass points home. |
+| Storage Chest | 8 wood + 2 copper; two tiles wide | Twelve distinct item types, unrestricted stack counts; one-item/whole-stack transfers, quick-stack matching types, paged inventories. |
+| Campfire | 8 stone + 4 wood; two tiles wide | Permanent light within 160px; adds 4 HP/s within 96px when enemies are away, after the existing recovery delay. |
+| Warden Core Trophy | First Foundry victory only; two tiles wide and two tiles clearance | Decorative permanent light within 100px. Cannot be freely crafted. |
 
-Cross-cutting systems added today:
-- `systems/music.ts`: cue-based soundtrack (`menu / explore / danger / win / loss`), streamed through `<audio>`. M mutes.
-- `systems/gamepad.ts`, `ui/padMenu.ts`: standard-mapping gamepads, cached per frame time, rumble, and menu focus rings.
-- `scenes/PlatformerPauseScene.ts`: the shared pause menu. It takes `{ target }` and lays out from the live screen size.
+Packed furniture becomes a reusable kit. Chests must be empty before packing. Packing the claimed bed restores the original spawn. Homesteads persist through reloads and portal visits using optional `RealmSave.homestead`, without a schema version bump.
 
-### Forever Realm file map
-| File | What |
+Two related fixes shipped with homesteads: saving a dead player now uses both spawn coordinates, and screen-fixed crafting/HOME controls receive pointer input correctly after camera scrolling. Set scroll factors on each interactive child explicitly; Phaser 4's container propagation does not handle inherited properties as expected.
+
+### Lost Ruins: Buried Foundry
+
+A brass entrance west of the original overworld spawn leads to a separate expedition. The entrance is a world object, not terrain edits. Placement searches for clear ground away from furniture; heavily modified worlds and fallback placement deserve more coverage. Discovery within 200px reveals an amber minimap marker. The journal provides a rumor before discovery and direction/distance afterward.
+
+The authored 378×72 dungeon contains Intake, Stamping, and Boiler halls followed by the Heart Engine. Each hall has a regulator/checkpoint, an optional upper cache gallery reachable with ordinary jumps, and a pressure gate. Seeded variation changes trap rhythms and gallery offsets; this is not a wholly procedural room generator. Nine traps and six Scrap Sentinels guard the route. Foundry masonry/gates are unbreakable and block placement is disabled.
+
+- Trap cycle: 3.6 seconds idle, 1.2 seconds amber warning, 1.2 seconds active. Steam deals 12 damage; presses deal 22, subject to normal hit invulnerability.
+- Regulators open their gates and heal 25 HP. Death retains regulator/cache progress for the current visit and returns to the last checkpoint, resetting the boss. Leaving or quitting ends the visit; reentry resets dungeon rooms and caches. An unfinished expedition does not resume across sessions.
+- Clockwork Warden: 420 HP, 16 contact damage; patrol → warning → charge → gear-wave slam → cyan exposed recovery. Only recovery accepts sword damage, multiplied by 1.5. Below half health, movement/charges intensify and extra waves appear.
+- Every victory grants 12 iron. The first permanently unlocks the Survey Lantern and awards one trophy kit. Awarding victory twice within one run cannot duplicate rewards.
+- The lantern outlines copper, iron, and soulstone through darkness/terrain within a 12-tile radius, scanning every 250ms. It changes neither mining reach nor pickaxe requirements. Its journal toggle persists.
+- The journal pauses gameplay and records discovery, objectives, clears, lifetime cache count, best active-simulation completion time, and lantern controls. Attempts are saved but are not displayed in the current journal.
+
+Optional `RealmSave.expeditions` stores entrance/discovery, attempts, clears, caches, best time, lantern unlock, and lantern preference. Existing saves receive defaults. Foundry is a pocket but not an elemental relic realm; the four-relic finale requirements remain unchanged.
+
+## Controls worth knowing
+
+| Action | Keyboard/mouse | Controller/touch |
+|---|---|---|
+| Move / jump | A/D; W or Space | Left stick; A |
+| Sword / tool | J or right click; K or left click | X; RT; right stick aims |
+| Potion / crafting | Q; E | B; Y |
+| Minimap / pause | Tab; Esc | View; Menu |
+| HOME | H or HOME button | LT or HOME button |
+| Journal | N or JOURNAL button | R3/right-stick click or JOURNAL button |
+| Interact / enter portal | S / down arrow | D-pad down or contextual touch prompt |
+| Place selected furnishing | Click or K | RT |
+| Cancel placement | H or Esc | LT or B |
+
+Menus interpret buttons contextually. Chest transfers support one item or a whole stack, quick stack, and page controls. Journal closes with N/Esc or R3/B.
+
+## Code map
+
+All game paths below are relative to `src/game/`.
+
+| Files | Responsibility |
 |---|---|
-| `realm/worldGen.ts` | seeded overworld (640×200 tiles): caves, ores by depth, trees, **the shrine** (4 portals + the Forever Gate) |
-| `realm/pocketGen.ts` | the portal realms (220×70) and the Eternal Hall (260×70), each ending in a boss arena |
-| `realm/realms.ts` | realm defs, relics, `FOREVER_SEGMENTS` |
-| `realm/realmBosses.ts` | 5 boss state machines behind a `BossCtx` (Tyrant, Leviathan, Harpy Queen, Hollow King, **Eternal Reaper**) |
-| `realm/tiles.ts`, `realm/items.ts`, `realm/realmEnemies.ts` | tile table (ids are save keys: append only), items/recipes/brews/swords, creatures with `ai` kinds |
-| `realm/realmSave.ts` | the save: seed + tile edits, inventory, gear, relics, champion, stats, minimap fog bitset |
-| `scenes/RealmScene.ts` | ~1800 lines: world build, input, mining/building, combat, environment hazards, portals/travel, boss fights, lighting, HUD, minimap, ending, save. **The next refactor candidate**: split out environment, HUD/minimap and boss plumbing. |
+| `realm/homestead.ts`, `realm/RealmHomestead.ts` | Pure save/placement/storage rules; furniture rendering, preview and menus |
+| `realm/expeditions.ts` | Progress defaults, entrance search, trap timing, cache loot |
+| `realm/foundryGen.ts` | Foundry geometry, gates, galleries, seeded variation |
+| `realm/RealmExpedition.ts` | Entrance discovery, props/traps, journal, awards, survey overlay |
+| `realm/realmBosses.ts` | Existing bosses plus the Warden state machine and armor rules |
+| `realm/realmSave.ts`, `realm/realms.ts`, `realm/pocketGen.ts` | Persistence, pocket/relic types, world generation routing |
+| `realm/items.ts`, `realm/tiles.ts` | Trophy item and appended Foundry wall/gate tile IDs 28/29 |
+| `scenes/RealmScene.ts` | World/input/combat/save integration, travel/checkpoints, HUD/minimap |
+| `scenes/BootScene.ts`, `systems/gamepad.ts` | Procedural Foundry textures; R3 input mapping |
+| `db/LocalDB.ts`, `systems/music.ts`, `ui/padMenu.ts` | Existing database, soundtrack, controller menu systems |
 
-### Forever Realm controls
-Controller: stick move · A jump · X sword · RT use tool (hold to mine) · right stick aim · LB/RB tools · B potion · Y craft · View minimap · Menu pause · ▼ enter a portal.
-Keyboard/mouse: A/D · W/Space · J sword · K or click use · right-click sword · 1–0 tools · Q potion · E craft · Tab minimap · S/↓ portal · Esc.
+`tests/realm-homestead-regression.mjs` and `tests/realm-foundry-regression.mjs` integrate into `tests/browser-regression.mjs`. RealmScene remains large; extract a subsystem when a concrete change benefits from it, rather than combining a broad rewrite with balance tuning.
 
-## Key decisions (today)
+## Validation and debugging
 
-1. **New modes sit beside old ones; nothing is replaced.** Pog Quest stayed alongside Pogo Dash, and the Forever Realm stayed alongside Pog Quest (the user's explicit choice both times).
-2. **Pog Quest economy:** attempts of 15s+ give character mastery training (which feeds Circuit Advantage), and a first clear gives +1 Tech Point plus a reward pog. It never touches career tier, Dash score or the Circuit match.
-3. **Physics defaults were not tuned by the assistant.** Instead there's a `?tune` panel for the human to use. Feel is a human judgment.
-4. **Worlds save as a seed plus edits**, not full maps. Portal realms regenerate on every visit (dungeons); only gear, pack, relics and stats travel back.
-5. **The soundtrack streams through `<audio>` instead of Web Audio decoding** (~100MB of RAM per song otherwise), mapped by cue rather than by file.
-6. **Controller input is polled directly from the Gamepad API** (not Phaser's plugin), cached per frame time so a press is seen exactly once across stacked scenes.
-7. **The realm is landscape via `scale.setGameSize`** while it runs, restored to portrait on exit. The rest of the app stays portrait.
-8. **Relics gate the finale and make the Eternal Hall passable** (immunities, double jump, breathing). That's the progression loop. The opened gate follows the relics; it isn't saved as a tile edit.
-9. **Traversability is proven by bots at a fixed 60fps** (`game.headlessStep`, fixed seeds), not assumed from level data. This found 6+ real level-design bugs.
+Completed against the final application changes this session: production build, focused Foundry regression, full browser regression, and whitespace checks passed. The full suite covered existing modes, Pog Quest, Realm core, portals, the Forever Gate/Reaper, homesteads, and Foundry, with zero browser exceptions. Vite still reports the existing large-bundle warning. No dependencies were added.
 
-## Bugs found and fixed along the way (worth remembering)
+Foundry coverage includes actual keyboard, emulated touch, and emulated R3 journal input; pause timing; discovery/minimap visibility; unchanged overworld tiles; all three gallery climbs; normal-jump route traversal through regulators; trap warning/damage; boss armor/attack states; checkpoint deaths; reward idempotency/persistence; lantern range/toggle; and trophy placement/packing. The victory integration test reduces boss HP before the finishing sword hit. It does not prove a natural full-health Warden fight is fair or enjoyable. Automated traversal likewise does not establish human completion time or physical-device feel.
 
-- **Pog Quest's AI rival could never finish a race** (a jump-cut hop, then a loop into the same pit after respawning). It existed on `master` since the mode shipped.
-- **Respawns via `setPosition` dropped bodies through the floor.** Use `body.reset(x, y)`.
-- **Checkpoints on moving platforms respawned players in mid-air.**
-- **Unreachable or bonk-prone ledges** in Pog Quest Level 1 and the Tide knolls (fixed with a surface-breach jump). **A sky island blocked the Eternal Hall's crypt door.**
-- **Phaser reuses a scene's previous start data** when `start()`/`restart()` get none, so a single "New World" wiped the save on every later visit. The realm now clears `sys.settings.data`.
-- **The camera fade persisted across `scene.restart()`**, which would have left the screen black after every portal trip. Fixed with `resetFX()` in create.
-- **Two flaky tests traced to root causes:** assertions read after control returned to the real game loop, and `stop()`+`start()` on an already-active scene left it stuck at SHUTDOWN (use `restart()`).
+To validate application changes:
 
-## Unresolved assumptions (raise these with the user; don't silently decide)
+```sh
+npm run build
+# In a separate terminal, choose an available port and use the printed URL:
+npm run dev -- --host 127.0.0.1 --port 5175
+# Start an isolated Chromium instance in another terminal:
+foundry_profile=$(mktemp -d /tmp/pogo-browser.XXXXXX)
+~/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome --headless --no-sandbox --disable-gpu --remote-debugging-port=9333 --user-data-dir="$foundry_profile" about:blank
+# With the server and browser running:
+POGO_URL=http://127.0.0.1:5175 npm run test:browser
+# Optional focused checks during iteration:
+POGO_SUITE=foundry POGO_URL=http://127.0.0.1:5175 npm run test:browser
+POGO_SUITE=homestead POGO_URL=http://127.0.0.1:5175 npm run test:browser
+git diff --check
+```
 
-1. **Difficulty and feel have never had a human pass**: jump physics, boss HP and timings, heat/breath rates, enemy damage. The Reaper has 900 HP; perch-only Conductor fights take ~50s.
-2. **Android:** the Capacitor shell is portrait-locked, so the realm letterboxes on phones. Is the realm meant to ship on Android? That needs an orientation plugin and touch-control tuning. Touch co-op for Pog Quest has also never been on a real phone.
-3. **Nothing since v0.4.0 is released.** Is a release planned, and at what scope? The APK now includes ~25MB of music.
-4. **Should Pog Quest or the Forever Realm feed career tiers** or the Circuit? Currently they don't (Pog Quest only feeds mastery and Tech Points).
-5. **The realm hero replaced the chosen character** (Chakan styling). Should the character select still matter there?
-6. **Post-game:** after the Reaper, the realms are replayable but offer nothing new. New Game+, harder bosses, or beds and chests (proposed, not started)?
-7. **Crediting the soundtrack:** the ending lists track names only. Does the user want an artist name?
+Check that the cached Chromium path exists. CDP defaults to port 9333 and supports `CDP_URL`. Use the exact URL Vite prints; occupied ports may cause it to choose another. Last Foundry server used 5175, while an earlier homestead server used 5174. Check live processes before assuming either remains running. Browser saves are origin-specific: switching host or port can make an existing save appear absent. Tests create a separate browser context and dispose it without touching player saves.
 
-## Test and debugging playbook (hard-won)
+Debugging rules learned from actual failures:
 
-- **Drive time yourself.** Headless Chrome runs at <10fps and irregularly. Use chunked `game.headlessStep` loops (see `simulate`/`step` in the tests), and **assert inside the stepped frames**, not in a later CDP call.
-- **Phaser tweens run on the wall clock**, not headlessStep's delta. Anything that finishes on a tween (menu buttons) needs real-time waits (`tapReal`).
-- **Scene restarts:** `restart()` an active scene; wait for a *new* state object (`world !== oldWorld`), not a flag the old instance still holds.
-- **Fixed seeds** for traversal bots (`scene.restart({ pocket, seed })`). The generator constraints are checked separately across seeds.
-- **Reproduce a flake with a trace before fixing it.** Twice today, a guessed fix was wrong.
-- **Close CDP tabs you open** (`/json/close/<id>`). Orphaned game tabs slowed the browser enough to time the suite out.
-- **Vite binds IPv6 `localhost`**, so use `POGO_URL=http://localhost:5173`.
-- **Phaser 4 API differences met today:** `rt.render()` is required on RenderTextures; `erase()` has no alpha argument (set it on the eraser object); `setTintFill(color)` is gone; `make.image(config, addToScene)`.
-- **To work while the user plays**, build in a git worktree with its own dev server on another port, so their session doesn't hot-reload mid-game.
+- Test real input after camera scrolling early. Directly invoking menu methods does not validate hitboxes. Explicit child `setScrollFactor(0)` fixed the actual issue.
+- Drive movement with fixed 60Hz simulation, stable inputs, and assertions inside stepped frames. Release/stop input before yielding to the browser. Render between manual simulation chunks to flush graphics buffers; accumulating headless frames without rendering can stall the next real frame.
+- The initial Foundry route bot got stuck by walking into a step without jumping; the geometry did not require changing. Trace position, collision and input before diagnosing unreachable terrain.
+- Phaser tweens use wall time. Allow real time for tween-driven UI; do not assume `headlessStep` advances every subsystem.
+- Use `body.reset(x, y)` for physical respawns. Use `restart()` for active scenes and wait for a new world object. Keep the existing scene-start-data clearing and camera `resetFX()` fixes.
+- Freeze application edits during a full regression run: Vite hot reload previously invalidated a run. Work in a separate worktree/server when edits would interrupt the user's game.
+- Close only browser tabs/processes you own. Preserve the original assertion when browser cleanup also fails. Diagnose focused failures before rerunning the whole suite.
+- `npm run build` already includes TypeScript checking. Do not repeat the full game suite for documentation-only changes.
 
-## Collaboration retrospective
+Temporary screenshots were saved under `/tmp/pogo-foundry-screens/` and `/tmp/pogo-homestead-screens/`; they are disposable and not repository artifacts. The journal was visually inspected. Do not mistake a limited boss-area screenshot for comprehensive combat visual validation.
 
-**Where the assistant could have been more efficient**
-1. **I guessed at a flaky test twice before measuring it.** The Pog Quest pad-jump flake got a guessed fix (move the rival), then a second guess that broke the level (the rival won the race), before a 25-iteration trace showed the real cause. I should have reproduced it with a trace first, as I eventually did.
-2. **I wrote tests with assumptions I hadn't checked** (the respawn point being inside the portal, the stick aim distance, test-injected relics persisting, the ground under a placed block), which cost several suite reruns at 3–4 minutes each. Reading the exact state before asserting on it would have saved most of them.
-3. **The realm's lighting took four screenshot rounds** (uniform darkness, sky color, erase alpha, scaled erasers) because I built it before checking Phaser 4's RenderTexture semantics. A 5-minute API spike up front would have been cheaper.
+## Decisions and unresolved assumptions
 
-**Where the user could have been more efficient**
-1. **Scope escalated every turn** ("more levels" → "open world" → "portal realms" → "final boss") without a stated end goal. A one-paragraph north star ("a Terraria/Chakan open world with 4 realms and a final boss, released on Android by X") would have let the architecture be planned once. For example, landscape and Android orientation got deferred because they weren't known up front.
-2. **"It plays fine" was the only playtest feedback.** The biggest open risk (feel, difficulty) can only be closed by you. Even three bullets per session ("jumps float, the Tyrant is too easy, I got lost in Tide") would steer tuning better than more features.
-3. **Some requests bundled 3–5 deliverables** (e.g. "commit push merge … review … key decisions … assumptions … examples … vocabulary … handoff"). That's fine for wrap-ups, but mid-build, one goal per message lets each piece be reviewed before the next is stacked on it.
+Decisions made today:
 
-**Prompting tips that unlock more**
-- **Name the constraint, not just the feature:** "must run on my Android phone", "keep it under 10 minutes to beat", "bosses should be hard". Constraints change designs more than features do.
-- **Say what "done" looks like** ("I can beat Ember without dying more than twice"). I'll build tests and tuning toward it.
-- **Point at a reference moment** ("the Tyrant should feel like Chakan's fire boss", "mining should feel like Terraria's copper era"). Concrete references beat adjectives.
+1. Build a persistent home loop, then one complete optional expedition that gives homes and exploration another purpose.
+2. Preserve existing worlds with optional save fields and an entrance object instead of regenerating terrain.
+3. Keep Foundry separate from the four elemental relics and finale gating.
+4. Save permanent expedition progression while resetting visits; checkpoints protect progress only within a visit.
+5. Reward exploration with a permanent utility upgrade and a placeable trophy, plus repeatable materials.
+6. Reuse procedural art and the existing controller/combat stack; verify actual input and traversal alongside rule-level assertions.
 
-## Vocabulary
+Open questions, with current behavior distinguished from intent:
 
-- **Deterministic simulation**: running a game with a fixed time step and seeded randomness so the same inputs always produce the same result. That's what made today's bot tests reliable ("run it deterministically at 60fps with seed 777").
-- **Root-cause analysis**: finding *why* a failure happens, not just making it go away. Today's flaky tests were fixed for real only after tracing them. Asking "what's the root cause?" pushes past quick patches.
-- **Vertical slice**: a thin but complete, playable piece of a big feature, like Phase 1 of the realm. Asking for "a vertical slice of X" gets you something to play early instead of lots of half-finished parts.
+- **Pacing and difficulty:** the proposed 5–10 minute visit is a design target, not a measured result. Warden recovery windows, trap readability, discovery distance and gearing need a human pass.
+- **Run persistence:** does quitting intentionally abandoning the current visit match player expectations? Cross-session checkpoint restoration would be a separate change.
+- **Economy:** inventory is already unrestricted; chests provide organization. Repeat caches/iron and permanent healing may make farming too generous. Measure before imposing capacity limits or fuel costs.
+- **Entrance edge cases:** normal terrain and furniture avoidance are covered; extreme player edits may exhaust the safe-location search. Check fallback reachability without destroying existing construction.
+- **Platforms and release:** physical Xbox/phone feel and Android landscape remain unverified. No Android orientation plugin or release work was part of this expansion.
+- **Carried forward:** Realm uses its Chakan-styled hero regardless of character selection; Realm rewards do not feed career/Circuit. Those relationships, soundtrack artist credit, and post-Reaper progression remain product choices.
 
-## Recommended next session
+## Collaboration review and next-session prompting
 
-1. **Playtest first**, then tune through `?tune` and the boss constants (`realm/realmBosses.ts`, `data/platformerConfig.ts`). Bring back concrete notes.
-2. **Decide the Android question** (unresolved #2/#3) before more content. If yes, add an orientation plugin and a realm touch-controls pass, then cut v0.5.0.
-3. **Phase 4 candidates:** beds and chests, New Game+, per-tile flood-fill lighting, more biomes, and splitting `RealmScene.ts`.
+Three concrete ways the assistant could have been more efficient:
 
-Example next prompt:
-> "Played the Forever Realm on desktop. The Tyrant is too easy, the Tide breath runs out too fast, and I got lost in the Grave Realm. Tune those, then set up Android landscape for the realm and cut v0.5.0. Don't add new content yet."
+1. Homestead tests initially bypassed pointer hit testing, and a guessed container scroll-factor fix failed. Build one scrolled, real-input interaction first and inspect the actual Phaser behavior before expanding the UI.
+2. Foundry traversal debugging spent effort on input continuing between browser calls and unflushed rendering. Establish one reliable fixed-step driver and one representative climb before adding all route assertions.
+3. An application edit triggered hot reload during validation, and appended handoff sections later contradicted publication status. Freeze the application for the final test run, then rewrite one authoritative handoff from the completed state.
+
+Three opportunities for the user to reduce back-and-forth; these are prompt improvements, not evidence that broad delegation was wrong:
+
+1. “Enhance where you see fit” gave useful creative freedom but left platform and completion scope inferred. Add a short boundary, such as “one complete Forever Realm feature; desktop and Xbox first; preserve old saves.”
+2. Accepting the Foundry proposal established scope, but this conversation contains no concrete human Foundry playtest observations. Supply gear, room, attempted action, observed result and desired feel; that lets tuning target an actual experience.
+3. “Commit” followed by “push and merge” required separate wrap-up turns. When appropriate, authorize the whole finish in advance: implement, validate, update the handoff, commit, push, and merge if a branch is used. Today's combined wrap-up request already does this well.
+
+Useful vocabulary:
+
+- **Invariant:** a condition that must remain true as the system changes. Example prompt: “Existing worlds and the four-relic gate are invariants.” This identifies what every implementation must preserve.
+- **Acceptance criteria:** observable conditions that define completion. Example: “Old saves load, the journal works with touch and R3, and each gallery is reachable without relic powers.” Separate automated criteria from human judgments such as enjoyable difficulty.
+
+Suggested next prompt, adaptable after playing:
+
+> Continue from Hand_off.md. Improve the existing home-to-Foundry loop for desktop and Xbox. My playtest observations are: [gear, room, action, result, desired feel]. Preserve old saves and the four-relic finale. Tune the reported problems and run relevant checks; do not add another dungeon in this task. Update the handoff, commit, push, and merge if a branch is used. Make routine implementation decisions autonomously and flag unresolved product choices.
+
+A productive first playtest starts with ordinary early-game gear, finds the entrance without debug teleporting, attempts a gallery, activates a regulator, dies once to check the checkpoint, and fights the full-health Warden. Record time, deaths and unclear moments. Then verify the unlocked lantern and trophy back at home. Use those observations to choose the next bounded improvement.
