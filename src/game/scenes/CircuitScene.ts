@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { music } from '../systems/music';
 import { CIRCUIT_ROSTER } from '../data/circuitRoster';
 import { COLORS, HEIGHT, WIDTH } from '../config';
 import { getProfile, getStandings, getTodayOpponent, type StandingsEntry } from '../db/repository';
@@ -12,6 +13,7 @@ export class CircuitScene extends Phaser.Scene {
   }
 
   create(): void {
+    music.play('menu');
     this.cameras.main.setBackgroundColor(COLORS.bg);
 
     this.add

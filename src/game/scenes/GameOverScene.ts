@@ -1,5 +1,6 @@
 import { masterySummary, progressFor } from '../systems/characterMastery';
 import Phaser from 'phaser';
+import { music } from '../systems/music';
 import { CHARACTERS } from '../data/characters';
 import { COLORS, HEIGHT, REGISTRY_KEY_LAST_RESULT, WIDTH } from '../config';
 import { getProfile } from '../db/repository';
@@ -29,6 +30,7 @@ export class GameOverScene extends Phaser.Scene {
   }
 
   create(): void {
+    music.play('loss');
     this.cameras.main.setBackgroundColor(COLORS.bg);
     void this.build();
   }

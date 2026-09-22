@@ -52,6 +52,7 @@ export const TRADE_IN_REFUND_RATE = 0.5;
 export const TP_PER_TIER_UP = 1; // x5 tier-ups possible (Amateur..Elite) = 5 TP
 export const TP_PER_CIRCUIT_WIN = 1;
 export const TP_FROM_WINS_CAP = 20;
+export const TP_PER_QUEST_CLEAR = 1; // first clear of each Pog Quest level - finite, one per level
 
 /** Character Level: every four qualifying runs with this character, up to level 10 */
 export const RUNS_PER_CHARACTER_LEVEL = 4;

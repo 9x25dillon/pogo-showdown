@@ -1,6 +1,7 @@
 import { CHARACTERS } from '../data/characters';
 import { progressFor } from '../systems/characterMastery';
 import Phaser from 'phaser';
+import { music } from '../systems/music';
 import { COLORS, HEIGHT, REGISTRY_KEY_CHARACTER, WIDTH } from '../config';
 import { RARITY_COLOR, RARITY_LABEL, describePerks, pogDef, type PogDef } from '../data/pogs';
 import { computeCurrentAdvantage } from '../db/loadoutRepository';
@@ -56,6 +57,7 @@ export class PogBattleScene extends Phaser.Scene {
   }
 
   create(): void {
+    music.play('danger');
     this.phase = 'select';
     this.wager = null;
     this.round = 0;

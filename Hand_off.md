@@ -1,5 +1,128 @@
 # Pogo Showdown — next-session handoff
 
+## September 21 (night): Forever Realm + soundtrack — branch `feat/forever-realm`
+
+The user played the Pog Quest build, said it "feels a little one dimensional", and asked for an open world mixing **Terraria** and **Chakan the Forever Man**, plus their own soundtrack (`music/`). Their choices, in their answers:
+- A **new mode** alongside Pog Quest, not a replacement.
+- **Dig + build + fight** (procedural, diggable, crafting).
+- **Landscape** for this mode.
+- The **suggested music mapping**, applied to the whole game.
+
+Branch history: `feat/pog-quest-expansion` and `feat/pog-quest-powerups` were fast-forwarded together. `feat/forever-realm` starts from the power-ups commit `3d6f178`. Nothing is merged to `master`.
+
+**Soundtrack** (`systems/music.ts`):
+- Scenes ask for a cue, not a file: `menu` score · `explore` 110 points + 50 points (a playlist) · `danger` chaose mode max · `win` woned · `loss` Loss.
+- Tracks stream through `<audio>` rather than Phaser's Web Audio loader, which would fully decode ~4-minute songs at ~100MB of memory each.
+- Browsers block audio until the first gesture; play() retries on it. **M** or the 🔊 on the main menu mutes, and the choice is remembered.
+- Shipped copies are 128 kbps MP3s in `public/music/` (25MB). The user's originals, including the ~90MB WAVs, stay in `music/`, which is git-ignored with an anchored `/music/` (a bare `music/` would also hide `public/music/`).
+- Cue map: menus → menu; Pogo Dash, Trick Lab and Pog Quest levels → explore; Pog Quest bosses and Pog Battles → danger; results → win/loss; Pogo Dash game over → loss; realm → explore by day or underground, danger at night on the surface, loss while dead.
+
+**Forever Realm, Phase 1** (`scenes/RealmScene.ts`, `realm/*`):
+- **World:** `generateWorld(seed)` is pure. 640×200 tiles of 16px: hills, a dirt band over stone, caverns plus winding tunnels, copper shallow, iron mid (32+ deep), soulstone deep (70+), trees, Nightbloom herbs, bedrock. A save stores only the seed plus `[index, tile]` edits (IndexedDB store `realm`, DB version 4).
+- **Rendering:** one Phaser tilemap layer, collision via `setCollision(SOLID_TILES)`, and a dark backdrop wall below the original surface.
+- **Landscape:** `scale.setGameSize(960, 540)` on create, and back to 480×854 on SHUTDOWN. The pause scene now lays out from the live size and takes a `target`; for the realm it shows RESUME / NEW WORLD (press twice) / SAVE & QUIT.
+- **Play:**
+  - Mining is timed by `TileInfo.hardness` ÷ pickaxe speed, and ore is gated by `minPick`. Felling a trunk takes the whole tree.
+  - Placing a block needs a neighbor and can't overlap bodies.
+  - The sword is always on attack, in 4 tiers.
+  - Crafting has 7 recipes (torches, a healing draught, copper/iron tools, the Soul Reaver).
+  - HP regenerates after 4s without a hit. Death shows "YOU FELL", then you respawn at spawn and keep your inventory.
+- **Creatures:** slime (hops), bone crawler (underground, jumps walls), wraith (night/deep, drifts through rock). They spawn off-screen by depth and time of day and despawn when far away.
+- **Day/night:** a 6-minute cycle.
+- **Lighting:** a screen-space RenderTexture filled dark, then erased by the player's light, torches, faint soulstone glow, and a per-column skylight Graphics above the terrain line.
+  - Phaser 4 gotchas: `rt.render()` is required, and `erase()` has no alpha argument; set the eraser object's alpha instead.
+- **Controls:** controller (stick, A, X sword, RT use, right stick aim at full reach, LB/RB tools, B potion, Y craft, Menu pause), keyboard (A/D, W/Space, J, K, arrows, 1-6, Q, E, Esc), mouse (aim, hold left, right-click sword, wheel), and touch buttons on non-desktop devices.
+- **Bug fixed during testing:** Phaser re-passes a scene's previous start data on `start()`/`restart()` with no data, so after one "New World" every later visit made another new world. `RealmScene.create` now clears `sys.settings.data`.
+- **Tests:** `tests/realm-regression.mjs`, run from `npm run test:browser`.
+
+**Phase 2 (done, same branch): portal realms and bosses.**
+- **The shrine** is generated about 14 tiles east of spawn on flattened ground. It holds four 2×3 portals (`World.portals`) with staggered labels. Stand in one and press ▼ (S, ↓, D-pad down).
+- **Travel:** `RealmScene` restarts with `{ pocket }` to enter a realm and `{}` to come home. The overworld save is written before leaving, so you return standing at the shrine.
+- **Realms** (`realm/realms.ts` defs, `realm/pocketGen.ts` generator) are **regenerated every visit** like dungeons. They're 220×70 tiles, with an entrance and return portal on the left and a 44-wide boss arena on the right.
+- **What a realm keeps:** saving inside one patches only inventory, gear and relics back into the overworld save (`save()` loads the base save and overwrites those fields).
+  - Ember: an ash and basalt cave with 3–5-wide lava pools, heat drain, and imps.
+  - Tide: drowned reef caves under a waterline, breathing knolls, and a dry entrance ledge. Swimming uses low gravity and jump-strokes, and a jump with your head above water breaches full height. Breath lasts 10s. Eels only move through water.
+  - Gale: sky islands with gaps of ≤5 tiles and rises of ≤3 over a void. Falling costs 15 HP and returns you to your last solid ground. Wind gusts push you in the air, and harpies fly.
+  - Grave: bone-brick crypts at 0.97 darkness, with skeleton knights.
+- **Bosses** (`realm/realmBosses.ts`, state machines behind a `BossCtx`):
+  - Cinder Tyrant: leaps and slams, sending flame waves; summons imps when enraged.
+  - Leviathan: circles spitting bubbles, lunges, then tires.
+  - Harpy Queen: throws feather fans, dives, climbs. She hovers 150px up so a jumping swing reaches her, and the camera shifts up for flying bosses.
+  - Hollow King: blocks frontal hits unless reeling (then takes 1.5×), dashes, and raises knights at ⅔ and ⅓ health.
+  - Stepping into an arena closes a shrine-stone gate behind you. Dying in a realm respawns you at its entrance and resets the fight.
+  - Victory grants the relic and loot, full HP, and a return portal in the arena, and plays the win track.
+- **Relics** (`profile`-independent, saved in `RealmSave.relics`): Ember Heart (immune to heat and lava, +4 damage), Tide Pearl (breathe underwater, full swim speed), Gale Plume (double jump everywhere), Hollow Crown (+50 max HP). With all four, a banner says "THE FOREVER GATE STIRS…", a hook for Phase 3.
+- **Alchemy:** four brews on hotbar slots 7–0. Fire Ward (no heat, half lava damage), Gillweed (breathe underwater), Gale Draught (hold jump to float), Strength Tonic (+50% damage).
+- **Bugs found and fixed while building:**
+  - Knolls couldn't be climbed out of the water, so there's now a surface breach jump.
+  - The Tide entrance started you underwater, so it now has a dry ledge.
+  - The Harpy hid behind the HUD.
+  - The flaky Pog Quest pad-jump test was reading velocity after control returned to the real game loop. It now captures inside the fixed-step frames. This was the "unexplained flake" noted earlier.
+- **Tests:** `tests/realm-portals-regression.mjs`. It includes a traversal bot that holds right, jumps walls, gaps and lava with held jumps, and swims. The bot must reach every realm's arena at 60fps.
+
+**Phase 3 (proposed):**
+- The Forever Gate: a final boss once all four relics are held.
+- Beds and chests; per-tile flood-fill lighting; a minimap.
+- A darker, Chakan-like hero sprite.
+- Portrait/landscape handling on Android.
+
+**Android:** the Capacitor shell is portrait-locked, so the realm letterboxes on phones. Unlocking orientation just for this mode needs a screen-orientation plugin; not done.
+
+## September 21 (later): Pog Quest expansion — branch `feat/pog-quest-expansion`
+
+Pog Quest itself is merged to `master` (`e56e49b`); this branch adds the four follow-ups the user asked for at once. Not merged, not released.
+
+- **Economy hookup** (`db/questRepository.ts`): attempts of 15s+ credit character mastery (which feeds Circuit Advantage), using Pogo Dash's rule. The first clear of each level grants +1 TP (`grantQuestClearBonus`) and that level's reward pog (`LevelDef.rewardPogId`). Career tier, `careerBestScore`, `totalRuns` and the Circuit match are deliberately untouched. Progress lives in `profile.quest[levelId]`. Level 1 and co-op are always open; every other level unlocks when the previous solo level is cleared. New `PlatformerLevelSelect` scene is the Pog Quest entry point.
+- **Battle content:** 4 new item kinds (`freeze`, `magnet`, `doubleJump`, `groundPound`). 12 of the original 20 pogs now have an active effect, plus 5 new quest-drop pogs. **Every equipped active pog is carried** and swapped in-run (Q / ⇄ button); this settles old open question #4. New enemies: `hopper`, `spiker` (stomping it hurts; only a projectile or ground pound kills it), `turret` (fires pellets). `PlatformerEnemyDef.flies` was replaced by `movement`. New race level **Tech Park Tangle** (id `level5`, plays 3rd; ids are save keys, indexes aren't).
+- **Co-op gaps:** `PlatformerRunScene` was refactored around a per-player `Hero` record, giving P2 full parity: own item charges, speed boost, double jump. Lives and shields stay shared. P2 keys: arrows, `/` or Enter for item, `.` to swap. The camera follows the midpoint and leashes both players inside the view. A fallen co-op player respawns at their partner's checkpoint. There's a split-screen touch layout (each half gets ◀ ▶ JUMP + item/swap, all below the ground line). **Not tested on a real phone.**
+- **Physics tuning:** feel values moved to a mutable `PHYS` object. Open the game with `?tune` to get a live slider panel (values persist in localStorage; COPY exports them). It shows jump height/reach against the widest open pit. **The defaults were deliberately not changed**; that needs the user's own playtest. `fallGravityMultiplier` (default 1) is available for a less floaty fall.
+
+**Pre-existing bugs found and fixed** (all were on `master`):
+1. **The AI rival could never finish a race.** It released jump after 220ms (the jump-cut gave ~120px of reach), jumped 60px before the edge, and after a fall its waypoint index was past the jump, so it looped into the same pit forever. Players always won by default. `rivalAI.ts` now does full held jumps at the ledge and `resyncRivalAI` runs on respawn.
+2. **Respawns landed under the floor.** `setPosition` teleports kept the body's below-the-pit `prev` position, so Arcade separated the body out through the underside of the ground slab. Now `body.reset(x, y)` for both heroes and the rival.
+3. **Checkpoints were recorded on moving platforms**, so a respawn could land in mid-air over the pit. Checkpoints now use `blocked.down` only (static ground).
+4. **Level 1's "raised ledge" (130px up) was above the 120px jump peak**, and its underside bonked every jump from the edge. It's now a low stepping stone set 50px past the edge.
+
+**Testing notes:** the headless browser's frame rate is erratic, often under 10fps, which starves per-frame AI. The suite now drives the game at an exact 60fps with `game.headlessStep` (see `simulate` in `tests/platformer-regression.mjs`) and asserts the rival wins every race level with zero pit falls. Vite binds IPv6 `localhost`, so run `POGO_URL=http://localhost:5173 npm run test:browser`. If you kill a scratch CDP script, close its tabs (`/json/close/<id>`); orphaned game tabs slowed the browser enough to time the suite out.
+
+**Follow-up (same day): more levels + a second boss.** The play order is now 9 levels: Footpeg Flats, Signature Sprint, Tech Park Tangle, Circuit Showdown (boss 1), **Rooftop Relay**, **Night Circuit**, **Summit Slam** (boss 2), Co-op Circuit, **Co-op Summit**. Co-op levels sit at the end so solo NEXT never has to skip one. Test indexes are listed at the top of `tests/platformer-regression.mjs`.
+- **Spring pads** (`LevelDef.springs`, `SPRING_VELOCITY`): running or landing on one launches you, including the rival. A pad at a pit's edge is the only way across a 180–190px pit. `largestUnbridgedGap` counts a spring within 40px before a pit as a bridge, but only the rival race sim actually proves the spring's reach.
+- **Summit Slammer** (`bossKind: 'slammer'`, 4 HP): patrol → telegraph → leap onto the nearest player's x → slam that sends a shockwave both ways along the ground (jump it, or stand on a ledge) → dizzy `stunned` window. While stunned it's harmless to touch and stompable. A hit sends it into `recover` (a hop clear, always toward the arena's middle when near an edge), during which it can't be hurt, so each window is worth one hit. At ≤ half HP it enrages: shorter patrol, faster walk, faster waves. Shockwaves use the same hazard list as turret pellets (`spawnHazard`), so freeze clears them too. The charger boss is unchanged.
+- 4 new reward pogs: `skyline`, `nightowl`, `summitcrown`, `ropeteam`.
+- Verified with a 40s fixed-60fps sim of the fight, solo and co-op: 9 and 7 slam cycles, and the boss never leaves its arena. That's a scratch check, not in the suite. The suite covers the phase transitions directly. If you script sims yourself, teleporting co-op heroes must also move the camera, or the co-op leash snaps them back.
+
+**Follow-up 2 (same day): more enemies, a third boss, Xbox controller.** The play order is now 12 levels. Midnight Mansion (race, `level10`) and Thunder Peak (boss 3, `level11`) come after Summit Slam, and Co-op Storm (`level12`) joins the other co-op levels at the end.
+- **New enemies:**
+  - `chaser` walks its strip, then charges any hero within 260px. It never leaves the strip, so it can't run itself into a pit.
+  - `ghost` drifts after you in a box and fades on a cycle. While `phased` it's harmless, unstompable, and lets projectiles pass through.
+  - `dropper` hovers, flashes, then drops a gravity bomb on a hero passing underneath.
+  - `PlatformerEnemyDef.airborne` now decides whether an enemy has gravity.
+- **Storm Conductor** (`bossKind: 'conductor'`, 5 HP):
+  - Cycle: hover out of jump reach while tracking the nearest player and firing aimed bolts (a three-bolt fan once enraged) → telegraph → dive → `perched` (the stomp window, harmless to touch) → `recover` (rises, immune for 900ms) → hover.
+  - The two springs in its arena can launch you high enough to stomp it mid-hover.
+  - A 40s fixed-60fps sim showed about 4 perches per 40s, so a perch-only win takes ~50s. The hover length (`CONDUCTOR_HOVER_MS`) is the knob if that feels long.
+- **Controller** (`systems/gamepad.ts`, `ui/padMenu.ts`):
+  - It uses the browser Gamepad API with the standard mapping, polled directly and cached per frame time, so the paused run and the pause menu can't both see one press.
+  - In play: stick/D-pad move, A jump (hold for height), X/B/RT item, Y/LB/RB swap, Menu pause. Solo: any pad drives P1. Co-op: pad 1 is P1 and pad 2 is P2 (a lone pad leaves P2 on the arrow keys). Hits and pit falls rumble the pad of the player who took them.
+  - Menus: main menu (focus starts on Pog Quest), level select (focus starts on the first uncleared solo level), pause, and results get a focus ring. A taps the focused button (it emits that button's own `pointerdown`), and B goes back. The other modes (Pogo Dash, Trick Lab, Battles…) are still touch/keyboard only.
+  - The user's desktop pad is a **Microsoft Xbox One Elite 2** on the `xpad` driver. Browsers only show a pad after a button press on the page.
+  - Test gotcha: Phaser tweens run on the wall clock, not `headlessStep`'s delta, so tests that press tweened menu buttons use real time (`tapReal`).
+
+**Follow-up 3 (branch `feat/pog-quest-powerups`, built in a worktree while the user played the previous build): power-ups, spikes, 3 levels, boss rush.** Solo now has 12 levels. Sky Garden (`level13`), Spike Foundry (`level14`) and Champion's Gauntlet (`level15`) come after Thunder Peak, and co-op is indexes 12–14.
+- **Power-up pickups** (`LevelDef.powerups`, `pu_*` textures) are separate from pog items: heroes only, and once per attempt.
+  - `star`: 6s invincible. Touching a regular enemy defeats it; bosses can't hurt you, but you still have to stomp them. It also stuns the rival and ignores pellets and spikes.
+  - `feather`: 10s; holding jump while falling caps the fall at 110px/s.
+  - `rocket`: 8s; ×1.3 jump velocity (via `ControllerOptions.jumpScale`), which reaches the "rocket-only" coin rows.
+  - `heart`: +1 life. `shield`: +1 shield hit.
+  - Timers show under lives, per player in co-op.
+- **Spike strips** (`LevelDef.spikes`): they hurt and always bounce you out. The rival doesn't collide with them; its jump waypoints sit 34px before each strip so it visibly hops them. Keep strips ≤60px wide or its 60px body clips them.
+- **Boss rush** (`LevelDef.bossRush`): every boss after the first starts `dormant` (hidden, body off, untouchable) and drops in at the arena's middle when the previous one dies. The HUD shows `BOSS n/3 · NAME`.
+- **Level select** has Solo / Co-op tabs (tap them, or LB/RB on a pad). The main menu opens Solo; the results screen returns to the tab of the level just played.
+- 3 reward pogs: `sprout`, `anvil`, `gauntlet`.
+- One suite run failed once with an uncaptured error; the next three runs were clean. If it recurs, capture the output before changing anything.
+
+**Still open:** real-device playtest (feel, touch co-op ergonomics, whether the Slammer's and Conductor's timing is readable, and the controller on the real Elite 2 pad); whether Pog Quest should ever touch career tier; enemy/item/boss balance numbers are first guesses.
+
 ## September 21 follow-up
 
 Continued on `feat/pog-quest-platformer`. Added a Pog Quest pause overlay (touch PAUSE or Escape) with resume, retry, and menu actions. The gameplay scene is paused so physics, timers, and tweens freeze together; held controls are cleared before pausing. Touch pointers are reused across retries. Camera and physics bounds now use each level's `widthPx`, fixing Signature Sprint's finish being outside the camera boundary.

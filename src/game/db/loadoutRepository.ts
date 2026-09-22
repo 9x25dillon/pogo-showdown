@@ -10,6 +10,7 @@ import {
   TIER_STEP_COST,
   TP_FROM_WINS_CAP,
   TP_PER_CIRCUIT_WIN,
+  TP_PER_QUEST_CLEAR,
   TP_PER_TIER_UP,
   TRADE_IN_REFUND_RATE,
 } from '../data/loadoutData';
@@ -117,6 +118,15 @@ export async function tradeInAxis(axisId: AxisId): Promise<{ ok: boolean; refund
 export async function grantTierUpBonus(): Promise<boolean> {
   const loadout = await getLoadout();
   loadout.techPointsEarned += TP_PER_TIER_UP;
+  loadout.updatedAt = new Date().toISOString();
+  await dbPut('loadout', loadout);
+  return true;
+}
+
+/** call once per Pog Quest level, on its first clear - finite, one per level */
+export async function grantQuestClearBonus(): Promise<boolean> {
+  const loadout = await getLoadout();
+  loadout.techPointsEarned += TP_PER_QUEST_CLEAR;
   loadout.updatedAt = new Date().toISOString();
   await dbPut('loadout', loadout);
   return true;

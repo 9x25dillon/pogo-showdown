@@ -1,4 +1,4 @@
-import { LEVEL_WIDTH_PX, PLATFORMER_GROUND_Y } from './platformerConfig';
+import { CONDUCTOR_HOVER_Y, LEVEL_WIDTH_PX, PLATFORMER_GROUND_Y } from './platformerConfig';
 import type { PlatformerEnemyType } from './platformerEnemies';
 
 export interface GroundSegment {
@@ -26,6 +26,36 @@ export interface EnemySpawnDef {
   rangeX: number;
 }
 
+/**
+ * In-level pickups, separate from pog items (which come from your
+ * loadout and have charges). One-time per attempt; heroes only.
+ *   star     6s invincible; touching an enemy defeats it (bosses just can't hurt you)
+ *   feather  10s: hold jump while falling to glide
+ *   rocket   8s: jumps go ~70% higher
+ *   heart    +1 life (shared in co-op)
+ *   shield   +1 shield hit (shared in co-op)
+ */
+export type PowerupKind = 'star' | 'feather' | 'rocket' | 'heart' | 'shield';
+
+export interface PowerupDef {
+  kind: PowerupKind;
+  x: number;
+  /** center height of the floating pickup */
+  y: number;
+}
+
+/** a strip of floor spikes starting at x (rests on the ground) */
+export interface SpikeDef {
+  x: number;
+  width: number;
+}
+
+/** a spring pad resting on a surface whose top is at y */
+export interface SpringDef {
+  x: number;
+  y: number;
+}
+
 export interface CoinDef {
   x: number;
   y: number;
@@ -48,6 +78,16 @@ export interface LevelDef {
   movingPlatforms: MovingPlatformDef[];
   enemies: EnemySpawnDef[];
   coins: CoinDef[];
+  /** spring pads (see SPRING_VELOCITY) - one right at a pit's edge launches you across it */
+  springs?: SpringDef[];
+  powerups?: PowerupDef[];
+  spikes?: SpikeDef[];
+  /**
+   * Boss rush: every boss-movement enemy after the first waits dormant
+   * (hidden, no body) and drops in when the one before it falls; the
+   * level is won when the last one does.
+   */
+  bossRush?: boolean;
   playerStart: { x: number; y: number };
   /**
    * A boss level has no rival to race and no goal flag: the win
@@ -69,6 +109,8 @@ export interface LevelDef {
   rivalWaypoints?: RivalWaypoint[];
   goalX?: number;
   goalY?: number;
+  /** pog granted on the first clear (see questRepository.recordQuestRun) */
+  rewardPogId?: string;
 }
 
 function ground(x: number, width: number): GroundSegment {
@@ -87,6 +129,18 @@ function enemySpawn(type: PlatformerEnemyType, x: number, y: number, rangeX: num
   return { type, x, y, rangeX };
 }
 
+function spring(x: number, y = PLATFORMER_GROUND_Y): SpringDef {
+  return { x, y };
+}
+
+function powerup(kind: PowerupKind, x: number, y: number): PowerupDef {
+  return { kind, x, y };
+}
+
+function spikes(x: number, width = 60): SpikeDef {
+  return { x, width };
+}
+
 function coinRow(startX: number, y: number, count: number, gap: number): CoinDef[] {
   return Array.from({ length: count }, (_, i) => ({ x: startX + i * gap, y }));
 }
@@ -102,11 +156,15 @@ export const LEVEL_1: LevelDef = {
     ground(0, 700), // start area
     ground(830, 570), // 700-830 is gap 1 (130px)
     ground(1560, 640), // 1400-1560 is gap 2 (160px), spanned by a stepping-stone platform
-    ground(2400, 800), // 2200-2400 is a raised-ledge section, not a pit
+    ground(2400, 800), // 2200-2400 is a pit, spanned by a low stepping stone
   ],
   platforms: [
     platform(1480, GY - 110, 90), // stepping stone across gap 2
-    platform(2220, GY - 130, 160), // raised ledge over ground C -> D transition
+    // Stepping stone across the C -> D pit. Set 50px past the ledge and only
+    // 60px up so a jump from the edge clears its corner - a higher stone
+    // flush with the ledge sits right above a standing player's head and
+    // bonks every jump.
+    platform(2250, GY - 60, 110),
   ],
   movingPlatforms: [movingPlatform(1000, GY - 90, 90, 220, 60)],
   enemies: [
@@ -129,12 +187,13 @@ export const LEVEL_1: LevelDef = {
     { x: 1400, jump: true }, // hop the stepping stone across gap 2
     { x: 1560, jump: true },
     { x: 1900, jump: false },
-    { x: 2200, jump: true }, // up onto the raised ledge
+    { x: 2200, jump: true }, // across the pit via the stepping stone
     { x: 2400, jump: false },
     { x: 3100, jump: false },
   ],
   goalX: 3100,
   goalY: GY,
+  rewardPogId: 'flagpole',
 };
 
 export const LEVEL_2: LevelDef = {
@@ -182,6 +241,7 @@ export const LEVEL_2: LevelDef = {
   ],
   goalX: 3300,
   goalY: GY,
+  rewardPogId: 'sprinter',
 };
 
 export const LEVEL_3: LevelDef = {
@@ -205,6 +265,7 @@ export const LEVEL_3: LevelDef = {
     ...coinRow(700, GY - 80, 3, 50),
   ],
   playerStart: { x: 60, y: GY },
+  rewardPogId: 'champbelt',
 };
 
 export const LEVEL_4: LevelDef = {
@@ -231,6 +292,524 @@ export const LEVEL_4: LevelDef = {
   ],
   playerStart: { x: 60, y: GY },
   player2Start: { x: 150, y: GY },
+  rewardPogId: 'highfive',
 };
 
-export const LEVELS: LevelDef[] = [LEVEL_1, LEVEL_2, LEVEL_3, LEVEL_4];
+/**
+ * Third race level: introduces hoppers, a spiker you can't stomp (go
+ * over it via the platform, or blast it with an item), and pellet
+ * turrets. Id is `level5` because ids are save keys - it was authored
+ * after the boss and co-op levels but plays before them.
+ */
+export const LEVEL_5: LevelDef = {
+  id: 'level5',
+  name: 'Tech Park Tangle',
+  widthPx: 3800,
+  groundY: GY,
+  ground: [
+    ground(0, 600), // start area
+    ground(720, 520), // 600-720 is gap 1 (120px)
+    ground(1360, 700), // 1240-1360 is gap 2 (120px)
+    ground(2190, 800), // 2060-2190 is gap 3 (130px)
+    ground(3110, 690), // 2990-3110 is gap 4 (120px)
+  ],
+  platforms: [
+    platform(960, GY - 130, 140), // route over the spiker
+    platform(1560, GY - 120, 100),
+    platform(1720, GY - 220, 100), // coin perch above the turret lane
+  ],
+  movingPlatforms: [movingPlatform(2440, GY - 150, 90, 180, 55)],
+  enemies: [
+    enemySpawn('hopper', 380, GY, 160),
+    enemySpawn('spiker', 900, GY, 220),
+    enemySpawn('hopper', 1450, GY, 220),
+    enemySpawn('turret', 1950, GY, 0),
+    enemySpawn('flyer', 2400, GY - 170, 220),
+    enemySpawn('spiker', 2600, GY, 160),
+    enemySpawn('hopper', 2800, GY, 150),
+    enemySpawn('turret', 3420, GY, 0),
+  ],
+  coins: [
+    ...coinRow(120, GY - 80, 4, 50),
+    ...coinRow(620, GY - 170, 3, 40), // arc over gap 1
+    ...coinRow(990, GY - 180, 3, 40), // on the spiker route
+    ...coinRow(1735, GY - 270, 2, 40),
+    ...coinRow(2460, GY - 200, 3, 40), // ride the moving platform
+    ...coinRow(3160, GY - 80, 4, 50),
+  ],
+  playerStart: { x: 60, y: GY },
+  rivalStart: { x: 20, y: GY },
+  rivalWaypoints: [
+    { x: 600, jump: true }, // clear gap 1
+    { x: 800, jump: false },
+    { x: 1240, jump: true }, // clear gap 2
+    { x: 1400, jump: false },
+    { x: 2060, jump: true }, // clear gap 3
+    { x: 2250, jump: false },
+    { x: 2990, jump: true }, // clear gap 4
+    { x: 3150, jump: false },
+    { x: 3700, jump: false },
+  ],
+  goalX: 3700,
+  goalY: GY,
+  rewardPogId: 'gearwheel',
+};
+
+/**
+ * Introduces spring pads: one at each wide pit's edge launches you over
+ * it (a normal jump can't clear 190px), and a mid-level one bounces you
+ * up to a high coin row.
+ */
+export const LEVEL_6: LevelDef = {
+  id: 'level6',
+  name: 'Rooftop Relay',
+  widthPx: 4000,
+  groundY: GY,
+  ground: [
+    ground(0, 650), // start area
+    ground(770, 500), // 650-770 is gap 1 (120px)
+    ground(1460, 610), // 1270-1460 is gap 2 (190px) - spring launch only
+    ground(2190, 700), // 2070-2190 is gap 3 (120px)
+    ground(3010, 990), // 2890-3010 is gap 4 (120px)
+  ],
+  platforms: [
+    platform(1650, GY - 105, 140), // coin perch
+  ],
+  movingPlatforms: [],
+  springs: [spring(1248), spring(2560)],
+  enemies: [
+    enemySpawn('patroller', 380, GY, 180),
+    enemySpawn('flyer', 1000, GY - 170, 180),
+    enemySpawn('hopper', 1800, GY, 200),
+    enemySpawn('spiker', 2300, GY, 140),
+    enemySpawn('flyer', 2700, GY - 230, 150),
+    enemySpawn('turret', 3300, GY, 0),
+    enemySpawn('patroller', 3500, GY, 200),
+  ],
+  coins: [
+    ...coinRow(120, GY - 80, 4, 50),
+    ...coinRow(1290, GY - 330, 4, 45), // top of the spring arc over gap 2
+    ...coinRow(1665, GY - 160, 3, 45),
+    ...coinRow(2600, GY - 340, 4, 45), // bounce-only perch
+    ...coinRow(3100, GY - 80, 4, 50),
+  ],
+  playerStart: { x: 60, y: GY },
+  rivalStart: { x: 20, y: GY },
+  rivalWaypoints: [
+    { x: 650, jump: true }, // clear gap 1
+    { x: 800, jump: false },
+    { x: 1500, jump: false }, // the spring at 1248 carries it over gap 2
+    { x: 2070, jump: true }, // clear gap 3
+    { x: 2250, jump: false },
+    { x: 2890, jump: true }, // clear gap 4
+    { x: 3050, jump: false },
+    { x: 3880, jump: false },
+  ],
+  goalX: 3880,
+  goalY: GY,
+  rewardPogId: 'skyline',
+};
+
+/** A long gauntlet: every enemy type, two spring-only pits, three jump pits. */
+export const LEVEL_7: LevelDef = {
+  id: 'level7',
+  name: 'Night Circuit',
+  widthPx: 4400,
+  groundY: GY,
+  ground: [
+    ground(0, 600), // start area
+    ground(720, 560), // 600-720 is gap 1 (120px)
+    ground(1460, 700), // 1280-1460 is gap 2 (180px) - spring launch only
+    ground(2290, 600), // 2160-2290 is gap 3 (130px)
+    ground(3080, 700), // 2890-3080 is gap 4 (190px) - spring launch only
+    ground(3900, 500), // 3780-3900 is gap 5 (120px)
+  ],
+  platforms: [
+    platform(1750, GY - 105, 120), // coin perch above the spiker lane
+  ],
+  movingPlatforms: [movingPlatform(3300, GY - 105, 90, 200, 60)],
+  springs: [spring(1258), spring(2868)],
+  enemies: [
+    enemySpawn('hopper', 850, GY, 200),
+    enemySpawn('turret', 1000, GY, 0),
+    enemySpawn('spiker', 1600, GY, 200),
+    enemySpawn('flyer', 1950, GY - 170, 200),
+    enemySpawn('patroller', 2400, GY, 180),
+    enemySpawn('hopper', 2650, GY, 150),
+    enemySpawn('flyer', 3000, GY - 260, 120),
+    enemySpawn('turret', 3450, GY, 0),
+    enemySpawn('spiker', 3550, GY, 180),
+    enemySpawn('hopper', 4050, GY, 150),
+  ],
+  coins: [
+    ...coinRow(120, GY - 80, 4, 50),
+    ...coinRow(1300, GY - 330, 3, 45),
+    ...coinRow(1765, GY - 160, 3, 40),
+    ...coinRow(2350, GY - 80, 4, 50),
+    ...coinRow(2910, GY - 330, 3, 45),
+    ...coinRow(3320, GY - 160, 3, 40), // ride the moving platform
+    ...coinRow(4000, GY - 80, 4, 50),
+  ],
+  playerStart: { x: 60, y: GY },
+  rivalStart: { x: 20, y: GY },
+  rivalWaypoints: [
+    { x: 600, jump: true }, // clear gap 1
+    { x: 760, jump: false },
+    { x: 1500, jump: false }, // spring at 1258 over gap 2
+    { x: 2160, jump: true }, // clear gap 3
+    { x: 2330, jump: false },
+    { x: 3120, jump: false }, // spring at 2868 over gap 4
+    { x: 3780, jump: true }, // clear gap 5
+    { x: 3940, jump: false },
+    { x: 4280, jump: false },
+  ],
+  goalX: 4280,
+  goalY: GY,
+  rewardPogId: 'nightowl',
+};
+
+/** Second boss arena: two low ledges to hop onto while shockwaves pass under. */
+export const LEVEL_8: LevelDef = {
+  id: 'level8',
+  name: 'Summit Slam',
+  widthPx: 2600,
+  groundY: GY,
+  bossLevel: true,
+  ground: [
+    ground(0, 500), // intro
+    ground(620, 1900), // 500-620 is a warm-up gap; 620-2520 is the arena
+  ],
+  platforms: [
+    platform(900, GY - 105, 120),
+    platform(1760, GY - 105, 120),
+  ],
+  movingPlatforms: [],
+  enemies: [
+    enemySpawn('hopper', 250, GY, 150),
+    enemySpawn('slammer', 1100, GY, 1300), // leaps anywhere in 1100-2400
+  ],
+  coins: [
+    ...coinRow(120, GY - 80, 4, 50),
+    ...coinRow(915, GY - 160, 3, 40),
+    ...coinRow(1775, GY - 160, 3, 40),
+  ],
+  playerStart: { x: 60, y: GY },
+  rewardPogId: 'summitcrown',
+};
+
+export const LEVEL_9: LevelDef = {
+  ...LEVEL_8,
+  id: 'level9',
+  name: 'Co-op Summit',
+  coop: true,
+  paceMultiplier: 0.7,
+  player2Start: { x: 150, y: GY },
+  rewardPogId: 'ropeteam',
+};
+
+/** Haunted race: chasers guard the flats, ghosts fade in and out, droppers bomb the lanes. */
+export const LEVEL_10: LevelDef = {
+  id: 'level10',
+  name: 'Midnight Mansion',
+  widthPx: 4200,
+  groundY: GY,
+  ground: [
+    ground(0, 600), // start area
+    ground(720, 700), // 600-720 is gap 1 (120px)
+    ground(1550, 650), // 1420-1550 is gap 2 (130px)
+    ground(2390, 800), // 2200-2390 is gap 3 (190px) - spring launch only
+    ground(3310, 890), // 3190-3310 is gap 4 (120px)
+  ],
+  platforms: [
+    platform(1620, GY - 105, 110), // hop-over spot for the ghost hall
+    platform(2600, GY - 105, 120),
+  ],
+  movingPlatforms: [],
+  springs: [spring(2178)],
+  enemies: [
+    enemySpawn('chaser', 850, GY, 400),
+    enemySpawn('dropper', 1050, GY - 170, 300),
+    enemySpawn('ghost', 1700, GY - 90, 350),
+    enemySpawn('chaser', 1800, GY, 300),
+    enemySpawn('dropper', 2500, GY - 170, 350),
+    enemySpawn('ghost', 2900, GY - 90, 220),
+    enemySpawn('chaser', 3400, GY, 450),
+    enemySpawn('hopper', 3900, GY, 150),
+  ],
+  coins: [
+    ...coinRow(120, GY - 80, 4, 50),
+    ...coinRow(900, GY - 80, 4, 60), // chaser bait
+    ...coinRow(1635, GY - 160, 3, 40),
+    ...coinRow(2200, GY - 330, 4, 45), // spring arc
+    ...coinRow(2615, GY - 160, 3, 40),
+    ...coinRow(3500, GY - 80, 5, 60),
+  ],
+  playerStart: { x: 60, y: GY },
+  rivalStart: { x: 20, y: GY },
+  rivalWaypoints: [
+    { x: 600, jump: true }, // clear gap 1
+    { x: 760, jump: false },
+    { x: 1420, jump: true }, // clear gap 2
+    { x: 1590, jump: false },
+    { x: 2430, jump: false }, // spring at 2178 over gap 3
+    { x: 3190, jump: true }, // clear gap 4
+    { x: 3350, jump: false },
+    { x: 4080, jump: false },
+  ],
+  goalX: 4080,
+  goalY: GY,
+  rewardPogId: 'candle',
+};
+
+/**
+ * Third boss arena. The Storm Conductor hovers out of jump reach, so the
+ * two springs are there on purpose: a launch can stomp it mid-air.
+ */
+export const LEVEL_11: LevelDef = {
+  id: 'level11',
+  name: 'Thunder Peak',
+  widthPx: 2600,
+  groundY: GY,
+  bossLevel: true,
+  ground: [
+    ground(0, 500), // intro
+    ground(620, 1900), // 500-620 is a warm-up gap; 620-2520 is the arena
+  ],
+  platforms: [
+    platform(1560, GY - 105, 120), // cover from bolts, sort of
+  ],
+  movingPlatforms: [],
+  springs: [spring(1150), spring(2050)],
+  enemies: [
+    enemySpawn('chaser', 200, GY, 250),
+    enemySpawn('conductor', 1000, CONDUCTOR_HOVER_Y, 1300), // tracks you anywhere in 1000-2300
+  ],
+  coins: [
+    ...coinRow(120, GY - 80, 4, 50),
+    ...coinRow(1110, GY - 330, 3, 40),
+    ...coinRow(2010, GY - 330, 3, 40),
+  ],
+  playerStart: { x: 60, y: GY },
+  rewardPogId: 'stormcell',
+};
+
+export const LEVEL_12: LevelDef = {
+  ...LEVEL_11,
+  id: 'level12',
+  name: 'Co-op Storm',
+  coop: true,
+  paceMultiplier: 0.7,
+  player2Start: { x: 150, y: GY },
+  rewardPogId: 'lightningrod',
+};
+
+/**
+ * Power-up showcase: a stair of ledges up to a Heart, a Rocket Spring on
+ * the first ledge that reaches the high coin rows, a Feather before the
+ * spring pit, and a Pogo Star to plow through the chaser lane.
+ */
+export const LEVEL_13: LevelDef = {
+  id: 'level13',
+  name: 'Sky Garden',
+  widthPx: 4200,
+  groundY: GY,
+  ground: [
+    ground(0, 700), // start area
+    ground(820, 600), // 700-820 is gap 1 (120px)
+    ground(1610, 700), // 1420-1610 is gap 2 (190px) - spring launch only
+    ground(2430, 900), // 2310-2430 is gap 3 (120px)
+    ground(3450, 750), // 3330-3450 is gap 4 (120px)
+  ],
+  platforms: [
+    platform(300, GY - 105, 120), // stair up: each step is a normal jump
+    platform(470, GY - 200, 100),
+    platform(630, GY - 290, 100),
+  ],
+  movingPlatforms: [],
+  springs: [spring(1398)],
+  powerups: [
+    powerup('rocket', 360, GY - 150),
+    powerup('heart', 680, GY - 335),
+    powerup('feather', 1100, GY - 60),
+    powerup('star', 2560, GY - 60),
+  ],
+  enemies: [
+    enemySpawn('patroller', 950, GY, 250),
+    enemySpawn('flyer', 1250, GY - 170, 150),
+    enemySpawn('hopper', 1800, GY, 250),
+    enemySpawn('ghost', 2050, GY - 90, 220),
+    enemySpawn('chaser', 2650, GY, 500),
+    enemySpawn('dropper', 2900, GY - 170, 300),
+    enemySpawn('spiker', 3600, GY, 200),
+    enemySpawn('turret', 3920, GY, 0),
+  ],
+  coins: [
+    ...coinRow(120, GY - 80, 3, 50),
+    ...coinRow(480, GY - 250, 2, 40),
+    ...coinRow(1720, GY - 250, 5, 45), // rocket-only row
+    ...coinRow(1430, GY - 330, 3, 45), // spring arc
+    ...coinRow(2700, GY - 80, 6, 60), // star lane
+    ...coinRow(3500, GY - 250, 4, 45), // rocket-only row
+  ],
+  playerStart: { x: 60, y: GY },
+  rivalStart: { x: 20, y: GY },
+  rivalWaypoints: [
+    { x: 700, jump: true }, // clear gap 1
+    { x: 860, jump: false },
+    { x: 1650, jump: false }, // spring at 1398 over gap 2
+    { x: 2310, jump: true }, // clear gap 3
+    { x: 2470, jump: false },
+    { x: 3330, jump: true }, // clear gap 4
+    { x: 3490, jump: false },
+    { x: 4080, jump: false },
+  ],
+  goalX: 4080,
+  goalY: GY,
+  rewardPogId: 'sprout',
+};
+
+/** Spike strips everywhere: hop each one. The Pogo Star makes you immune for a stretch. */
+export const LEVEL_14: LevelDef = {
+  id: 'level14',
+  name: 'Spike Foundry',
+  widthPx: 4000,
+  groundY: GY,
+  ground: [
+    ground(0, 900), // start area
+    ground(1020, 1300), // 900-1020 is gap 1 (120px)
+    ground(2510, 1490), // 2320-2510 is gap 2 (190px) - spring launch only
+  ],
+  platforms: [
+    platform(3380, GY - 105, 90), // heart perch
+  ],
+  movingPlatforms: [],
+  springs: [spring(2298)],
+  spikes: [spikes(500), spikes(1300), spikes(1700), spikes(2000), spikes(2800), spikes(3200), spikes(3550)],
+  powerups: [
+    powerup('star', 1000 + 60, GY - 60),
+    powerup('feather', 2200, GY - 60),
+    powerup('shield', 2640, GY - 60),
+    powerup('heart', 3425, GY - 150),
+  ],
+  enemies: [
+    enemySpawn('turret', 700, GY, 0),
+    enemySpawn('chaser', 1100, GY, 170),
+    enemySpawn('hopper', 1480, GY, 160),
+    enemySpawn('spiker', 2080, GY, 150),
+    enemySpawn('dropper', 2700, GY - 170, 350),
+    enemySpawn('ghost', 3000, GY - 90, 150),
+    enemySpawn('chaser', 3300, GY, 200),
+    enemySpawn('turret', 3760, GY, 0),
+  ],
+  coins: [
+    ...coinRow(120, GY - 80, 4, 50),
+    ...coinRow(500, GY - 170, 2, 40), // over the first strip
+    ...coinRow(1300, GY - 170, 2, 40),
+    ...coinRow(1700, GY - 170, 2, 40),
+    ...coinRow(2330, GY - 330, 3, 45),
+    ...coinRow(2800, GY - 170, 2, 40),
+    ...coinRow(3550, GY - 170, 2, 40),
+  ],
+  playerStart: { x: 60, y: GY },
+  rivalStart: { x: 20, y: GY },
+  // a jump waypoint 34px before each strip keeps the rival's 60px body clear of it
+  rivalWaypoints: [
+    { x: 466, jump: true },
+    { x: 580, jump: false },
+    { x: 900, jump: true }, // clear gap 1
+    { x: 1060, jump: false },
+    { x: 1266, jump: true },
+    { x: 1380, jump: false },
+    { x: 1666, jump: true },
+    { x: 1780, jump: false },
+    { x: 1966, jump: true },
+    { x: 2080, jump: false },
+    { x: 2560, jump: false }, // spring at 2298 over gap 2
+    { x: 2766, jump: true },
+    { x: 2880, jump: false },
+    { x: 3166, jump: true },
+    { x: 3280, jump: false },
+    { x: 3516, jump: true },
+    { x: 3630, jump: false },
+    { x: 3880, jump: false },
+  ],
+  goalX: 3880,
+  goalY: GY,
+  rewardPogId: 'anvil',
+};
+
+/** Finale: the Circuit Champion, then the Summit Slammer, then the Storm Conductor, back to back. */
+export const LEVEL_15: LevelDef = {
+  id: 'level15',
+  name: "Champion's Gauntlet",
+  widthPx: 2800,
+  groundY: GY,
+  bossLevel: true,
+  bossRush: true,
+  ground: [
+    ground(0, 500), // intro
+    ground(620, 2100), // 500-620 is a warm-up gap; 620-2720 is the arena
+  ],
+  platforms: [
+    platform(1000, GY - 105, 120),
+    platform(1950, GY - 105, 120),
+  ],
+  movingPlatforms: [],
+  springs: [spring(1250), spring(2250)],
+  powerups: [
+    powerup('heart', 300, GY - 60),
+    powerup('shield', 420, GY - 60),
+  ],
+  enemies: [
+    enemySpawn('boss', 1000, GY, 1400),
+    enemySpawn('slammer', 1000, GY, 1500),
+    enemySpawn('conductor', 1000, CONDUCTOR_HOVER_Y, 1500),
+  ],
+  coins: [
+    ...coinRow(120, GY - 80, 4, 50),
+    ...coinRow(1210, GY - 330, 3, 40),
+    ...coinRow(2210, GY - 330, 3, 40),
+  ],
+  playerStart: { x: 60, y: GY },
+  rewardPogId: 'gauntlet',
+};
+
+/**
+ * Play order; ids (not indexes) are what saves key off. Solo levels run
+ * contiguously and co-op levels sit at the end, so NEXT never has to
+ * skip over one.
+ */
+export const LEVELS: LevelDef[] = [
+  LEVEL_1, LEVEL_2, LEVEL_5, LEVEL_3, LEVEL_6, LEVEL_7, LEVEL_8, LEVEL_10, LEVEL_11, LEVEL_13, LEVEL_14, LEVEL_15,
+  LEVEL_4, LEVEL_9, LEVEL_12,
+];
+
+/**
+ * Widest pit between ground segments that no reachable platform spans -
+ * these must stay within jumpReach() or the level is unwinnable. A
+ * platform only counts as a bridge if its top is low enough to land on
+ * from the ground (`maxClimbPx`, i.e. a bit under the jump's peak).
+ */
+export function largestUnbridgedGap(level: LevelDef, maxClimbPx = Infinity): number {
+  const segs = [...level.ground].sort((a, b) => a.x - b.x);
+  const bridges = [...level.platforms, ...level.movingPlatforms.map((m) => ({ ...m, width: m.width + m.rangeX }))]
+    .filter((b) => level.groundY - b.y <= maxClimbPx);
+  const springs = level.springs ?? [];
+  let widest = 0;
+  for (let i = 0; i + 1 < segs.length; i++) {
+    const left = segs[i].x + segs[i].width;
+    const right = segs[i + 1].x;
+    // a spring pad right at the edge launches you across (proven by the rival race test, not by formula)
+    const bridged = bridges.some((b) => b.x < right && b.x + b.width > left) || springs.some((s) => s.x <= left && s.x >= left - 40);
+    if (!bridged) widest = Math.max(widest, right - left);
+  }
+  return widest;
+}
+
+/** solo players never get routed into a co-op level */
+export function nextSoloLevelIndex(fromIndex: number): number | undefined {
+  for (let i = fromIndex + 1; i < LEVELS.length; i++) {
+    if (!LEVELS[i].coop) return i;
+  }
+  return undefined;
+}

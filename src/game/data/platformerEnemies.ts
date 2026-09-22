@@ -1,60 +1,181 @@
 /**
  * Platformer enemy type table, data-driven like characters.ts/pogs.ts.
  */
-export type PlatformerEnemyType = 'patroller' | 'flyer' | 'boss';
+export type PlatformerEnemyType =
+  | 'patroller' | 'flyer' | 'hopper' | 'spiker' | 'turret' | 'chaser' | 'ghost' | 'dropper'
+  | 'boss' | 'slammer' | 'conductor';
+
+/**
+ * walk:   patrols a ground strip
+ * fly:    patrols in the air, bobbing around its spawn height (no gravity)
+ * hop:    walks a strip and periodically leaps
+ * turret: stands still and fires pellets at a hero in range
+ * chase:  walks its strip, then charges the nearest hero who comes close
+ * ghost:  drifts after the nearest hero, fading in and out; harmless and untouchable while faded
+ * drop:   hovers along its strip and drops a bomb on a hero passing underneath
+ * boss:   one of the bossKind state machines
+ */
+export type EnemyMovement = 'walk' | 'fly' | 'hop' | 'turret' | 'chase' | 'ghost' | 'drop' | 'boss';
 
 export interface PlatformerEnemyDef {
   id: PlatformerEnemyType;
   name: string;
   textureKey: string;
+  movement: EnemyMovement;
   /** lives lost on a non-stomp hit */
   contactDamage: number;
   /** coins awarded when defeated */
   stompReward: number;
-  /** hovers and bobs instead of walking a patrol strip on the ground */
-  flies: boolean;
   /** hits required to defeat; regular enemies default to 1 (see PatrolEnemyState.health) */
   maxHealth?: number;
   /** bosses only: horizontal speed during a charge attack */
   chargeSpeed?: number;
+  /** bosses only: which state machine drives it (default 'charger') */
+  bossKind?: 'charger' | 'slammer' | 'conductor';
+  /** no gravity (flyers, ghosts, droppers and the Storm Conductor) */
+  airborne?: boolean;
+  /**
+   * Stomping it hurts instead of defeating it. Only a thrown projectile
+   * or a ground-pound shockwave can take it out.
+   */
+  spiky?: boolean;
 }
 
 export const PATROLLER: PlatformerEnemyDef = {
   id: 'patroller',
   name: 'Patroller',
   textureKey: 'patrolEnemy',
+  movement: 'walk',
   contactDamage: 1,
   stompReward: 5,
-  flies: false,
 };
 
 export const FLYER: PlatformerEnemyDef = {
   id: 'flyer',
   name: 'Flyer',
   textureKey: 'flyingEnemy',
+  movement: 'fly',
   contactDamage: 1,
   stompReward: 8,
-  flies: true,
+  airborne: true,
+};
+
+export const CHASER: PlatformerEnemyDef = {
+  id: 'chaser',
+  name: 'Chaser',
+  textureKey: 'chaserEnemy',
+  movement: 'chase',
+  contactDamage: 1,
+  stompReward: 9,
+};
+
+export const GHOST: PlatformerEnemyDef = {
+  id: 'ghost',
+  name: 'Hall Ghost',
+  textureKey: 'ghostEnemy',
+  movement: 'ghost',
+  contactDamage: 1,
+  stompReward: 11,
+  airborne: true,
+};
+
+export const DROPPER: PlatformerEnemyDef = {
+  id: 'dropper',
+  name: 'Bomb Dropper',
+  textureKey: 'dropperEnemy',
+  movement: 'drop',
+  contactDamage: 1,
+  stompReward: 14,
+  airborne: true,
+};
+
+export const HOPPER: PlatformerEnemyDef = {
+  id: 'hopper',
+  name: 'Hopper',
+  textureKey: 'hopperEnemy',
+  movement: 'hop',
+  contactDamage: 1,
+  stompReward: 7,
+};
+
+export const SPIKER: PlatformerEnemyDef = {
+  id: 'spiker',
+  name: 'Spiker',
+  textureKey: 'spikerEnemy',
+  movement: 'walk',
+  contactDamage: 1,
+  stompReward: 12,
+  spiky: true,
+};
+
+export const TURRET: PlatformerEnemyDef = {
+  id: 'turret',
+  name: 'Pellet Turret',
+  textureKey: 'turretEnemy',
+  movement: 'turret',
+  contactDamage: 1,
+  stompReward: 10,
 };
 
 export const BOSS: PlatformerEnemyDef = {
   id: 'boss',
   name: 'Circuit Champion',
   textureKey: 'boss',
+  movement: 'boss',
   contactDamage: 1,
   stompReward: 40,
-  flies: false,
   maxHealth: 3,
   chargeSpeed: 340,
+  bossKind: 'charger',
+};
+
+/**
+ * Leaps at you and slams down, sending a shockwave along the ground both
+ * ways (jump it). Dizzy after each landing: that's the stomp window, and
+ * each window allows one hit before it hops clear.
+ */
+export const SLAMMER: PlatformerEnemyDef = {
+  id: 'slammer',
+  name: 'Summit Slammer',
+  textureKey: 'slammerBoss',
+  movement: 'boss',
+  contactDamage: 1,
+  stompReward: 60,
+  maxHealth: 4,
+  bossKind: 'slammer',
+};
+
+/**
+ * Hovers out of reach firing aimed bolts, then dives and perches - the
+ * stomp window. A spring launch can also reach it mid-air. One hit per
+ * window: a hit sends it back up into 'recover'.
+ */
+export const CONDUCTOR: PlatformerEnemyDef = {
+  id: 'conductor',
+  name: 'Storm Conductor',
+  textureKey: 'conductorBoss',
+  movement: 'boss',
+  contactDamage: 1,
+  stompReward: 80,
+  maxHealth: 5,
+  bossKind: 'conductor',
+  airborne: true,
+};
+
+const ENEMY_DEFS: Record<PlatformerEnemyType, PlatformerEnemyDef> = {
+  patroller: PATROLLER,
+  flyer: FLYER,
+  hopper: HOPPER,
+  spiker: SPIKER,
+  turret: TURRET,
+  boss: BOSS,
+  slammer: SLAMMER,
+  conductor: CONDUCTOR,
+  chaser: CHASER,
+  ghost: GHOST,
+  dropper: DROPPER,
 };
 
 export function enemyDef(type: PlatformerEnemyType): PlatformerEnemyDef {
-  switch (type) {
-    case 'patroller':
-      return PATROLLER;
-    case 'flyer':
-      return FLYER;
-    case 'boss':
-      return BOSS;
-  }
+  return ENEMY_DEFS[type];
 }

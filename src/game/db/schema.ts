@@ -60,8 +60,17 @@ export interface PlayerProfile {
   lastCharacterId?: string;
   trickLabSessions?: number;
   trickLabBest?: number;
+  /** Pog Quest progress keyed by LevelDef.id - optional so older saves still load */
+  quest?: Record<string, QuestLevelProgress>;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface QuestLevelProgress {
+  attempts: number;
+  clears: number;
+  bestTimeSeconds: number | null;
+  bestCoins: number;
 }
 
 export interface StandingsRow {
