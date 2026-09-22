@@ -6,6 +6,7 @@ import { describeActive } from '../data/pogs';
 import type { PlatformerResult } from '../db/platformerResult';
 import { recordQuestRun, type QuestRunReward } from '../db/questRepository';
 import { masterySummary } from '../systems/characterMastery';
+import { attachPadMenu } from '../ui/padMenu';
 
 const FONT = 'system-ui, sans-serif';
 
@@ -78,22 +79,24 @@ export class PlatformerResultScene extends Phaser.Scene {
       rewardText.setText('');
     }
 
+    const buttons: Phaser.GameObjects.Rectangle[] = [];
     let y = 560;
     if (next !== undefined) {
-      this.makeButton(y, `NEXT: ${LEVELS[next].name.toUpperCase()}`, 0x4ade80, '#0b2417', () => {
+      buttons.push(this.makeButton(y, `NEXT: ${LEVELS[next].name.toUpperCase()}`, 0x4ade80, '#0b2417', () => {
         this.registry.set(REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, next);
         this.scene.start('PlatformerRun');
-      });
+      }));
       y += 68;
     }
-    this.makeButton(y, 'RETRY', COLORS.accent, '#221a10', () => {
+    buttons.push(this.makeButton(y, 'RETRY', COLORS.accent, '#221a10', () => {
       this.registry.set(REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, result.levelIndex);
       this.scene.start('PlatformerRun');
-    });
+    }));
     y += 68;
-    this.makeButton(y, 'LEVELS', 0x38bdf8, '#07202c', () => this.scene.start('PlatformerLevelSelect'));
+    buttons.push(this.makeButton(y, 'LEVELS', 0x38bdf8, '#07202c', () => this.scene.start('PlatformerLevelSelect')));
     y += 68;
-    this.makeButton(y, 'MENU', 0x22c55e, '#ffffff', () => this.scene.start('ModeSelect'));
+    buttons.push(this.makeButton(y, 'MENU', 0x22c55e, '#ffffff', () => this.scene.start('ModeSelect')));
+    attachPadMenu(this, buttons, { onBack: () => this.scene.start('PlatformerLevelSelect') });
   }
 
   private showReward(text: Phaser.GameObjects.Text, reward: QuestRunReward, characterName: string, won: boolean): void {
@@ -115,12 +118,13 @@ export class PlatformerResultScene extends Phaser.Scene {
     if (reward.firstClear) this.tweens.add({ targets: text, scale: { from: 0.85, to: 1 }, duration: 260, ease: 'Back.Out' });
   }
 
-  private makeButton(y: number, label: string, color: number, textColor: string, onTap: () => void): void {
+  private makeButton(y: number, label: string, color: number, textColor: string, onTap: () => void): Phaser.GameObjects.Rectangle {
     const btn = this.add.rectangle(WIDTH / 2, y, 300, 54, color).setInteractive({ useHandCursor: true });
     this.add.text(WIDTH / 2, y, label, { fontSize: '17px', fontFamily: FONT, fontStyle: 'bold', color: textColor }).setOrigin(0.5);
     btn.on('pointerdown', () => {
       btn.disableInteractive();
       this.tweens.add({ targets: btn, scale: 0.96, duration: 80, yoyo: true, onComplete: onTap });
     });
+    return btn;
   }
 }

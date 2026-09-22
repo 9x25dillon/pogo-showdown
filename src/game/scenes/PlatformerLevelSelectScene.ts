@@ -4,6 +4,8 @@ import { LEVELS, type LevelDef } from '../data/levels';
 import { pogDef } from '../data/pogs';
 import { isLevelUnlocked, questProgressFor } from '../db/questRepository';
 import { getProfile } from '../db/repository';
+import { padLabel, readPads } from '../systems/gamepad';
+import { attachPadMenu } from '../ui/padMenu';
 
 const FONT = 'system-ui, sans-serif';
 
@@ -35,10 +37,24 @@ export class PlatformerLevelSelectScene extends Phaser.Scene {
     back.on('pointerdown', () => this.scene.start('ModeSelect'));
 
     this.add
-      .text(WIDTH / 2, HEIGHT - 70, 'keys: move WASD/arrows · jump W/Space · item F · swap Q\nco-op P2: arrows · item / or Enter · swap .', {
+      .text(WIDTH / 2, HEIGHT - 76, 'keys: move WASD/arrows · jump W/Space · item F · swap Q\nco-op P2: arrows · item / or Enter · swap .', {
         fontSize: '11px', fontFamily: FONT, color: '#6b6180', align: 'center', lineSpacing: 3,
       })
       .setOrigin(0.5);
+
+    const padText = this.add
+      .text(WIDTH / 2, HEIGHT - 104, '', { fontSize: '11px', fontFamily: FONT, fontStyle: 'bold', color: '#38bdf8', align: 'center' })
+      .setOrigin(0.5);
+    const onUpdate = (time: number) => {
+      const pads = readPads(time);
+      padText.setText(
+        pads.length === 0
+          ? '🎮 controller? press any button on it'
+          : `🎮 ${pads.map((p) => padLabel(p.id)).join(' + ')} · A jump · X item · Y swap · Menu pause`,
+      );
+    };
+    this.events.on(Phaser.Scenes.Events.UPDATE, onUpdate);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.events.off(Phaser.Scenes.Events.UPDATE, onUpdate));
 
     void this.render();
   }
@@ -47,23 +63,25 @@ export class PlatformerLevelSelectScene extends Phaser.Scene {
     const profile = await getProfile();
     if (!this.scene.isActive()) return;
 
-    const rowH = 70;
+    const rows: Phaser.GameObjects.Rectangle[] = [];
+    let focus = -1;
+    const rowH = 54;
     LEVELS.forEach((level, i) => {
-      const y = 136 + i * rowH;
+      const y = 120 + i * rowH;
       const unlocked = isLevelUnlocked(profile, i);
       const progress = questProgressFor(profile, level.id);
       const tag = levelTag(level);
       const cleared = progress.clears > 0;
 
       const bg = this.add
-        .rectangle(WIDTH / 2, y, 420, rowH - 8, tag.color, unlocked ? 0.14 : 0.05)
+        .rectangle(WIDTH / 2, y, 420, rowH - 6, tag.color, unlocked ? 0.14 : 0.05)
         .setStrokeStyle(2, tag.color, unlocked ? 0.8 : 0.25);
 
       this.add
-        .text(44, y - 12, `${i + 1}. ${level.name}`, { fontSize: '16px', fontFamily: FONT, fontStyle: 'bold', color: unlocked ? '#ffffff' : '#6b6180' })
+        .text(44, y - 10, `${i + 1}. ${level.name}`, { fontSize: '14px', fontFamily: FONT, fontStyle: 'bold', color: unlocked ? '#ffffff' : '#6b6180' })
         .setOrigin(0, 0.5);
       this.add
-        .text(WIDTH - 44, y - 12, tag.label, {
+        .text(WIDTH - 44, y - 10, tag.label, {
           fontSize: '10px', fontFamily: FONT, fontStyle: 'bold', color: '#0b0714',
           backgroundColor: `#${tag.color.toString(16).padStart(6, '0')}`, padding: { x: 5, y: 2 },
         })
@@ -77,10 +95,13 @@ export class PlatformerLevelSelectScene extends Phaser.Scene {
       else status = reward ? `reward: ${reward.emoji} ${reward.name}` : 'not cleared yet';
       if (level.coop && unlocked && !cleared) status += ' · 2 players';
       this.add
-        .text(44, y + 13, status, { fontSize: '11px', fontFamily: FONT, color: cleared ? '#4ade80' : '#b7aed0' })
+        .text(44, y + 10, status, { fontSize: '11px', fontFamily: FONT, color: cleared ? '#4ade80' : '#b7aed0' })
         .setOrigin(0, 0.5);
 
       if (unlocked) {
+        // controller focus starts on the first solo level you haven't cleared yet
+        if (focus < 0 && !cleared && !level.coop) focus = rows.length;
+        rows.push(bg);
         bg.setInteractive({ useHandCursor: true });
         bg.on('pointerover', () => bg.setFillStyle(tag.color, 0.26));
         bg.on('pointerout', () => bg.setFillStyle(tag.color, 0.14));
@@ -91,5 +112,6 @@ export class PlatformerLevelSelectScene extends Phaser.Scene {
         });
       }
     });
+    attachPadMenu(this, rows, { initial: Math.max(0, focus), onBack: () => this.scene.start('ModeSelect') });
   }
 }

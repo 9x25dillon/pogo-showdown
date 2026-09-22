@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 
 // Uses the runner's isolated browser context, never the player's save.
 // Level order: 0 Footpeg Flats, 1 Signature Sprint, 2 Tech Park Tangle, 3 Circuit Showdown (boss),
-// 4 Rooftop Relay, 5 Night Circuit, 6 Summit Slam (boss 2), 7 Co-op Circuit, 8 Co-op Summit.
+// 4 Rooftop Relay, 5 Night Circuit, 6 Summit Slam (boss 2), 7 Midnight Mansion, 8 Thunder Peak (boss 3),
+// 9 Co-op Circuit, 10 Co-op Summit, 11 Co-op Storm.
 export async function verifyPlatformer({ execute, evaluate, waitFor, start, scene, textExists }) {
   const s = scene('PlatformerRun');
   const p1 = `${s}.heroes[0]`;
@@ -33,7 +34,7 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
 
   // The rival must be able to finish every race level on its own at real frame rates,
   // without once falling into a pit (an idle player never gets in its way).
-  for (const index of [0, 1, 2, 4, 5]) {
+  for (const index of [0, 1, 2, 4, 5, 7]) {
     await enter(index);
     await execute(`window.__game.registry.remove('lastPlatformerResult'); window.__rivalFalls = 0;`);
     const seconds = await simulate(40, `if (s.rival.y > 900 && !window.__rivalFalling) window.__rivalFalls++;
@@ -134,7 +135,7 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
     const profile = await getProfile();
     const owned = (await getCollection()).filter(p => p.defId === 'sprinter').length;
     return [profile.quest.level2.clears, again.firstClear, again.techPointsGranted, techPointsAvailable(await getLoadout()) - tpBefore,
-      owned, again.trainingEarned, isLevelUnlocked(profile, 2), isLevelUnlocked(profile, 3), isLevelUnlocked(profile, 7)];`),
+      owned, again.trainingEarned, isLevelUnlocked(profile, 2), isLevelUnlocked(profile, 3), isLevelUnlocked(profile, 9)];`),
     [2, false, 0, 0, 1, true, true, false, true]);
 
   await enter(2);
@@ -244,9 +245,62 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
   await execute(`const s = ${s}; const e = ${sl}; e.bossPhase = 'stunned'; s.damageEnemy(e);`);
   await waitFor('window.__game.scene.isActive("PlatformerResult")');
   assert.equal(await evaluate(textExists('PlatformerResult', 'BOSS DOWN')), true);
+  assert.equal(await evaluate(textExists('PlatformerResult', 'NEXT: MIDNIGHT MANSION')), true);
+
+  // Midnight Mansion's new enemies: chasers charge within range, ghosts are untouchable while faded,
+  // droppers flash then bomb a hero underneath.
+  await enter(7);
+  assert.deepEqual(await execute(`const s = ${s}; s.physics.pause(); s.shields = 0; const hero = s.heroes[0];
+    const chaser = s.enemies.find(e => e.def.id === 'chaser'); chaser.sprite.setX(1000);
+    hero.sprite.setPosition(1150, chaser.sprite.y); s.updateChaser(chaser, chaser.sprite.body);
+    const charges = chaser.sprite.body.velocity.x;
+    hero.sprite.setX(1600); s.updateChaser(chaser, chaser.sprite.body); const strolls = Math.abs(chaser.sprite.body.velocity.x);
+    const ghost = s.enemies.find(e => e.def.id === 'ghost'); ghost.timer = 0; s.updateGhost(ghost, ghost.sprite.body, 16);
+    const lives = s.lives; hero.invulnTimer = 0;
+    hero.sprite.setPosition(ghost.sprite.x + 20, ghost.sprite.y + 60); hero.sprite.body.updateFromGameObject(); hero.sprite.setVelocity(0, 0);
+    s.resolveEnemyContact(hero, ghost); s.damageEnemy(ghost); const fadedSafe = [ghost.phased, s.lives === lives, ghost.alive];
+    ghost.timer = 0; s.updateGhost(ghost, ghost.sprite.body, 16); s.resolveEnemyContact(hero, ghost); const solidHurts = [!ghost.phased, s.lives === lives - 1];
+    const dropper = s.enemies.find(e => e.def.id === 'dropper'); hero.invulnTimer = 0;
+    hero.sprite.setPosition(dropper.sprite.x, 700); dropper.timer = 0; s.updateDropper(dropper, dropper.sprite.body, 16);
+    const winding = dropper.windup > 0 && dropper.sprite.isTinted;
+    s.updateDropper(dropper, dropper.sprite.body, 400);
+    const bomb = s.pellets.find(p => p.active && p.texture.key === 'bomb');
+    return [charges, strolls < 50, ...fadedSafe, ...solidHurts, winding, !!bomb && bomb.body.allowGravity && bomb.body.velocity.y > 0, dropper.windup];`),
+    [140, true, true, true, true, true, true, true, true, 0]);
+
+  // Storm Conductor: hovers out of reach firing aimed bolts (a fan once enraged), dives, perches for
+  // the stomp window, rises immune; a spring stomp mid-hover also counts.
+  await enter(8);
+  const cd = `${s}.enemies.find(e => e.def.id === 'conductor')`;
+  assert.deepEqual(await execute(`const s = ${s}; s.physics.pause(); s.shields = 0; const e = ${cd}; const hero = s.heroes[0];
+    hero.sprite.setPosition(1500, 700); hero.sprite.body.updateFromGameObject();
+    const floats = !e.sprite.body.allowGravity && e.bossPhase === 'hover';
+    const before = s.pellets.length; e.fireTimer = 0; s.updateConductor(e, 16);
+    const bolt = s.pellets[s.pellets.length - 1];
+    const aimed = [s.pellets.length - before, bolt.texture.key, bolt.body.velocity.x > 0, bolt.body.velocity.y > 0];
+    e.timer = 0; s.updateConductor(e, 16); const telegraph = e.bossPhase;
+    e.timer = 0; s.updateConductor(e, 16); const dive = [e.bossPhase, e.diveX];
+    e.sprite.setPosition(e.diveX, 660); e.sprite.body.updateFromGameObject(); s.updateConductor(e, 16); const perched = e.bossPhase;
+    const lives = s.lives; hero.invulnTimer = 0;
+    hero.sprite.setPosition(e.sprite.x + 50, 700); hero.sprite.body.updateFromGameObject(); hero.sprite.setVelocity(0, 0);
+    s.resolveEnemyContact(hero, e); const harmless = s.lives === lives;
+    hero.sprite.setPosition(e.sprite.x, e.sprite.body.top); hero.sprite.body.updateFromGameObject(); hero.sprite.setVelocityY(200);
+    s.resolveEnemyContact(hero, e); const stomped = [e.health, e.bossPhase];
+    s.damageEnemy(e); const immune = e.health === 4;
+    e.sprite.setPosition(e.sprite.x, 380); e.sprite.body.updateFromGameObject(); e.timer = 0; s.updateConductor(e, 16); const back = e.bossPhase;
+    // spring stomp while it hovers: counts, and it's immune for a moment afterwards
+    hero.invulnTimer = 0; hero.sprite.setPosition(e.sprite.x, e.sprite.body.top); hero.sprite.body.updateFromGameObject(); hero.sprite.setVelocityY(300);
+    s.resolveEnemyContact(hero, e); const airStomp = [e.health, e.bossPhase, e.timer > 0];
+    e.health = 2; e.bossPhase = 'hover'; e.fireTimer = 0; const n = s.pellets.length; s.updateConductor(e, 16);
+    const fan = s.pellets.length - n;
+    return [floats, ...aimed, telegraph, ...dive, perched, harmless, ...stomped, immune, back, ...airStomp, fan];`),
+    [true, 1, 'bolt', true, true, 'telegraph', 'dive', 1500, 'perched', true, 4, 'recover', true, 'hover', 3, 'recover', true, 3]);
+  await execute(`const s = ${s}; const e = ${cd}; e.health = 1; e.bossPhase = 'perched'; s.damageEnemy(e);`);
+  await waitFor('window.__game.scene.isActive("PlatformerResult")');
+  assert.equal(await evaluate(textExists('PlatformerResult', 'BOSS DOWN')), true);
   assert.equal(await evaluate(textExists('PlatformerResult', 'NEXT')), false); // only co-op levels remain: never routes a solo player there
 
-  await enter(7);
+  await enter(9);
   assert.deepEqual(await execute(`const s = ${s}; s.physics.pause(); s.shields = 0;
     const [a, b] = s.heroes;
     s.input.keyboard.emit('keydown', { key: 'ArrowRight' });
@@ -286,5 +340,84 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
   await waitFor(textExists('PlatformerResult', 'training credit'));
   assert.equal(await execute(`const { getProfile } = await import('/src/game/db/repository.ts');
     const p = await getProfile(); return p.quest.level4.attempts === 1 && p.quest.level4.clears === 0;`), true);
-  console.log('PASS: Pog Quest rival finishes all 5 races at 60fps, springs, Summit Slammer phases/shockwaves/stun window/enrage/arena clamp, pit respawn, movement/jump, pause/resume/retry/menu, rival stomp, scene restarts, level select gating, gap reach, first-clear rewards, hopper/spiker/turret, freeze/swap/double jump/magnet/ground pound, boss phases/victory, solo progression, co-op controls/touch split/items/camera leash/respawn/lives, coin collection, gap defeat.');
+
+  // ---- Xbox controller (standard mapping), via a stubbed navigator.getGamepads ----
+  await execute(`window.__pads = []; window.__rumbles = [];
+    Object.defineProperty(navigator, 'getGamepads', { configurable: true, value: () => window.__pads });
+    window.__mkPad = index => ({ index, connected: true, mapping: 'standard', axes: [0, 0, 0, 0],
+      id: 'Microsoft X-Box One Elite 2 pad (STANDARD GAMEPAD Vendor: 045e Product: 0b00)',
+      buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })),
+      vibrationActuator: { playEffect: (type, p) => { window.__rumbles.push([type, p.duration]); return Promise.resolve('complete'); } } });
+    window.__btn = (pad, b, down) => { window.__pads[pad].buttons[b].pressed = down; window.__pads[pad].buttons[b].value = down ? 1 : 0; };
+    window.__pads.push(window.__mkPad(0));`);
+  const tapButton = async (pad, b) => {
+    await execute(`window.__btn(${pad}, ${b}, true);`); await simulate(0.05);
+    await execute(`window.__btn(${pad}, ${b}, false);`); await simulate(0.05);
+  };
+  // Menu buttons finish on a tween, and Phaser tweens run on the wall clock rather than
+  // headlessStep's delta - so menu presses use the real game loop and wait for the result.
+  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const tapReal = async (pad, b) => {
+    await execute(`window.__btn(${pad}, ${b}, true);`); await sleep(250);
+    await execute(`window.__btn(${pad}, ${b}, false);`); await sleep(100);
+  };
+  await enter(0);
+  await simulate(0.5);
+  // left stick runs, A jumps (held A keeps the full jump), X uses the item, Y swaps
+  await execute(`window.__pads[0].axes[0] = 1;`);
+  const toSpeed = await simulate(2, `return ${s}.player.body.velocity.x >= 209;`);
+  assert.ok(toSpeed < 1.5, `stick run took ${toSpeed}s`);
+  await execute(`window.__pads[0].axes[0] = 0; window.__btn(0, 0, true);`);
+  await simulate(0.1);
+  assert.deepEqual(await execute(`const h = ${p1}; return [h.sprite.body.velocity.y < -300, h.input.padJump];`), [true, true]);
+  await execute(`window.__btn(0, 0, false);`);
+  await simulate(1);
+  assert.deepEqual(await execute(`const s = ${s}; const hero = s.heroes[0];
+    const { pogDef } = await import('/src/game/data/pogs.ts');
+    const slot = id => { const def = pogDef(id); return { def, effect: def.activeEffect, charges: def.activeEffect.charges }; };
+    hero.items = [slot('coil'), slot('bicep')]; hero.selectedItem = 0; return hero.items.length;`), 2);
+  await tapButton(0, 2); // X
+  await tapButton(0, 3); // Y
+  assert.deepEqual(await execute(`const h = ${p1}; return [h.items[0].charges, h.speedBoostTimer > 0, h.selectedItem, h.padIndex];`), [1, true, 1, 0]);
+  // getting hit rumbles the pad that hero is using
+  await execute(`const s = ${s}; s.shields = 0; s.takeDamage(s.heroes[0], 1);`);
+  assert.equal(await evaluate(`window.__rumbles.some(([type]) => type === 'dual-rumble')`), true);
+  // Menu pauses; the same press must not also resume. B resumes.
+  await tapButton(0, 9);
+  await simulate(0.3);
+  assert.deepEqual(await evaluate(`[window.__game.scene.isActive('PlatformerPause'), window.__game.scene.isPaused('PlatformerRun')]`), [true, true]);
+  await tapButton(0, 1);
+  await simulate(0.1);
+  assert.deepEqual(await evaluate(`[window.__game.scene.isActive('PlatformerPause'), window.__game.scene.isActive('PlatformerRun')]`), [false, true]);
+  // pause menu: D-pad down to RETRY LEVEL, A activates it
+  await tapButton(0, 9); await simulate(0.2);
+  await tapButton(0, 13); await tapButton(0, 0); await simulate(0.3);
+  assert.deepEqual(await evaluate(`[window.__game.scene.isActive('PlatformerPause'), window.__game.scene.isActive('PlatformerRun'), ${s}.elapsed < 1]`), [false, true, true]);
+
+  // co-op: the first pad drives P1, the second P2
+  await execute(`window.__pads.push(window.__mkPad(1));`);
+  await enter(9);
+  await simulate(0.2);
+  await execute(`window.__pads[1].axes[0] = 1;`);
+  await simulate(0.3);
+  assert.deepEqual(await execute(`const [a, b] = ${s}.heroes; return [b.input.padRight, a.input.padRight, b.padIndex, a.padIndex];`), [true, false, 1, 0]);
+  await execute(`window.__pads[1].axes[0] = 0; window.__pads.pop();`);
+
+  // menus: from the main menu, A opens Pog Quest (focused by default); A on the level list starts
+  // the first uncleared solo level; B backs out of the results screen to the level list.
+  await start('ModeSelect');
+  await waitFor(`window.__game.scene.getScene('ModeSelect').children.list.some(o => o.type === 'Rectangle' && o.depth === 60 && o.visible)`);
+  await tapReal(0, 0);
+  await waitFor("window.__game.scene.isActive('PlatformerLevelSelect')");
+  await waitFor(textExists('PlatformerLevelSelect', 'Xbox controller'));
+  await tapReal(0, 0);
+  await waitFor(`window.__game.scene.isActive('PlatformerRun') && ${s}.ready`);
+  assert.equal(await evaluate(`${s}.levelIndex`), 0);
+  await execute(`${s}.endLevel('fell');`);
+  await waitFor("window.__game.scene.isActive('PlatformerResult')");
+  await tapReal(0, 1);
+  await waitFor("window.__game.scene.isActive('PlatformerLevelSelect')");
+  await execute(`window.__pads = [];`);
+  await simulate(0.1);
+  console.log('PASS: Pog Quest rival finishes all 6 races at 60fps, springs, Summit Slammer, chaser/ghost/dropper, Storm Conductor hover/bolts/dive/perch/spring stomp, Xbox controller gameplay/pause/menus/co-op pads/rumble, pit respawn, movement/jump, pause/resume/retry/menu, rival stomp, scene restarts, level select gating, gap reach, first-clear rewards, hopper/spiker/turret, freeze/swap/double jump/magnet/ground pound, boss phases/victory, solo progression, co-op controls/touch split/items/camera leash/respawn/lives, coin collection, gap defeat.');
 }

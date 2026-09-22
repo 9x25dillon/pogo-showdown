@@ -162,6 +162,15 @@ export const POG_CATALOG: PogDef[] = [
   { id: 'ropeteam', name: 'Rope Team', emoji: '\u{1F9D7}', rarity: 'epic', color: 0x14b8a6, droppedBy: 'quest:level9',
     blurb: 'Co-op Summit clear. Freeze the mountain so your partner can climb.', perks: { shieldHits: 1 },
     activeEffect: { kind: 'freeze', charges: 2, freezeMs: 2500 } },
+  { id: 'candle', name: 'Candle Pog', emoji: '\u{1F56F}\u{FE0F}', rarity: 'rare', color: 0xfbbf24, droppedBy: 'quest:level10',
+    blurb: 'Midnight Mansion finisher. Hold the light up and everything stops.', perks: { starBonus: 8 },
+    activeEffect: { kind: 'freeze', charges: 2, freezeMs: 2200 } },
+  { id: 'stormcell', name: 'Storm Cell', emoji: '\u{1F329}\u{FE0F}', rarity: 'legendary', color: 0x22d3ee, droppedBy: 'quest:level11',
+    blurb: 'Pulled out of the Storm Conductor. Four bolts of your own.', perks: { flair: 0.12, speedScale: 1.04 },
+    activeEffect: { kind: 'projectile', charges: 4 } },
+  { id: 'lightningrod', name: 'Lightning Rod', emoji: '⚡', rarity: 'epic', color: 0x0ea5e9, droppedBy: 'quest:level12',
+    blurb: 'Co-op Storm clear. Take the hit so your partner doesn’t.', perks: { shieldHits: 1 },
+    activeEffect: { kind: 'shieldBurst', charges: 3, invulnMs: 2500 } },
 ];
 
 export function pogDef(id: string): PogDef | undefined {

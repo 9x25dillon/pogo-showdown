@@ -4,6 +4,7 @@ import { ensureSeasonSimulated, getProfile } from '../db/repository';
 import { TIERS } from '../db/schema';
 import { LEVELS } from '../data/levels';
 import { questProgressFor } from '../db/questRepository';
+import { attachPadMenu } from '../ui/padMenu';
 
 interface ModeButtonOpts {
   y: number;
@@ -19,6 +20,8 @@ export class ModeSelectScene extends Phaser.Scene {
   private circuitSublabel?: Phaser.GameObjects.Text;
   private trickLabSublabel?: Phaser.GameObjects.Text;
   private questSublabel?: Phaser.GameObjects.Text;
+  private modeButtons: Phaser.GameObjects.Rectangle[] = [];
+  private questButton?: Phaser.GameObjects.Rectangle;
 
   constructor() {
     super('ModeSelect');
@@ -26,6 +29,8 @@ export class ModeSelectScene extends Phaser.Scene {
 
   create(): void {
     this.cameras.main.setBackgroundColor(COLORS.bg);
+    this.modeButtons = [];
+    this.questButton = undefined;
 
     this.add
       .text(WIDTH / 2, 74, 'POGO SHOWDOWN', {
@@ -116,6 +121,9 @@ export class ModeSelectScene extends Phaser.Scene {
       onTap: () => this.scene.start('PlatformerLevelSelect'),
     });
 
+    // controller users almost always want Pog Quest (the only pad-playable mode), so start focused there
+    attachPadMenu(this, this.modeButtons, { initial: Math.max(0, this.modeButtons.indexOf(this.questButton!)) });
+
     this.add
       .text(WIDTH / 2, HEIGHT - 40, 'swipe to dodge · up to bounce · down to duck', {
         fontSize: '13px',
@@ -190,6 +198,8 @@ export class ModeSelectScene extends Phaser.Scene {
     if (opts.label.includes('Pog Quest')) this.questSublabel = sub;
 
     if (opts.enabled && opts.onTap) {
+      this.modeButtons.push(bg);
+      if (opts.label.includes('Pog Quest')) this.questButton = bg;
       bg.setInteractive({ useHandCursor: true });
       bg.on('pointerover', () => bg.setFillStyle(opts.color, 0.32));
       bg.on('pointerout', () => bg.setFillStyle(opts.color, 0.18));

@@ -1,4 +1,4 @@
-import { LEVEL_WIDTH_PX, PLATFORMER_GROUND_Y } from './platformerConfig';
+import { CONDUCTOR_HOVER_Y, LEVEL_WIDTH_PX, PLATFORMER_GROUND_Y } from './platformerConfig';
 import type { PlatformerEnemyType } from './platformerEnemies';
 
 export interface GroundSegment {
@@ -467,12 +467,111 @@ export const LEVEL_9: LevelDef = {
   rewardPogId: 'ropeteam',
 };
 
+/** Haunted race: chasers guard the flats, ghosts fade in and out, droppers bomb the lanes. */
+export const LEVEL_10: LevelDef = {
+  id: 'level10',
+  name: 'Midnight Mansion',
+  widthPx: 4200,
+  groundY: GY,
+  ground: [
+    ground(0, 600), // start area
+    ground(720, 700), // 600-720 is gap 1 (120px)
+    ground(1550, 650), // 1420-1550 is gap 2 (130px)
+    ground(2390, 800), // 2200-2390 is gap 3 (190px) - spring launch only
+    ground(3310, 890), // 3190-3310 is gap 4 (120px)
+  ],
+  platforms: [
+    platform(1620, GY - 105, 110), // hop-over spot for the ghost hall
+    platform(2600, GY - 105, 120),
+  ],
+  movingPlatforms: [],
+  springs: [spring(2178)],
+  enemies: [
+    enemySpawn('chaser', 850, GY, 400),
+    enemySpawn('dropper', 1050, GY - 170, 300),
+    enemySpawn('ghost', 1700, GY - 90, 350),
+    enemySpawn('chaser', 1800, GY, 300),
+    enemySpawn('dropper', 2500, GY - 170, 350),
+    enemySpawn('ghost', 2900, GY - 90, 220),
+    enemySpawn('chaser', 3400, GY, 450),
+    enemySpawn('hopper', 3900, GY, 150),
+  ],
+  coins: [
+    ...coinRow(120, GY - 80, 4, 50),
+    ...coinRow(900, GY - 80, 4, 60), // chaser bait
+    ...coinRow(1635, GY - 160, 3, 40),
+    ...coinRow(2200, GY - 330, 4, 45), // spring arc
+    ...coinRow(2615, GY - 160, 3, 40),
+    ...coinRow(3500, GY - 80, 5, 60),
+  ],
+  playerStart: { x: 60, y: GY },
+  rivalStart: { x: 20, y: GY },
+  rivalWaypoints: [
+    { x: 600, jump: true }, // clear gap 1
+    { x: 760, jump: false },
+    { x: 1420, jump: true }, // clear gap 2
+    { x: 1590, jump: false },
+    { x: 2430, jump: false }, // spring at 2178 over gap 3
+    { x: 3190, jump: true }, // clear gap 4
+    { x: 3350, jump: false },
+    { x: 4080, jump: false },
+  ],
+  goalX: 4080,
+  goalY: GY,
+  rewardPogId: 'candle',
+};
+
+/**
+ * Third boss arena. The Storm Conductor hovers out of jump reach, so the
+ * two springs are there on purpose: a launch can stomp it mid-air.
+ */
+export const LEVEL_11: LevelDef = {
+  id: 'level11',
+  name: 'Thunder Peak',
+  widthPx: 2600,
+  groundY: GY,
+  bossLevel: true,
+  ground: [
+    ground(0, 500), // intro
+    ground(620, 1900), // 500-620 is a warm-up gap; 620-2520 is the arena
+  ],
+  platforms: [
+    platform(1560, GY - 105, 120), // cover from bolts, sort of
+  ],
+  movingPlatforms: [],
+  springs: [spring(1150), spring(2050)],
+  enemies: [
+    enemySpawn('chaser', 200, GY, 250),
+    enemySpawn('conductor', 1000, CONDUCTOR_HOVER_Y, 1300), // tracks you anywhere in 1000-2300
+  ],
+  coins: [
+    ...coinRow(120, GY - 80, 4, 50),
+    ...coinRow(1110, GY - 330, 3, 40),
+    ...coinRow(2010, GY - 330, 3, 40),
+  ],
+  playerStart: { x: 60, y: GY },
+  rewardPogId: 'stormcell',
+};
+
+export const LEVEL_12: LevelDef = {
+  ...LEVEL_11,
+  id: 'level12',
+  name: 'Co-op Storm',
+  coop: true,
+  paceMultiplier: 0.7,
+  player2Start: { x: 150, y: GY },
+  rewardPogId: 'lightningrod',
+};
+
 /**
  * Play order; ids (not indexes) are what saves key off. Solo levels run
  * contiguously and co-op levels sit at the end, so NEXT never has to
  * skip over one.
  */
-export const LEVELS: LevelDef[] = [LEVEL_1, LEVEL_2, LEVEL_5, LEVEL_3, LEVEL_6, LEVEL_7, LEVEL_8, LEVEL_4, LEVEL_9];
+export const LEVELS: LevelDef[] = [
+  LEVEL_1, LEVEL_2, LEVEL_5, LEVEL_3, LEVEL_6, LEVEL_7, LEVEL_8, LEVEL_10, LEVEL_11,
+  LEVEL_4, LEVEL_9, LEVEL_12,
+];
 
 /**
  * Widest pit between ground segments that no reachable platform spans -

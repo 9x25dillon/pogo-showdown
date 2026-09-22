@@ -27,6 +27,12 @@ export class BootScene extends Phaser.Scene {
     this.makeSlammerBossTexture();
     this.makeShockwaveTexture();
     this.makeSpringPadTexture();
+    this.makeChaserEnemyTexture();
+    this.makeGhostEnemyTexture();
+    this.makeDropperEnemyTexture();
+    this.makeBombTexture();
+    this.makeConductorBossTexture();
+    this.makeBoltTexture();
     this.makeProjectileTexture();
     this.makeBossTexture();
     this.makeGoalFlagTexture();
@@ -306,6 +312,102 @@ export class BootScene extends Phaser.Scene {
     g.fillStyle(0xef4444, 1);
     g.fillRoundedRect(2, 0, 40, 6, 3);
     g.generateTexture('springPad', 44, 20);
+    g.destroy();
+  }
+
+  private makeChaserEnemyTexture(): void {
+    const g = this.add.graphics();
+    // low, forward-leaning bruiser with horns - faces right, flipped by the scene
+    g.fillStyle(0xb91c1c, 1);
+    g.fillRoundedRect(2, 12, 40, 24, 10);
+    g.fillStyle(0xfef2f2, 1);
+    g.fillTriangle(30, 14, 36, 2, 40, 16);
+    g.fillTriangle(18, 13, 20, 1, 27, 13);
+    g.fillStyle(0xfacc15, 1);
+    g.fillCircle(32, 22, 4);
+    g.fillStyle(0x1e1030, 1);
+    g.fillCircle(33, 22, 2);
+    g.fillRect(26, 29, 12, 3);
+    g.fillStyle(0x7f1d1d, 1);
+    g.fillRect(6, 34, 8, 6);
+    g.fillRect(28, 34, 8, 6);
+    g.generateTexture('chaserEnemy', 44, 40);
+    g.destroy();
+  }
+
+  private makeGhostEnemyTexture(): void {
+    const g = this.add.graphics();
+    g.fillStyle(0xf1f5f9, 1);
+    g.fillCircle(20, 18, 17);
+    g.fillRect(3, 18, 34, 16);
+    for (const x of [3, 14, 25]) g.fillTriangle(x, 34, x + 12, 34, x + 6, 43);
+    g.fillStyle(0x1e1030, 1);
+    g.fillEllipse(14, 17, 6, 9);
+    g.fillEllipse(27, 17, 6, 9);
+    g.fillEllipse(20, 27, 7, 5);
+    g.generateTexture('ghostEnemy', 40, 44);
+    g.destroy();
+  }
+
+  private makeDropperEnemyTexture(): void {
+    const g = this.add.graphics();
+    // little blimp with an open bomb hatch underneath
+    g.fillStyle(0x475569, 1);
+    g.fillEllipse(24, 14, 46, 24);
+    g.fillStyle(0x94a3b8, 1);
+    g.fillEllipse(20, 9, 26, 7);
+    g.fillStyle(0x1e293b, 1);
+    g.fillRect(16, 24, 16, 8);
+    g.fillStyle(0xf97316, 1);
+    g.fillTriangle(0, 8, 0, 20, 8, 14);
+    g.fillStyle(0xfacc15, 1);
+    g.fillCircle(34, 14, 3.5);
+    g.generateTexture('dropperEnemy', 48, 34);
+    g.destroy();
+  }
+
+  private makeBombTexture(): void {
+    const g = this.add.graphics();
+    g.fillStyle(0x111827, 1);
+    g.fillCircle(9, 12, 8);
+    g.fillStyle(0x6b7280, 1);
+    g.fillCircle(6, 9, 2.5);
+    g.fillStyle(0xf97316, 1);
+    g.fillRect(8, 0, 3, 5);
+    g.generateTexture('bomb', 18, 20);
+    g.destroy();
+  }
+
+  private makeConductorBossTexture(): void {
+    const g = this.add.graphics();
+    // thundercloud with a lightning baton - clearly airborne, clearly the boss
+    g.fillStyle(0x334155, 1);
+    g.fillCircle(24, 32, 20);
+    g.fillCircle(44, 24, 24);
+    g.fillCircle(64, 34, 18);
+    g.fillRoundedRect(8, 32, 72, 26, 12);
+    g.fillStyle(0x64748b, 1);
+    g.fillCircle(40, 20, 12);
+    g.fillStyle(0xfef08a, 1);
+    g.fillCircle(32, 40, 6);
+    g.fillCircle(56, 40, 6);
+    g.fillStyle(0x0f172a, 1);
+    g.fillCircle(33, 40, 2.8);
+    g.fillCircle(57, 40, 2.8);
+    g.fillStyle(0x22d3ee, 1);
+    g.fillTriangle(40, 56, 50, 56, 36, 72);
+    g.fillTriangle(44, 60, 54, 60, 48, 72);
+    g.generateTexture('conductorBoss', 86, 72);
+    g.destroy();
+  }
+
+  private makeBoltTexture(): void {
+    const g = this.add.graphics();
+    g.fillStyle(0x22d3ee, 0.4);
+    g.fillCircle(9, 9, 9);
+    g.fillStyle(0xcffafe, 1);
+    g.fillCircle(9, 9, 4.5);
+    g.generateTexture('bolt', 18, 18);
     g.destroy();
   }
 

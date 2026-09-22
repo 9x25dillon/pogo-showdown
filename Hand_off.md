@@ -23,7 +23,24 @@ Pog Quest itself is merged to `master` (`e56e49b`); this branch adds the four fo
 - 4 new reward pogs: `skyline`, `nightowl`, `summitcrown`, `ropeteam`.
 - Verified with a 40s fixed-60fps sim of the fight, solo and co-op: 9 and 7 slam cycles, and the boss never leaves its arena. That's a scratch check, not in the suite. The suite covers the phase transitions directly. If you script sims yourself, teleporting co-op heroes must also move the camera, or the co-op leash snaps them back.
 
-**Still open:** real-device playtest (feel, touch co-op ergonomics, whether the Slammer's timing is readable); whether Pog Quest should ever touch career tier; enemy/item/boss balance numbers are first guesses.
+**Follow-up 2 (same day): more enemies, a third boss, Xbox controller.** The play order is now 12 levels. Midnight Mansion (race, `level10`) and Thunder Peak (boss 3, `level11`) come after Summit Slam, and Co-op Storm (`level12`) joins the other co-op levels at the end.
+- **New enemies:**
+  - `chaser` walks its strip, then charges any hero within 260px. It never leaves the strip, so it can't run itself into a pit.
+  - `ghost` drifts after you in a box and fades on a cycle. While `phased` it's harmless, unstompable, and lets projectiles pass through.
+  - `dropper` hovers, flashes, then drops a gravity bomb on a hero passing underneath.
+  - `PlatformerEnemyDef.airborne` now decides whether an enemy has gravity.
+- **Storm Conductor** (`bossKind: 'conductor'`, 5 HP):
+  - Cycle: hover out of jump reach while tracking the nearest player and firing aimed bolts (a three-bolt fan once enraged) → telegraph → dive → `perched` (the stomp window, harmless to touch) → `recover` (rises, immune for 900ms) → hover.
+  - The two springs in its arena can launch you high enough to stomp it mid-hover.
+  - A 40s fixed-60fps sim showed about 4 perches per 40s, so a perch-only win takes ~50s. The hover length (`CONDUCTOR_HOVER_MS`) is the knob if that feels long.
+- **Controller** (`systems/gamepad.ts`, `ui/padMenu.ts`):
+  - It uses the browser Gamepad API with the standard mapping, polled directly and cached per frame time, so the paused run and the pause menu can't both see one press.
+  - In play: stick/D-pad move, A jump (hold for height), X/B/RT item, Y/LB/RB swap, Menu pause. Solo: any pad drives P1. Co-op: pad 1 is P1 and pad 2 is P2 (a lone pad leaves P2 on the arrow keys). Hits and pit falls rumble the pad of the player who took them.
+  - Menus: main menu (focus starts on Pog Quest), level select (focus starts on the first uncleared solo level), pause, and results get a focus ring. A taps the focused button (it emits that button's own `pointerdown`), and B goes back. The other modes (Pogo Dash, Trick Lab, Battles…) are still touch/keyboard only.
+  - The user's desktop pad is a **Microsoft Xbox One Elite 2** on the `xpad` driver. Browsers only show a pad after a button press on the page.
+  - Test gotcha: Phaser tweens run on the wall clock, not `headlessStep`'s delta, so tests that press tweened menu buttons use real time (`tapReal`).
+
+**Still open:** real-device playtest (feel, touch co-op ergonomics, whether the Slammer's and Conductor's timing is readable, and the controller on the real Elite 2 pad); whether Pog Quest should ever touch career tier; enemy/item/boss balance numbers are first guesses.
 
 ## September 21 follow-up
 

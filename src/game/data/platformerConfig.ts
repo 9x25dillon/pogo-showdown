@@ -90,6 +90,32 @@ export const SLAMMER_ENRAGE_PATROL_SCALE = 0.55;
 export const SHOCKWAVE_SPEED = 260;
 export const SHOCKWAVE_LIFESPAN_MS = 2200;
 
+export const CHASER_RANGE_PX = 260;
+export const CHASER_SPEED_SCALE = 2;
+export const GHOST_SOLID_MS = 2200;
+export const GHOST_FADED_MS = 1500;
+export const GHOST_DRIFT_SPEED = 55;
+export const GHOST_RANGE_PX = 320;
+export const DROPPER_TRIGGER_PX = 36;
+export const DROPPER_TELEGRAPH_MS = 260;
+export const DROPPER_RELOAD_MS = 1700;
+export const BOMB_LIFESPAN_MS = 2000;
+
+/** Storm Conductor (third boss): hover + bolts -> telegraph -> dive -> perched -> recover */
+export const CONDUCTOR_HOVER_Y = 380;
+export const CONDUCTOR_HOVER_MS = 5200;
+export const CONDUCTOR_HOVER_SPEED = 150;
+export const CONDUCTOR_FIRE_MS = 1400;
+export const CONDUCTOR_ENRAGED_FIRE_MS = 1000;
+export const CONDUCTOR_TELEGRAPH_MS = 600;
+export const CONDUCTOR_DIVE_SPEED = 520;
+/** where the dive ends: body bottom just above the ground */
+export const CONDUCTOR_PERCH_Y = 660;
+export const CONDUCTOR_PERCH_MS = 1700;
+export const CONDUCTOR_RISE_SPEED = 300;
+export const BOLT_SPEED = 240;
+export const BOLT_LIFESPAN_MS = 2600;
+
 /** spring pads launch anything that runs or lands on them (heroes and the rival) */
 export const SPRING_VELOCITY = -1100;
 
