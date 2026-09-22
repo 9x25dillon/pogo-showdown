@@ -17,7 +17,13 @@ Pog Quest itself is merged to `master` (`e56e49b`); this branch adds the four fo
 
 **Testing notes:** the headless browser's frame rate is erratic, often under 10fps, which starves per-frame AI. The suite now drives the game at an exact 60fps with `game.headlessStep` (see `simulate` in `tests/platformer-regression.mjs`) and asserts the rival wins every race level with zero pit falls. Vite binds IPv6 `localhost`, so run `POGO_URL=http://localhost:5173 npm run test:browser`. If you kill a scratch CDP script, close its tabs (`/json/close/<id>`); orphaned game tabs slowed the browser enough to time the suite out.
 
-**Still open:** real-device playtest (feel, touch co-op ergonomics); whether Pog Quest should ever touch career tier; enemy/item balance numbers are first guesses.
+**Follow-up (same day): more levels + a second boss.** The play order is now 9 levels: Footpeg Flats, Signature Sprint, Tech Park Tangle, Circuit Showdown (boss 1), **Rooftop Relay**, **Night Circuit**, **Summit Slam** (boss 2), Co-op Circuit, **Co-op Summit**. Co-op levels sit at the end so solo NEXT never has to skip one. Test indexes are listed at the top of `tests/platformer-regression.mjs`.
+- **Spring pads** (`LevelDef.springs`, `SPRING_VELOCITY`): running or landing on one launches you, including the rival. A pad at a pit's edge is the only way across a 180–190px pit. `largestUnbridgedGap` counts a spring within 40px before a pit as a bridge, but only the rival race sim actually proves the spring's reach.
+- **Summit Slammer** (`bossKind: 'slammer'`, 4 HP): patrol → telegraph → leap onto the nearest player's x → slam that sends a shockwave both ways along the ground (jump it, or stand on a ledge) → dizzy `stunned` window. While stunned it's harmless to touch and stompable. A hit sends it into `recover` (a hop clear, always toward the arena's middle when near an edge), during which it can't be hurt, so each window is worth one hit. At ≤ half HP it enrages: shorter patrol, faster walk, faster waves. Shockwaves use the same hazard list as turret pellets (`spawnHazard`), so freeze clears them too. The charger boss is unchanged.
+- 4 new reward pogs: `skyline`, `nightowl`, `summitcrown`, `ropeteam`.
+- Verified with a 40s fixed-60fps sim of the fight, solo and co-op: 9 and 7 slam cycles, and the boss never leaves its arena. That's a scratch check, not in the suite. The suite covers the phase transitions directly. If you script sims yourself, teleporting co-op heroes must also move the camera, or the co-op leash snaps them back.
+
+**Still open:** real-device playtest (feel, touch co-op ergonomics, whether the Slammer's timing is readable); whether Pog Quest should ever touch career tier; enemy/item/boss balance numbers are first guesses.
 
 ## September 21 follow-up
 

@@ -34,6 +34,15 @@ import {
   PLAYER_LIVES,
   PROJECTILE_LIFESPAN_MS,
   PROJECTILE_SPEED,
+  SHOCKWAVE_LIFESPAN_MS,
+  SHOCKWAVE_SPEED,
+  SLAMMER_ENRAGE_PATROL_SCALE,
+  SLAMMER_LEAP_VELOCITY,
+  SLAMMER_MAX_LEAP_VX,
+  SLAMMER_PATROL_MS,
+  SLAMMER_STUN_MS,
+  SLAMMER_TELEGRAPH_MS,
+  SPRING_VELOCITY,
   SPEED_BOOST_MS,
   SPEED_BOOST_MULTIPLIER,
   STOMP_BOUNCE_VELOCITY,
@@ -73,7 +82,8 @@ const P2_TINT = 0x38bdf8;
 const RIVAL_TINT = 0x94a3b8;
 const FROZEN_TINT = 0x93c5fd;
 
-type BossPhase = 'patrol' | 'telegraph' | 'charge' | 'cooldown';
+/** charger: patrol/telegraph/charge/cooldown; slammer: patrol/telegraph/leap/stunned/recover */
+type BossPhase = 'patrol' | 'telegraph' | 'charge' | 'cooldown' | 'leap' | 'stunned' | 'recover';
 
 interface PatrolEnemyState {
   sprite: Phaser.Physics.Arcade.Sprite;
@@ -342,7 +352,11 @@ export class PlatformerRunScene extends Phaser.Scene {
         baseY: e.y,
         bobPhase: Math.random() * Math.PI * 2,
         health: def.maxHealth ?? 1,
-        timer: def.movement === 'boss' ? BOSS_PATROL_MS : def.movement === 'hop' ? HOPPER_HOP_INTERVAL_MS : TURRET_FIRE_INTERVAL_MS,
+        timer:
+          def.bossKind === 'slammer' ? SLAMMER_PATROL_MS
+          : def.movement === 'boss' ? BOSS_PATROL_MS
+          : def.movement === 'hop' ? HOPPER_HOP_INTERVAL_MS
+          : TURRET_FIRE_INTERVAL_MS,
         bossPhase: def.movement === 'boss' ? 'patrol' : undefined,
       });
     }
@@ -388,6 +402,29 @@ export class PlatformerRunScene extends Phaser.Scene {
     if (this.rival && this.goalSprite) {
       this.physics.add.overlap(this.rival, this.goalSprite, () => this.endLevel('rivalWon'));
     }
+
+    for (const def of this.level.springs ?? []) {
+      const pad = this.physics.add.staticImage(def.x, def.y, 'springPad').setOrigin(0.5, 1);
+      pad.refreshBody();
+      for (const hero of this.heroes) {
+        this.physics.add.overlap(hero.sprite, pad, () => {
+          if (this.launchFromSpring(hero.sprite, hero.ctrl, pad)) hero.pounding = false;
+        });
+      }
+      if (this.rival) this.physics.add.overlap(this.rival, pad, () => this.launchFromSpring(this.rival!, this.rivalState, pad));
+    }
+  }
+
+  /** running or landing on a pad launches you; returns whether it fired */
+  private launchFromSpring(sprite: Phaser.Physics.Arcade.Sprite, ctrl: ControllerState, pad: Phaser.Physics.Arcade.Image): boolean {
+    const body = sprite.body as Phaser.Physics.Arcade.Body;
+    if (body.velocity.y < 0) return false; // already on the way up
+    body.setVelocityY(SPRING_VELOCITY);
+    // a spring launch is not a jump: releasing the button mustn't cut it short
+    ctrl.jumpCutApplied = true;
+    ctrl.coyoteMs = 0;
+    this.tweens.add({ targets: pad, scaleY: 0.55, duration: 70, yoyo: true });
+    return true;
   }
 
   private spawnHero(slot: 1 | 2, at: { x: number; y: number }, tint: number): Hero {
@@ -457,7 +494,8 @@ export class PlatformerRunScene extends Phaser.Scene {
       this.rivalPositionText.setText(ahead >= 0 ? `Rival: ahead by ${Math.round(ahead)}` : `Rival: behind by ${Math.round(-ahead)}`);
     } else {
       const boss = this.enemies.find((e) => e.def.movement === 'boss');
-      this.rivalPositionText.setText(boss && boss.alive ? `BOSS HP: ${boss.health} / ${boss.def.maxHealth}` : '');
+      const enraged = boss && boss.def.bossKind === 'slammer' && this.slammerEnraged(boss);
+      this.rivalPositionText.setText(boss && boss.alive ? `BOSS HP: ${boss.health} / ${boss.def.maxHealth}${enraged ? ' · ENRAGED' : ''}` : '');
     }
   }
 
@@ -858,7 +896,8 @@ export class PlatformerRunScene extends Phaser.Scene {
       }
       switch (e.def.movement) {
         case 'boss':
-          this.updateBoss(e, dt);
+          if (e.def.bossKind === 'slammer') this.updateSlammer(e, dt);
+          else this.updateBoss(e, dt);
           break;
         case 'turret':
           this.updateTurret(e, dt);
@@ -900,16 +939,106 @@ export class PlatformerRunScene extends Phaser.Scene {
     if (e.timer > 0 || Math.abs(dx) > TURRET_RANGE_PX) return;
     e.timer = TURRET_FIRE_INTERVAL_MS / (this.level.paceMultiplier ?? 1);
     const dir = dx < 0 ? -1 : 1;
-    const pellet = this.physics.add.sprite(e.sprite.x + dir * 22, e.sprite.y - 26, 'pellet');
-    const body = pellet.body as Phaser.Physics.Arcade.Body;
+    this.spawnHazard(e.sprite.x + dir * 22, e.sprite.y - 26, 'pellet', dir * this.paced(PELLET_SPEED), PELLET_LIFESPAN_MS, true);
+  }
+
+  /**
+   * Enemy fire that hurts heroes on contact: turret pellets, slammer
+   * shockwaves. Lives in `pellets`, so a freeze clears it all at once.
+   */
+  private spawnHazard(x: number, y: number, texture: string, vx: number, lifespanMs: number, stopsOnSolids: boolean): Phaser.Physics.Arcade.Sprite {
+    const hazard = this.physics.add.sprite(x, y, texture);
+    const body = hazard.body as Phaser.Physics.Arcade.Body;
     body.setAllowGravity(false);
-    body.setVelocityX(dir * this.paced(PELLET_SPEED));
-    this.pellets.push(pellet);
+    body.setVelocityX(vx);
+    hazard.setFlipX(vx < 0);
+    this.pellets.push(hazard);
     for (const hero of this.heroes) {
-      this.physics.add.overlap(hero.sprite, pellet, () => this.hitHeroWithPellet(hero, pellet));
+      this.physics.add.overlap(hero.sprite, hazard, () => this.hitHeroWithPellet(hero, hazard));
     }
-    this.physics.add.collider(pellet, this.staticSolids, () => pellet.destroy());
-    this.time.delayedCall(PELLET_LIFESPAN_MS, () => { if (pellet.active) pellet.destroy(); });
+    if (stopsOnSolids) this.physics.add.collider(hazard, this.staticSolids, () => hazard.destroy());
+    this.time.delayedCall(lifespanMs, () => { if (hazard.active) hazard.destroy(); });
+    return hazard;
+  }
+
+  private slammerEnraged(e: PatrolEnemyState): boolean {
+    return e.health <= (e.def.maxHealth ?? 1) / 2;
+  }
+
+  /**
+   * patrol -> telegraph (crouch + flash) -> leap (arcs onto the nearest
+   * player's x) -> slam: shockwaves both ways -> stunned (the stomp
+   * window; harmless to touch) -> patrol. A hit hops it clear into
+   * 'recover', so each window is worth one hit.
+   */
+  private updateSlammer(e: PatrolEnemyState, dt: number): void {
+    const body = e.sprite.body as Phaser.Physics.Arcade.Body;
+    const grounded = body.blocked.down || body.touching.down;
+    e.timer -= dt;
+
+    switch (e.bossPhase) {
+      case 'telegraph':
+        if (e.timer <= 0) {
+          const target = this.nearestHero(e.sprite.x);
+          const landX = Phaser.Math.Clamp(target.sprite.x, e.originX, e.originX + e.rangeX);
+          const airtime = (2 * -SLAMMER_LEAP_VELOCITY) / GRAVITY_Y;
+          const vx = Phaser.Math.Clamp((landX - e.sprite.x) / airtime, -SLAMMER_MAX_LEAP_VX, SLAMMER_MAX_LEAP_VX);
+          e.bossPhase = 'leap';
+          e.timer = 0; // counts up while airborne, so takeoff isn't mistaken for landing
+          e.sprite.clearTint();
+          e.sprite.setFlipX(vx < 0);
+          body.setVelocity(vx, SLAMMER_LEAP_VELOCITY);
+        }
+        break;
+      case 'leap':
+        e.timer += 2 * dt; // undo the countdown above: elapsed airtime
+        if (grounded && e.timer > 150) this.slam(e);
+        break;
+      case 'stunned':
+        body.setVelocityX(0);
+        if (e.timer <= 0) {
+          e.bossPhase = 'patrol';
+          e.timer = this.slammerPatrolMs(e);
+          e.sprite.setAngle(0);
+        } else {
+          e.sprite.setAngle(Math.sin(e.timer / 60) * 8); // dizzy wobble
+        }
+        break;
+      case 'recover':
+        e.timer += 2 * dt;
+        if (grounded && e.timer > 150) {
+          body.setVelocityX(0);
+          e.bossPhase = 'patrol';
+          e.timer = this.slammerPatrolMs(e);
+        }
+        break;
+      case 'patrol':
+      default:
+        this.walkPatrol(e, body, this.slammerEnraged(e) ? 1.4 : 1);
+        if (e.timer <= 0 && grounded) {
+          e.bossPhase = 'telegraph';
+          e.timer = SLAMMER_TELEGRAPH_MS;
+          body.setVelocityX(0);
+          e.sprite.setTint(0xffffff);
+        }
+        break;
+    }
+  }
+
+  private slammerPatrolMs(e: PatrolEnemyState): number {
+    return SLAMMER_PATROL_MS * (this.slammerEnraged(e) ? SLAMMER_ENRAGE_PATROL_SCALE : 1) / (this.level.paceMultiplier ?? 1);
+  }
+
+  private slam(e: PatrolEnemyState): void {
+    const body = e.sprite.body as Phaser.Physics.Arcade.Body;
+    body.setVelocityX(0);
+    e.bossPhase = 'stunned';
+    e.timer = SLAMMER_STUN_MS / (this.level.paceMultiplier ?? 1);
+    const speed = this.paced(SHOCKWAVE_SPEED) * (this.slammerEnraged(e) ? 1.25 : 1);
+    for (const dir of [-1, 1]) {
+      this.spawnHazard(e.sprite.x + dir * 40, e.sprite.y, 'shockwave', dir * speed, SHOCKWAVE_LIFESPAN_MS, false).setOrigin(0.5, 1);
+    }
+    this.cameras.main.shake(180, 0.01);
   }
 
   private hitHeroWithPellet(hero: Hero, pellet: Phaser.Physics.Arcade.Sprite): void {
@@ -1066,6 +1195,9 @@ export class PlatformerRunScene extends Phaser.Scene {
     const heroBody = hero.sprite.body as Phaser.Physics.Arcade.Body;
     const enemyBody = enemy.sprite.body as Phaser.Physics.Arcade.Body;
     const isStomp = heroBody.velocity.y > 0 && heroBody.bottom <= enemyBody.top + STOMP_TOLERANCE_PX;
+    // a dizzy or retreating slammer can't hurt you by touch
+    const harmless = enemy.bossPhase === 'stunned' || enemy.bossPhase === 'recover';
+    if (harmless && !isStomp && !hero.pounding) return;
 
     if (hero.pounding) {
       this.damageEnemy(enemy, 1, hero);
@@ -1083,12 +1215,26 @@ export class PlatformerRunScene extends Phaser.Scene {
 
   private damageEnemy(enemy: PatrolEnemyState, amount = 1, by: Hero = this.heroes[0]): void {
     if (!enemy.alive) return;
+    const slammer = enemy.def.bossKind === 'slammer';
+    if (slammer && enemy.bossPhase === 'recover') return; // one hit per window
     enemy.health -= amount;
     if (enemy.health > 0) {
       // hurt but not defeated (bosses only - regular enemies default to 1 health)
       enemy.sprite.setTint(0xffffff);
       this.time.delayedCall(120, () => { if (enemy.alive) enemy.sprite.clearTint(); });
       this.registerStomp(by);
+      if (slammer) {
+        // hop clear, away from whoever hit it - but never out of its arena
+        let away = enemy.sprite.x < by.sprite.x ? -1 : 1;
+        const mid = enemy.originX + enemy.rangeX / 2;
+        if ((away < 0 && enemy.sprite.x - 150 < enemy.originX) || (away > 0 && enemy.sprite.x + 150 > enemy.originX + enemy.rangeX)) {
+          away = enemy.sprite.x < mid ? 1 : -1;
+        }
+        enemy.bossPhase = 'recover';
+        enemy.timer = 0;
+        enemy.sprite.setAngle(0);
+        (enemy.sprite.body as Phaser.Physics.Arcade.Body).setVelocity(away * 220, -520);
+      }
       return;
     }
     enemy.alive = false;

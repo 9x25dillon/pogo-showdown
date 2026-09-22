@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 
 // Uses the runner's isolated browser context, never the player's save.
-// Level order: 0 Footpeg Flats, 1 Signature Sprint, 2 Tech Park Tangle, 3 Circuit Showdown (boss), 4 Co-op Circuit.
+// Level order: 0 Footpeg Flats, 1 Signature Sprint, 2 Tech Park Tangle, 3 Circuit Showdown (boss),
+// 4 Rooftop Relay, 5 Night Circuit, 6 Summit Slam (boss 2), 7 Co-op Circuit, 8 Co-op Summit.
 export async function verifyPlatformer({ execute, evaluate, waitFor, start, scene, textExists }) {
   const s = scene('PlatformerRun');
   const p1 = `${s}.heroes[0]`;
@@ -32,7 +33,7 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
 
   // The rival must be able to finish every race level on its own at real frame rates,
   // without once falling into a pit (an idle player never gets in its way).
-  for (const index of [0, 1, 2]) {
+  for (const index of [0, 1, 2, 4, 5]) {
     await enter(index);
     await execute(`window.__game.registry.remove('lastPlatformerResult'); window.__rivalFalls = 0;`);
     const seconds = await simulate(40, `if (s.rival.y > 900 && !window.__rivalFalling) window.__rivalFalls++;
@@ -133,7 +134,7 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
     const profile = await getProfile();
     const owned = (await getCollection()).filter(p => p.defId === 'sprinter').length;
     return [profile.quest.level2.clears, again.firstClear, again.techPointsGranted, techPointsAvailable(await getLoadout()) - tpBefore,
-      owned, again.trainingEarned, isLevelUnlocked(profile, 2), isLevelUnlocked(profile, 3), isLevelUnlocked(profile, 4)];`),
+      owned, again.trainingEarned, isLevelUnlocked(profile, 2), isLevelUnlocked(profile, 3), isLevelUnlocked(profile, 7)];`),
     [2, false, 0, 0, 1, true, true, false, true]);
 
   await enter(2);
@@ -196,9 +197,56 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
   await execute(`const s = ${s}; s.damageEnemy(s.enemies.find(e => e.def.id === 'boss'));`);
   await waitFor('window.__game.scene.isActive("PlatformerResult")');
   assert.equal(await evaluate(textExists('PlatformerResult', 'BOSS DOWN')), true);
-  assert.equal(await evaluate(textExists('PlatformerResult', 'NEXT')), false); // never routes a solo player into co-op
+  assert.equal(await evaluate(textExists('PlatformerResult', 'NEXT: ROOFTOP RELAY')), true);
 
+  // Spring pads launch you (running onto one counts), and the launch ignores jump-cut.
   await enter(4);
+  await execute(`const s = ${s}; const hero = s.heroes[0]; hero.sprite.body.reset(1180, 700); hero.input.keyRight = true;`);
+  const toLaunch = await simulate(2, `return ${s}.heroes[0].sprite.body.velocity.y < -1000;`);
+  assert.ok(toLaunch < 1, `spring launch took ${toLaunch}s`);
+  assert.equal(await evaluate(`${p1}.ctrl.jumpCutApplied`), true);
+  await execute(`${p1}.input.keyRight = false;`);
+
+  // Summit Slammer: telegraph -> leap at you -> slam with two shockwaves -> dizzy stomp window.
+  await enter(6);
+  const sl = `${s}.enemies.find(e => e.def.id === 'slammer')`;
+  await waitFor(`${sl}.sprite.body.blocked.down`);
+  assert.deepEqual(await execute(`const s = ${s}; s.physics.pause(); s.shields = 0;
+    const e = ${sl}; const hero = s.heroes[0];
+    hero.sprite.setPosition(1600, 700); hero.sprite.body.updateFromGameObject();
+    e.timer = 0; s.updateSlammer(e, 16); const telegraph = e.bossPhase;
+    e.timer = 0; s.updateSlammer(e, 16);
+    const leap = [e.bossPhase, e.sprite.body.velocity.x > 0, e.sprite.body.velocity.y < -900];
+    e.sprite.body.blocked.down = true; e.timer = 400; s.updateSlammer(e, 16);
+    const waves = s.pellets.filter(p => p.active && p.texture.key === 'shockwave');
+    const slam = [e.bossPhase, waves.length, waves.some(w => w.body.velocity.x < 0) && waves.some(w => w.body.velocity.x > 0)];
+    // dizzy: touching it from the side is harmless, but its shockwave still hurts
+    const lives = s.lives; hero.invulnTimer = 0;
+    hero.sprite.setPosition(e.sprite.x + 40, e.sprite.y); hero.sprite.body.updateFromGameObject(); hero.sprite.setVelocity(0, 0);
+    s.resolveEnemyContact(hero, e); const harmless = s.lives === lives;
+    s.hitHeroWithPellet(hero, waves[0]); const waveHurts = s.lives === lives - 1;
+    // one stomp per window: the hit sends it into 'recover', where it can't be hurt again
+    hero.invulnTimer = 0; hero.sprite.setPosition(e.sprite.x, e.sprite.body.top); hero.sprite.body.updateFromGameObject(); hero.sprite.setVelocityY(200);
+    s.resolveEnemyContact(hero, e); const afterStomp = [e.health, e.bossPhase];
+    s.damageEnemy(e); const oncePerWindow = e.health === 3;
+    e.sprite.body.blocked.down = true; e.timer = 400; s.updateSlammer(e, 16); const back = e.bossPhase;
+    // enraged at half health: shorter patrol, flagged in the HUD
+    const calm = s.slammerPatrolMs(e); e.health = 2; s.updateHud();
+    const enraged = [s.slammerPatrolMs(e) < calm, s.rivalPositionText.text.includes('ENRAGED')];
+    // hit at the arena's right end with you to its left: it hops inward, never out of the arena
+    e.bossPhase = 'stunned'; e.sprite.setX(e.originX + e.rangeX - 20); hero.sprite.setX(e.sprite.x - 100);
+    s.damageEnemy(e, 1, hero); const inward = e.sprite.body.velocity.x < 0;
+    return [telegraph, ...leap, ...slam, harmless, waveHurts, ...afterStomp, oncePerWindow, back, ...enraged, inward];`),
+    ['telegraph', 'leap', true, true, 'stunned', 2, true, true, true, 3, 'recover', true, 'patrol', true, true, true]);
+  // Freeze clears shockwaves along with pellets.
+  assert.equal(await execute(`const s = ${s}; const e = ${sl}; e.bossPhase = 'stunned'; s.slam(e);
+    s.startFreeze(1000); return s.pellets.length;`), 0);
+  await execute(`const s = ${s}; const e = ${sl}; e.bossPhase = 'stunned'; s.damageEnemy(e);`);
+  await waitFor('window.__game.scene.isActive("PlatformerResult")');
+  assert.equal(await evaluate(textExists('PlatformerResult', 'BOSS DOWN')), true);
+  assert.equal(await evaluate(textExists('PlatformerResult', 'NEXT')), false); // only co-op levels remain: never routes a solo player there
+
+  await enter(7);
   assert.deepEqual(await execute(`const s = ${s}; s.physics.pause(); s.shields = 0;
     const [a, b] = s.heroes;
     s.input.keyboard.emit('keydown', { key: 'ArrowRight' });
@@ -238,5 +286,5 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
   await waitFor(textExists('PlatformerResult', 'training credit'));
   assert.equal(await execute(`const { getProfile } = await import('/src/game/db/repository.ts');
     const p = await getProfile(); return p.quest.level4.attempts === 1 && p.quest.level4.clears === 0;`), true);
-  console.log('PASS: Pog Quest rival finishes every race at 60fps, pit respawn, movement/jump, pause/resume/retry/menu, rival stomp, scene restarts, level select gating, gap reach, first-clear rewards, hopper/spiker/turret, freeze/swap/double jump/magnet/ground pound, boss phases/victory, solo progression, co-op controls/touch split/items/camera leash/respawn/lives, coin collection, gap defeat.');
+  console.log('PASS: Pog Quest rival finishes all 5 races at 60fps, springs, Summit Slammer phases/shockwaves/stun window/enrage/arena clamp, pit respawn, movement/jump, pause/resume/retry/menu, rival stomp, scene restarts, level select gating, gap reach, first-clear rewards, hopper/spiker/turret, freeze/swap/double jump/magnet/ground pound, boss phases/victory, solo progression, co-op controls/touch split/items/camera leash/respawn/lives, coin collection, gap defeat.');
 }

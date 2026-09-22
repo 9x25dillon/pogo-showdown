@@ -1,7 +1,7 @@
 /**
  * Platformer enemy type table, data-driven like characters.ts/pogs.ts.
  */
-export type PlatformerEnemyType = 'patroller' | 'flyer' | 'hopper' | 'spiker' | 'turret' | 'boss';
+export type PlatformerEnemyType = 'patroller' | 'flyer' | 'hopper' | 'spiker' | 'turret' | 'boss' | 'slammer';
 
 /**
  * walk:   patrols a ground strip
@@ -25,6 +25,8 @@ export interface PlatformerEnemyDef {
   maxHealth?: number;
   /** bosses only: horizontal speed during a charge attack */
   chargeSpeed?: number;
+  /** bosses only: which state machine drives it (default 'charger') */
+  bossKind?: 'charger' | 'slammer';
   /**
    * Stomping it hurts instead of defeating it. Only a thrown projectile
    * or a ground-pound shockwave can take it out.
@@ -87,6 +89,23 @@ export const BOSS: PlatformerEnemyDef = {
   stompReward: 40,
   maxHealth: 3,
   chargeSpeed: 340,
+  bossKind: 'charger',
+};
+
+/**
+ * Leaps at you and slams down, sending a shockwave along the ground both
+ * ways (jump it). Dizzy after each landing: that's the stomp window, and
+ * each window allows one hit before it hops clear.
+ */
+export const SLAMMER: PlatformerEnemyDef = {
+  id: 'slammer',
+  name: 'Summit Slammer',
+  textureKey: 'slammerBoss',
+  movement: 'boss',
+  contactDamage: 1,
+  stompReward: 60,
+  maxHealth: 4,
+  bossKind: 'slammer',
 };
 
 const ENEMY_DEFS: Record<PlatformerEnemyType, PlatformerEnemyDef> = {
@@ -96,6 +115,7 @@ const ENEMY_DEFS: Record<PlatformerEnemyType, PlatformerEnemyDef> = {
   spiker: SPIKER,
   turret: TURRET,
   boss: BOSS,
+  slammer: SLAMMER,
 };
 
 export function enemyDef(type: PlatformerEnemyType): PlatformerEnemyDef {

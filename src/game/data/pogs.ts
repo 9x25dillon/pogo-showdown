@@ -150,6 +150,18 @@ export const POG_CATALOG: PogDef[] = [
   { id: 'highfive', name: 'High-Five Pog', emoji: '\u{1F64C}', rarity: 'rare', color: 0x6ee7ff, droppedBy: 'quest:level4',
     blurb: 'Co-op Circuit clear. A shield burst for whoever needs it.', perks: { extraLives: 1 },
     activeEffect: { kind: 'shieldBurst', charges: 2, invulnMs: 2500 } },
+  { id: 'skyline', name: 'Skyline Pog', emoji: '\u{1F3D9}\u{FE0F}', rarity: 'rare', color: 0x818cf8, droppedBy: 'quest:level6',
+    blurb: 'Rooftop Relay finisher. Rooftop-to-rooftop double jumps.', perks: { starBonus: 6 },
+    activeEffect: { kind: 'doubleJump', charges: 2, windowMs: 6000 } },
+  { id: 'nightowl', name: 'Night Owl', emoji: '\u{1F989}', rarity: 'rare', color: 0x6366f1, droppedBy: 'quest:level7',
+    blurb: 'Night Circuit finisher. Three slam throws in the dark.', perks: { trickBonus: 6 },
+    activeEffect: { kind: 'projectile', charges: 3 } },
+  { id: 'summitcrown', name: 'Summit Crown', emoji: '\u{1F3D4}\u{FE0F}', rarity: 'legendary', color: 0xf59e0b, droppedBy: 'quest:level8',
+    blurb: 'Taken off the Summit Slammer. Slam back: three ground pounds and a spare life.', perks: { extraLives: 1, flair: 0.1 },
+    activeEffect: { kind: 'groundPound', charges: 3 } },
+  { id: 'ropeteam', name: 'Rope Team', emoji: '\u{1F9D7}', rarity: 'epic', color: 0x14b8a6, droppedBy: 'quest:level9',
+    blurb: 'Co-op Summit clear. Freeze the mountain so your partner can climb.', perks: { shieldHits: 1 },
+    activeEffect: { kind: 'freeze', charges: 2, freezeMs: 2500 } },
 ];
 
 export function pogDef(id: string): PogDef | undefined {

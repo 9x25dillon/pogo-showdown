@@ -79,6 +79,20 @@ export const BOSS_TELEGRAPH_MS = 500;
 export const BOSS_CHARGE_MS = 650;
 export const BOSS_COOLDOWN_MS = 700;
 
+/** Summit Slammer (second boss): patrol -> telegraph -> leap -> slam + shockwaves -> stunned */
+export const SLAMMER_PATROL_MS = 1800;
+export const SLAMMER_TELEGRAPH_MS = 550;
+export const SLAMMER_LEAP_VELOCITY = -950;
+export const SLAMMER_MAX_LEAP_VX = 420;
+export const SLAMMER_STUN_MS = 1500;
+/** at or below half health the patrol between slams shortens to this fraction */
+export const SLAMMER_ENRAGE_PATROL_SCALE = 0.55;
+export const SHOCKWAVE_SPEED = 260;
+export const SHOCKWAVE_LIFESPAN_MS = 2200;
+
+/** spring pads launch anything that runs or lands on them (heroes and the rival) */
+export const SPRING_VELOCITY = -1100;
+
 /** whoever loses a player<->rival stomp exchange: input zeroed, tinted, no elimination - the race continues */
 export const STOMP_STUN_MS = 900;
 

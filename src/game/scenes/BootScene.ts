@@ -24,6 +24,9 @@ export class BootScene extends Phaser.Scene {
     this.makeSpikerEnemyTexture();
     this.makeTurretEnemyTexture();
     this.makePelletTexture();
+    this.makeSlammerBossTexture();
+    this.makeShockwaveTexture();
+    this.makeSpringPadTexture();
     this.makeProjectileTexture();
     this.makeBossTexture();
     this.makeGoalFlagTexture();
@@ -246,6 +249,63 @@ export class BootScene extends Phaser.Scene {
     g.fillStyle(0xfecaca, 1);
     g.fillCircle(5, 5, 2);
     g.generateTexture('pellet', 14, 14);
+    g.destroy();
+  }
+
+  private makeSlammerBossTexture(): void {
+    const g = this.add.graphics();
+    // heavy stone golem with a gold crown - reads as "bigger than the charger"
+    g.fillStyle(0x1e1030, 1);
+    g.fillRoundedRect(2, 16, 76, 60, 14);
+    g.fillStyle(0x6d28d9, 1);
+    g.fillRoundedRect(6, 20, 68, 50, 12);
+    g.fillStyle(0x8b5cf6, 1);
+    g.fillRoundedRect(12, 24, 56, 14, 6);
+    g.fillStyle(0xf59e0b, 1);
+    g.fillTriangle(22, 18, 28, 2, 34, 18);
+    g.fillTriangle(34, 18, 40, 0, 46, 18);
+    g.fillTriangle(46, 18, 52, 2, 58, 18);
+    g.fillRect(22, 14, 36, 6);
+    g.fillStyle(0xfef3c7, 1);
+    g.fillCircle(27, 48, 6);
+    g.fillCircle(53, 48, 6);
+    g.fillStyle(0x1e1030, 1);
+    g.fillCircle(27, 48, 2.8);
+    g.fillCircle(53, 48, 2.8);
+    g.fillRect(30, 60, 20, 4);
+    g.fillStyle(0x3b0764, 1);
+    g.fillRect(8, 70, 18, 10);
+    g.fillRect(54, 70, 18, 10);
+    g.generateTexture('slammerBoss', 80, 80);
+    g.destroy();
+  }
+
+  private makeShockwaveTexture(): void {
+    const g = this.add.graphics();
+    // a cresting wave of rubble, leading edge pointing right (the scene flips
+    // leftward waves); tall and bright enough to read as "jump this"
+    g.fillStyle(0xf59e0b, 0.45);
+    g.fillEllipse(24, 26, 48, 20);
+    g.fillStyle(0xfbbf24, 1);
+    g.fillTriangle(4, 34, 40, 34, 52, 2);
+    g.fillStyle(0xfef3c7, 1);
+    g.fillTriangle(22, 34, 42, 34, 50, 12);
+    g.fillStyle(0x92400e, 1);
+    g.fillRect(8, 30, 6, 4);
+    g.fillRect(28, 28, 5, 6);
+    g.generateTexture('shockwave', 56, 34);
+    g.destroy();
+  }
+
+  private makeSpringPadTexture(): void {
+    const g = this.add.graphics();
+    g.fillStyle(0x475569, 1);
+    g.fillRoundedRect(4, 14, 36, 6, 2);
+    g.lineStyle(3, 0xcbd5e1, 1);
+    for (let i = 0; i < 3; i++) g.lineBetween(10, 13 - i * 3.5, 34, 11 - i * 3.5);
+    g.fillStyle(0xef4444, 1);
+    g.fillRoundedRect(2, 0, 40, 6, 3);
+    g.generateTexture('springPad', 44, 20);
     g.destroy();
   }
 

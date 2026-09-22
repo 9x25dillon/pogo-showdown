@@ -47,25 +47,25 @@ export class PlatformerLevelSelectScene extends Phaser.Scene {
     const profile = await getProfile();
     if (!this.scene.isActive()) return;
 
-    const rowH = 108;
+    const rowH = 70;
     LEVELS.forEach((level, i) => {
-      const y = 170 + i * rowH;
+      const y = 136 + i * rowH;
       const unlocked = isLevelUnlocked(profile, i);
       const progress = questProgressFor(profile, level.id);
       const tag = levelTag(level);
       const cleared = progress.clears > 0;
 
       const bg = this.add
-        .rectangle(WIDTH / 2, y, 420, rowH - 14, tag.color, unlocked ? 0.14 : 0.05)
+        .rectangle(WIDTH / 2, y, 420, rowH - 8, tag.color, unlocked ? 0.14 : 0.05)
         .setStrokeStyle(2, tag.color, unlocked ? 0.8 : 0.25);
 
       this.add
-        .text(46, y - 26, `${i + 1}. ${level.name}`, { fontSize: '18px', fontFamily: FONT, fontStyle: 'bold', color: unlocked ? '#ffffff' : '#6b6180' })
+        .text(44, y - 12, `${i + 1}. ${level.name}`, { fontSize: '16px', fontFamily: FONT, fontStyle: 'bold', color: unlocked ? '#ffffff' : '#6b6180' })
         .setOrigin(0, 0.5);
       this.add
-        .text(WIDTH - 46, y - 26, tag.label, {
-          fontSize: '11px', fontFamily: FONT, fontStyle: 'bold', color: '#0b0714',
-          backgroundColor: `#${tag.color.toString(16).padStart(6, '0')}`, padding: { x: 6, y: 3 },
+        .text(WIDTH - 44, y - 12, tag.label, {
+          fontSize: '10px', fontFamily: FONT, fontStyle: 'bold', color: '#0b0714',
+          backgroundColor: `#${tag.color.toString(16).padStart(6, '0')}`, padding: { x: 5, y: 2 },
         })
         .setOrigin(1, 0.5)
         .setAlpha(unlocked ? 1 : 0.4);
@@ -75,14 +75,10 @@ export class PlatformerLevelSelectScene extends Phaser.Scene {
       if (!unlocked) status = '🔒 clear the previous level to unlock';
       else if (cleared) status = `✓ cleared ×${progress.clears}${progress.bestTimeSeconds !== null ? ` · best ${progress.bestTimeSeconds.toFixed(1)}s` : ''} · 🪙 ${progress.bestCoins}`;
       else status = reward ? `reward: ${reward.emoji} ${reward.name}` : 'not cleared yet';
+      if (level.coop && unlocked && !cleared) status += ' · 2 players';
       this.add
-        .text(46, y + 4, status, { fontSize: '12px', fontFamily: FONT, color: cleared ? '#4ade80' : '#b7aed0' })
+        .text(44, y + 13, status, { fontSize: '11px', fontFamily: FONT, color: cleared ? '#4ade80' : '#b7aed0' })
         .setOrigin(0, 0.5);
-      if (level.coop && unlocked) {
-        this.add
-          .text(46, y + 26, 'two players: split the touch controls or share a keyboard', { fontSize: '11px', fontFamily: FONT, color: '#6b6180' })
-          .setOrigin(0, 0.5);
-      }
 
       if (unlocked) {
         bg.setInteractive({ useHandCursor: true });
