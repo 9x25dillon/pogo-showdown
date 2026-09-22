@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { music } from '../systems/music';
 import { CHARACTERS } from '../data/characters';
 import { COLORS, HEIGHT, WIDTH } from '../config';
 import { leaderboardService } from '../systems/LeaderboardService';
@@ -9,6 +10,7 @@ export class LeaderboardScene extends Phaser.Scene {
   }
 
   create(): void {
+    music.play('menu');
     this.cameras.main.setBackgroundColor(COLORS.bg);
 
     this.add

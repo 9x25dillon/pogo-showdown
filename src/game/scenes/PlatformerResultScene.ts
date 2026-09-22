@@ -7,6 +7,7 @@ import type { PlatformerResult } from '../db/platformerResult';
 import { recordQuestRun, type QuestRunReward } from '../db/questRepository';
 import { masterySummary } from '../systems/characterMastery';
 import { attachPadMenu } from '../ui/padMenu';
+import { music } from '../systems/music';
 
 const FONT = 'system-ui, sans-serif';
 
@@ -39,6 +40,7 @@ export class PlatformerResultScene extends Phaser.Scene {
     const character = CHARACTERS.find((c) => c.id === result.characterId) ?? CHARACTERS[0];
     const level = LEVELS[result.levelIndex] ?? LEVELS[0];
     const won = result.raceOutcome === 'playerWon';
+    music.play(won ? 'win' : 'loss');
     const copy =
       won && level.bossLevel
         ? { title: 'BOSS DOWN!', color: '#4ade80', sub: level.coop ? 'teamwork makes the dream work' : 'the champion falls' }

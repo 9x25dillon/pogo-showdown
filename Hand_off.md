@@ -1,5 +1,48 @@
 # Pogo Showdown — next-session handoff
 
+## September 21 (night): Forever Realm + soundtrack — branch `feat/forever-realm`
+
+The user played the Pog Quest build, said it "feels a little one dimensional", and asked for an open world mixing **Terraria** and **Chakan the Forever Man**, plus their own soundtrack (`music/`). Their choices, in their answers:
+- A **new mode** alongside Pog Quest, not a replacement.
+- **Dig + build + fight** (procedural, diggable, crafting).
+- **Landscape** for this mode.
+- The **suggested music mapping**, applied to the whole game.
+
+Branch history: `feat/pog-quest-expansion` and `feat/pog-quest-powerups` were fast-forwarded together. `feat/forever-realm` starts from the power-ups commit `3d6f178`. Nothing is merged to `master`.
+
+**Soundtrack** (`systems/music.ts`):
+- Scenes ask for a cue, not a file: `menu` score · `explore` 110 points + 50 points (a playlist) · `danger` chaose mode max · `win` woned · `loss` Loss.
+- Tracks stream through `<audio>` rather than Phaser's Web Audio loader, which would fully decode ~4-minute songs at ~100MB of memory each.
+- Browsers block audio until the first gesture; play() retries on it. **M** or the 🔊 on the main menu mutes, and the choice is remembered.
+- Shipped copies are 128 kbps MP3s in `public/music/` (25MB). The user's originals, including the ~90MB WAVs, stay in `music/`, which is git-ignored with an anchored `/music/` (a bare `music/` would also hide `public/music/`).
+- Cue map: menus → menu; Pogo Dash, Trick Lab and Pog Quest levels → explore; Pog Quest bosses and Pog Battles → danger; results → win/loss; Pogo Dash game over → loss; realm → explore by day or underground, danger at night on the surface, loss while dead.
+
+**Forever Realm, Phase 1** (`scenes/RealmScene.ts`, `realm/*`):
+- **World:** `generateWorld(seed)` is pure. 640×200 tiles of 16px: hills, a dirt band over stone, caverns plus winding tunnels, copper shallow, iron mid (32+ deep), soulstone deep (70+), trees, Nightbloom herbs, bedrock. A save stores only the seed plus `[index, tile]` edits (IndexedDB store `realm`, DB version 4).
+- **Rendering:** one Phaser tilemap layer, collision via `setCollision(SOLID_TILES)`, and a dark backdrop wall below the original surface.
+- **Landscape:** `scale.setGameSize(960, 540)` on create, and back to 480×854 on SHUTDOWN. The pause scene now lays out from the live size and takes a `target`; for the realm it shows RESUME / NEW WORLD (press twice) / SAVE & QUIT.
+- **Play:**
+  - Mining is timed by `TileInfo.hardness` ÷ pickaxe speed, and ore is gated by `minPick`. Felling a trunk takes the whole tree.
+  - Placing a block needs a neighbor and can't overlap bodies.
+  - The sword is always on attack, in 4 tiers.
+  - Crafting has 7 recipes (torches, a healing draught, copper/iron tools, the Soul Reaver).
+  - HP regenerates after 4s without a hit. Death shows "YOU FELL", then you respawn at spawn and keep your inventory.
+- **Creatures:** slime (hops), bone crawler (underground, jumps walls), wraith (night/deep, drifts through rock). They spawn off-screen by depth and time of day and despawn when far away.
+- **Day/night:** a 6-minute cycle.
+- **Lighting:** a screen-space RenderTexture filled dark, then erased by the player's light, torches, faint soulstone glow, and a per-column skylight Graphics above the terrain line.
+  - Phaser 4 gotchas: `rt.render()` is required, and `erase()` has no alpha argument; set the eraser object's alpha instead.
+- **Controls:** controller (stick, A, X sword, RT use, right stick aim at full reach, LB/RB tools, B potion, Y craft, Menu pause), keyboard (A/D, W/Space, J, K, arrows, 1-6, Q, E, Esc), mouse (aim, hold left, right-click sword, wheel), and touch buttons on non-desktop devices.
+- **Bug fixed during testing:** Phaser re-passes a scene's previous start data on `start()`/`restart()` with no data, so after one "New World" every later visit made another new world. `RealmScene.create` now clears `sys.settings.data`.
+- **Tests:** `tests/realm-regression.mjs`, run from `npm run test:browser`.
+
+**Phase 2 (not started; proposed):**
+- Chakan-style portal realms (elemental worlds entered from the surface, each with a boss).
+- Fuller alchemy: potions of strength, speed, fire resistance.
+- Beds or spawn points, chests and storage, background-wall placement, per-tile flood-fill lighting, a minimap.
+- A more Chakan-like hero sprite; the pogo hero stands in for now.
+
+**Android:** the Capacitor shell is portrait-locked, so the realm letterboxes on phones. Unlocking orientation just for this mode needs a screen-orientation plugin; not done.
+
 ## September 21 (later): Pog Quest expansion — branch `feat/pog-quest-expansion`
 
 Pog Quest itself is merged to `master` (`e56e49b`); this branch adds the four follow-ups the user asked for at once. Not merged, not released.

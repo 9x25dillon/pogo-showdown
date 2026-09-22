@@ -33,6 +33,8 @@ export interface PadFrame {
   held: PadButtons;
   /** true only on the frame the button went down */
   pressed: PadButtons;
+  /** raw stick axes, -1..1 (right stick aims in the Forever Realm) */
+  sticks: { lx: number; ly: number; rx: number; ry: number };
 }
 
 const STICK_DEADZONE = 0.4;
@@ -97,7 +99,13 @@ export function readPads(time: number): PadFrame[] {
     const pressed = emptyButtons();
     for (const k of KEYS) pressed[k] = held[k] && !prev[k];
     prevHeld.set(pad.index, held);
-    frames.push({ index: pad.index, id: pad.id, held, pressed });
+    frames.push({
+      index: pad.index,
+      id: pad.id,
+      held,
+      pressed,
+      sticks: { lx: pad.axes[0] ?? 0, ly: pad.axes[1] ?? 0, rx: pad.axes[2] ?? 0, ry: pad.axes[3] ?? 0 },
+    });
   }
   for (const index of [...prevHeld.keys()]) if (!seen.has(index)) prevHeld.delete(index);
   cached = frames;

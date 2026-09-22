@@ -3,6 +3,7 @@ import type { PlayerProfile } from '../db/schema';
 import { characterLevel } from '../db/loadoutRepository';
 import { masterySummary, progressFor } from '../systems/characterMastery';
 import Phaser from 'phaser';
+import { music } from '../systems/music';
 import { equippedPerks } from '../db/pogRepository';
 import { CHARACTERS } from '../data/characters';
 import { COLORS, HEIGHT, REGISTRY_KEY_CHARACTER, REGISTRY_KEY_PERKS, WIDTH } from '../config';
@@ -24,6 +25,7 @@ export class CharacterSelectScene extends Phaser.Scene {
   }
 
   create(): void {
+    music.play('menu');
     this.cameras.main.setBackgroundColor(COLORS.bg);
     this.cardTexts = [];
     this.cards = [];

@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { music } from '../systems/music';
 import { COLORS, HEIGHT, WIDTH } from '../config';
 import { POG_CATALOG, RARITY_COLOR, RARITY_LABEL, RARITY_WEIGHT, describeActive, describePerks, pogDef } from '../data/pogs';
 import { ensureStarterPog, equippedPerks, footpegCapacity, toggleEquip, weightOf } from '../db/pogRepository';
@@ -21,6 +22,7 @@ export class PogBinderScene extends Phaser.Scene {
   }
 
   create(data: { page?: number } = {}): void {
+    music.play('menu');
     this.page = data.page ?? 0;
     this.equipping = false;
     this.toast = undefined;

@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { music } from '../systems/music';
 import { EMPTY_PERKS, type PogPerks } from '../data/pogs';
 import { CHARACTERS, type Character } from '../data/characters';
 import {
@@ -86,6 +87,7 @@ export class RunScene extends Phaser.Scene {
   }
 
   create(): void {
+    music.play('explore');
     const charId = this.registry.get(REGISTRY_KEY_CHARACTER) as string | undefined;
     this.character = CHARACTERS.find((c) => c.id === charId) ?? CHARACTERS[0];
 

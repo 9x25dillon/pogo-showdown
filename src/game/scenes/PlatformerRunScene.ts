@@ -91,6 +91,7 @@ import {
 } from '../systems/PlayerController';
 import { createRivalAIState, computeRivalInput, resyncRivalAI, type RivalAIState } from '../systems/rivalAI';
 import { mountTuningPanel } from '../systems/tuningPanel';
+import { music } from '../systems/music';
 import { mergePads, readPads, rumble } from '../systems/gamepad';
 import { equippedLoadout, equippedPerks } from '../db/pogRepository';
 import type { PogActiveEffect, PogDef } from '../data/pogs';
@@ -284,6 +285,7 @@ export class PlatformerRunScene extends Phaser.Scene {
     this.levelIndex = Phaser.Math.Clamp(Number(this.registry.get(REGISTRY_KEY_PLATFORMER_LEVEL_INDEX) ?? 0), 0, LEVELS.length - 1);
     this.level = LEVELS[this.levelIndex];
     this.coopMode = !!this.level.coop;
+    music.play(this.level.bossLevel ? 'danger' : 'explore');
 
     // reset run state (scene instance is reused between attempts)
     this.heroes = [];

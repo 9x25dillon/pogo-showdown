@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { music } from '../systems/music';
 import { COLORS, HEIGHT, REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, WIDTH } from '../config';
 import { LEVELS, type LevelDef } from '../data/levels';
 import { pogDef } from '../data/pogs';
@@ -26,6 +27,7 @@ export class PlatformerLevelSelectScene extends Phaser.Scene {
   }
 
   create(data: { tab?: Tab } = {}): void {
+    music.play('menu');
     this.tab = data.tab ?? 'solo';
     this.cameras.main.setBackgroundColor(COLORS.bg);
     this.add

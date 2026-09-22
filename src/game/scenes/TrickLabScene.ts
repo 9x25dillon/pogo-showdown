@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { music } from '../systems/music';
 import { COLORS, HEIGHT, WIDTH } from '../config';
 import { INPUT_GLYPH, TRICKS, lengthsForProgress, windowPerInput, type TrickDef, type TrickInput } from '../data/tricks';
 import { recordTrickLabSession } from '../db/repository';
@@ -60,6 +61,7 @@ export class TrickLabScene extends Phaser.Scene {
   }
 
   create(): void {
+    music.play('explore');
     this.score = 0;
     this.combo = 0;
     this.bestCombo = 0;

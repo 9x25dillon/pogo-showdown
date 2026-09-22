@@ -27,3 +27,4 @@ dist-ssr
 android/keystore.properties
 *.jks
 *.keystore
+/music/

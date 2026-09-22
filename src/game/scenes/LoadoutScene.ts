@@ -2,6 +2,7 @@ import { CHARACTERS } from '../data/characters';
 import { masteryTier, masterySummary, progressFor } from '../systems/characterMastery';
 import type { CharacterProgress } from '../systems/characterMastery';
 import Phaser from 'phaser';
+import { music } from '../systems/music';
 import { COLORS, HEIGHT, REGISTRY_KEY_CHARACTER, WIDTH } from '../config';
 import {
   MASTERY_TIERS,
@@ -39,6 +40,7 @@ export class LoadoutScene extends Phaser.Scene {
   }
 
   create(): void {
+    music.play('menu');
     this.cameras.main.setBackgroundColor(COLORS.bg);
 
     this.add

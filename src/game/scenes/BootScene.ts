@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import { COLORS } from '../config';
+import { TILE_INFO, T } from '../realm/tiles';
+import { TILE } from '../realm/worldGen';
 
 /**
  * No art assets in the MVP - every texture is drawn procedurally with
@@ -35,6 +37,7 @@ export class BootScene extends Phaser.Scene {
     this.makeBoltTexture();
     this.makePowerupTextures();
     this.makeSpikeTileTexture();
+    this.makeRealmTextures();
     this.makeProjectileTexture();
     this.makeBossTexture();
     this.makeGoalFlagTexture();
@@ -472,6 +475,107 @@ export class BootScene extends Phaser.Scene {
       g.fillStyle(0xe0f2fe, 1);
       g.fillRect(17, 10, 2, 16);
     });
+  }
+
+  /** Forever Realm: tileset (frame n = tile id n), creatures, sword, and the light brush */
+  private makeRealmTextures(): void {
+    const ids = Object.keys(TILE_INFO).map(Number);
+    const count = Math.max(...ids) + 1;
+    const tiles = this.textures.createCanvas('realmTiles', count * TILE, TILE);
+    const ctx = tiles?.getContext();
+    if (tiles && ctx) {
+      const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
+      let seed = 7;
+      const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+      for (const id of ids) {
+        const [base, hi] = TILE_INFO[id].color;
+        const ox = id * TILE;
+        const speckle = (color: string, n: number, size = 2) => {
+          ctx.fillStyle = color;
+          for (let i = 0; i < n; i++) ctx.fillRect(ox + Math.floor(rand() * (TILE - size)), Math.floor(rand() * (TILE - size)), size, size);
+        };
+        switch (id) {
+          case T.TRUNK:
+            ctx.fillStyle = hex(base); ctx.fillRect(ox + 4, 0, 8, TILE);
+            ctx.fillStyle = hex(hi); ctx.fillRect(ox + 6, 0, 2, TILE);
+            break;
+          case T.LEAVES:
+            // full-bleed so neighboring leaf tiles read as one canopy
+            ctx.fillStyle = hex(base); ctx.fillRect(ox, 0, TILE, TILE);
+            speckle(hex(hi), 12, 3);
+            speckle('#0b3b20', 5, 2);
+            break;
+          case T.TORCH:
+            ctx.fillStyle = '#7c5230'; ctx.fillRect(ox + 7, 6, 2, 10);
+            ctx.fillStyle = hex(hi); ctx.fillRect(ox + 6, 2, 4, 5);
+            ctx.fillStyle = '#fff7c2'; ctx.fillRect(ox + 7, 3, 2, 3);
+            break;
+          case T.HERB:
+            ctx.fillStyle = '#166534'; ctx.fillRect(ox + 7, 8, 2, 8);
+            ctx.fillStyle = hex(hi); ctx.fillRect(ox + 5, 4, 6, 5);
+            ctx.fillStyle = '#f5f3ff'; ctx.fillRect(ox + 7, 5, 2, 2);
+            break;
+          case T.GRASS:
+            ctx.fillStyle = hex(base); ctx.fillRect(ox, 0, TILE, TILE);
+            speckle('#6f4e35', 6);
+            ctx.fillStyle = hex(hi); ctx.fillRect(ox, 0, TILE, 4);
+            ctx.fillStyle = '#22c55e'; ctx.fillRect(ox, 4, TILE, 1);
+            break;
+          case T.WOOD:
+            ctx.fillStyle = hex(base); ctx.fillRect(ox, 0, TILE, TILE);
+            ctx.fillStyle = hex(hi); ctx.fillRect(ox, 0, TILE, 1); ctx.fillRect(ox, 8, TILE, 1);
+            ctx.fillStyle = '#4a2f18'; ctx.fillRect(ox + 5, 1, 1, 7); ctx.fillRect(ox + 11, 9, 1, 7);
+            break;
+          default:
+            ctx.fillStyle = hex(base); ctx.fillRect(ox, 0, TILE, TILE);
+            speckle(hex(hi), id === T.STONE || id === T.DIRT || id === T.BEDROCK ? 7 : 5, id === T.COPPER || id === T.IRON || id === T.SOULSTONE ? 4 : 2);
+            ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(ox, TILE - 1, TILE, 1); ctx.fillRect(ox + TILE - 1, 0, 1, TILE);
+        }
+      }
+      tiles.refresh();
+    }
+
+    let g = this.add.graphics();
+    g.fillStyle(0x4c1d95, 0.9); g.fillEllipse(14, 13, 28, 18);
+    g.fillStyle(0x7c3aed, 1); g.fillEllipse(11, 9, 12, 6);
+    g.fillStyle(0xfde047, 1); g.fillCircle(9, 12, 2.4); g.fillCircle(19, 12, 2.4);
+    g.generateTexture('realm_slime', 28, 22);
+    g.destroy();
+
+    g = this.add.graphics();
+    g.fillStyle(0xe7e5e4, 1); g.fillCircle(13, 8, 7);
+    g.fillStyle(0x1c1917, 1); g.fillCircle(10, 8, 2); g.fillCircle(16, 8, 2); g.fillRect(10, 12, 6, 2);
+    g.fillStyle(0xd6d3d1, 1); g.fillRect(11, 15, 4, 10);
+    for (const y of [16, 19, 22]) g.fillRect(6, y, 14, 2);
+    g.fillRect(8, 25, 3, 9); g.fillRect(15, 25, 3, 9);
+    g.generateTexture('realm_crawler', 26, 34);
+    g.destroy();
+
+    g = this.add.graphics();
+    g.fillStyle(0x5eead4, 0.55); g.fillCircle(15, 12, 11); g.fillRect(4, 12, 22, 14);
+    for (const x of [4, 11, 18]) g.fillTriangle(x, 26, x + 8, 26, x + 4, 34);
+    g.fillStyle(0x042f2e, 1); g.fillEllipse(11, 12, 4, 7); g.fillEllipse(19, 12, 4, 7);
+    g.generateTexture('realm_wraith', 30, 34);
+    g.destroy();
+
+    g = this.add.graphics();
+    g.fillStyle(0xcbd5e1, 1); g.fillTriangle(6, 0, 10, 0, 8, 28);
+    g.fillRect(6, 0, 4, 24);
+    g.fillStyle(0x78350f, 1); g.fillRect(1, 24, 14, 3); g.fillRect(6, 27, 4, 7);
+    g.generateTexture('realm_sword', 16, 34);
+    g.destroy();
+
+    const brush = this.textures.createCanvas('lightBrush', 256, 256);
+    const bctx = brush?.getContext();
+    if (brush && bctx) {
+      const grad = bctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+      grad.addColorStop(0, 'rgba(255,255,255,1)');
+      grad.addColorStop(0.55, 'rgba(255,255,255,0.75)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      bctx.fillStyle = grad;
+      bctx.fillRect(0, 0, 256, 256);
+      brush.refresh();
+    }
   }
 
   private makeSpikeTileTexture(): void {

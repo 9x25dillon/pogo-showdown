@@ -1,7 +1,7 @@
 const DB_NAME = 'pogo-showdown';
-const DB_VERSION = 3; // 3: added pogs + battleLog
+const DB_VERSION = 4; // 3: added pogs + battleLog; 4: added realm (Forever Realm world saves)
 
-export const STORES = ['profile', 'standings', 'matchLog', 'season', 'loadout', 'pogs', 'battleLog'] as const;
+export const STORES = ['profile', 'standings', 'matchLog', 'season', 'loadout', 'pogs', 'battleLog', 'realm'] as const;
 export type StoreName = (typeof STORES)[number];
 
 type Row = { id: string };

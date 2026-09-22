@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { music } from '../systems/music';
 import { COLORS, HEIGHT, WIDTH } from '../config';
 import { ensureSeasonSimulated, getProfile } from '../db/repository';
 import { TIERS } from '../db/schema';
@@ -28,6 +29,7 @@ export class ModeSelectScene extends Phaser.Scene {
   }
 
   create(): void {
+    music.play('menu');
     this.cameras.main.setBackgroundColor(COLORS.bg);
     this.modeButtons = [];
     this.questButton = undefined;
@@ -59,7 +61,7 @@ export class ModeSelectScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.makeModeButton({
-      y: 214,
+      y: 188,
       label: '\u{1F91A}  Pogo Dash',
       sublabel: 'endless dodge & trick run',
       color: 0xf9d64b,
@@ -68,7 +70,7 @@ export class ModeSelectScene extends Phaser.Scene {
     });
 
     this.makeModeButton({
-      y: 300,
+      y: 262,
       label: '\u{1F3C6}  The Circuit',
       sublabel: 'loading…',
       color: 0xef4444,
@@ -77,7 +79,7 @@ export class ModeSelectScene extends Phaser.Scene {
     });
 
     this.makeModeButton({
-      y: 386,
+      y: 336,
       label: '\u{1F94F}  Pog Battles',
       sublabel: 'best-of-3 slams · win their signature pog',
       color: 0x8b5cf6,
@@ -86,7 +88,7 @@ export class ModeSelectScene extends Phaser.Scene {
     });
 
     this.makeModeButton({
-      y: 472,
+      y: 410,
       label: '\u{1FA80} Yoyo Trick Lab',
       sublabel: 'freestyle combos · 60s · swipe the pattern',
       color: 0x14b8a6,
@@ -95,7 +97,7 @@ export class ModeSelectScene extends Phaser.Scene {
     });
 
     this.makeModeButton({
-      y: 558,
+      y: 484,
       label: '\u{1F4CB}  Leaderboard',
       sublabel: 'top pogo dashers',
       color: 0x22c55e,
@@ -104,7 +106,7 @@ export class ModeSelectScene extends Phaser.Scene {
     });
 
     this.makeModeButton({
-      y: 644,
+      y: 558,
       label: '\u{1F392}  Pog Binder',
       sublabel: 'your collection · equip onto the footpeg',
       color: 0xf97316,
@@ -113,12 +115,21 @@ export class ModeSelectScene extends Phaser.Scene {
     });
 
     this.makeModeButton({
-      y: 730,
+      y: 632,
       label: '\u{1F3C1}  Pog Quest',
       sublabel: 'race · fight · boss · 2P co-op',
       color: 0x38bdf8,
       enabled: true,
       onTap: () => this.scene.start('PlatformerLevelSelect', { tab: 'solo' }),
+    });
+
+    this.makeModeButton({
+      y: 706,
+      label: '\u{2694}\u{FE0F}  Forever Realm',
+      sublabel: 'open world · dig, build, craft · survive the night',
+      color: 0xe11d48,
+      enabled: true,
+      onTap: () => this.scene.start('Realm', { newWorld: false }),
     });
 
     // controller users almost always want Pog Quest (the only pad-playable mode), so start focused there
@@ -131,6 +142,12 @@ export class ModeSelectScene extends Phaser.Scene {
         color: '#6b6180',
       })
       .setOrigin(0.5);
+
+    const muteToggle = this.add
+      .text(WIDTH - 22, 22, music.muted ? '🔇' : '🔊', { fontSize: '22px' })
+      .setOrigin(1, 0)
+      .setInteractive({ useHandCursor: true });
+    muteToggle.on('pointerdown', () => muteToggle.setText(music.toggleMute() ? '🔇' : '🔊'));
 
     void this.loadRankInfo();
   }
@@ -165,7 +182,7 @@ export class ModeSelectScene extends Phaser.Scene {
 
   private makeModeButton(opts: ModeButtonOpts): void {
     const w = 340;
-    const h = 74;
+    const h = 66;
     const x = WIDTH / 2;
     const alpha = opts.enabled ? 1 : 0.45;
 
