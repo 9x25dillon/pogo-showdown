@@ -69,6 +69,8 @@ export interface LevelDef {
   rivalWaypoints?: RivalWaypoint[];
   goalX?: number;
   goalY?: number;
+  /** pog granted on the first clear (see questRepository.recordQuestRun) */
+  rewardPogId?: string;
 }
 
 function ground(x: number, width: number): GroundSegment {
@@ -102,11 +104,15 @@ export const LEVEL_1: LevelDef = {
     ground(0, 700), // start area
     ground(830, 570), // 700-830 is gap 1 (130px)
     ground(1560, 640), // 1400-1560 is gap 2 (160px), spanned by a stepping-stone platform
-    ground(2400, 800), // 2200-2400 is a raised-ledge section, not a pit
+    ground(2400, 800), // 2200-2400 is a pit, spanned by a low stepping stone
   ],
   platforms: [
     platform(1480, GY - 110, 90), // stepping stone across gap 2
-    platform(2220, GY - 130, 160), // raised ledge over ground C -> D transition
+    // Stepping stone across the C -> D pit. Set 50px past the ledge and only
+    // 60px up so a jump from the edge clears its corner - a higher stone
+    // flush with the ledge sits right above a standing player's head and
+    // bonks every jump.
+    platform(2250, GY - 60, 110),
   ],
   movingPlatforms: [movingPlatform(1000, GY - 90, 90, 220, 60)],
   enemies: [
@@ -129,12 +135,13 @@ export const LEVEL_1: LevelDef = {
     { x: 1400, jump: true }, // hop the stepping stone across gap 2
     { x: 1560, jump: true },
     { x: 1900, jump: false },
-    { x: 2200, jump: true }, // up onto the raised ledge
+    { x: 2200, jump: true }, // across the pit via the stepping stone
     { x: 2400, jump: false },
     { x: 3100, jump: false },
   ],
   goalX: 3100,
   goalY: GY,
+  rewardPogId: 'flagpole',
 };
 
 export const LEVEL_2: LevelDef = {
@@ -182,6 +189,7 @@ export const LEVEL_2: LevelDef = {
   ],
   goalX: 3300,
   goalY: GY,
+  rewardPogId: 'sprinter',
 };
 
 export const LEVEL_3: LevelDef = {
@@ -205,6 +213,7 @@ export const LEVEL_3: LevelDef = {
     ...coinRow(700, GY - 80, 3, 50),
   ],
   playerStart: { x: 60, y: GY },
+  rewardPogId: 'champbelt',
 };
 
 export const LEVEL_4: LevelDef = {
@@ -231,6 +240,96 @@ export const LEVEL_4: LevelDef = {
   ],
   playerStart: { x: 60, y: GY },
   player2Start: { x: 150, y: GY },
+  rewardPogId: 'highfive',
 };
 
-export const LEVELS: LevelDef[] = [LEVEL_1, LEVEL_2, LEVEL_3, LEVEL_4];
+/**
+ * Third race level: introduces hoppers, a spiker you can't stomp (go
+ * over it via the platform, or blast it with an item), and pellet
+ * turrets. Id is `level5` because ids are save keys - it was authored
+ * after the boss and co-op levels but plays before them.
+ */
+export const LEVEL_5: LevelDef = {
+  id: 'level5',
+  name: 'Tech Park Tangle',
+  widthPx: 3800,
+  groundY: GY,
+  ground: [
+    ground(0, 600), // start area
+    ground(720, 520), // 600-720 is gap 1 (120px)
+    ground(1360, 700), // 1240-1360 is gap 2 (120px)
+    ground(2190, 800), // 2060-2190 is gap 3 (130px)
+    ground(3110, 690), // 2990-3110 is gap 4 (120px)
+  ],
+  platforms: [
+    platform(960, GY - 130, 140), // route over the spiker
+    platform(1560, GY - 120, 100),
+    platform(1720, GY - 220, 100), // coin perch above the turret lane
+  ],
+  movingPlatforms: [movingPlatform(2440, GY - 150, 90, 180, 55)],
+  enemies: [
+    enemySpawn('hopper', 380, GY, 160),
+    enemySpawn('spiker', 900, GY, 220),
+    enemySpawn('hopper', 1450, GY, 220),
+    enemySpawn('turret', 1950, GY, 0),
+    enemySpawn('flyer', 2400, GY - 170, 220),
+    enemySpawn('spiker', 2600, GY, 160),
+    enemySpawn('hopper', 2800, GY, 150),
+    enemySpawn('turret', 3420, GY, 0),
+  ],
+  coins: [
+    ...coinRow(120, GY - 80, 4, 50),
+    ...coinRow(620, GY - 170, 3, 40), // arc over gap 1
+    ...coinRow(990, GY - 180, 3, 40), // on the spiker route
+    ...coinRow(1735, GY - 270, 2, 40),
+    ...coinRow(2460, GY - 200, 3, 40), // ride the moving platform
+    ...coinRow(3160, GY - 80, 4, 50),
+  ],
+  playerStart: { x: 60, y: GY },
+  rivalStart: { x: 20, y: GY },
+  rivalWaypoints: [
+    { x: 600, jump: true }, // clear gap 1
+    { x: 800, jump: false },
+    { x: 1240, jump: true }, // clear gap 2
+    { x: 1400, jump: false },
+    { x: 2060, jump: true }, // clear gap 3
+    { x: 2250, jump: false },
+    { x: 2990, jump: true }, // clear gap 4
+    { x: 3150, jump: false },
+    { x: 3700, jump: false },
+  ],
+  goalX: 3700,
+  goalY: GY,
+  rewardPogId: 'gearwheel',
+};
+
+/** play order; ids (not indexes) are what saves key off */
+export const LEVELS: LevelDef[] = [LEVEL_1, LEVEL_2, LEVEL_5, LEVEL_3, LEVEL_4];
+
+/**
+ * Widest pit between ground segments that no reachable platform spans -
+ * these must stay within jumpReach() or the level is unwinnable. A
+ * platform only counts as a bridge if its top is low enough to land on
+ * from the ground (`maxClimbPx`, i.e. a bit under the jump's peak).
+ */
+export function largestUnbridgedGap(level: LevelDef, maxClimbPx = Infinity): number {
+  const segs = [...level.ground].sort((a, b) => a.x - b.x);
+  const bridges = [...level.platforms, ...level.movingPlatforms.map((m) => ({ ...m, width: m.width + m.rangeX }))]
+    .filter((b) => level.groundY - b.y <= maxClimbPx);
+  let widest = 0;
+  for (let i = 0; i + 1 < segs.length; i++) {
+    const left = segs[i].x + segs[i].width;
+    const right = segs[i + 1].x;
+    const bridged = bridges.some((b) => b.x < right && b.x + b.width > left);
+    if (!bridged) widest = Math.max(widest, right - left);
+  }
+  return widest;
+}
+
+/** solo players never get routed into a co-op level */
+export function nextSoloLevelIndex(fromIndex: number): number | undefined {
+  for (let i = fromIndex + 1; i < LEVELS.length; i++) {
+    if (!LEVELS[i].coop) return i;
+  }
+  return undefined;
+}

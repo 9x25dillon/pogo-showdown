@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { COLORS, HEIGHT, WIDTH } from '../config';
-import { POG_CATALOG, RARITY_COLOR, RARITY_LABEL, RARITY_WEIGHT, describePerks, pogDef } from '../data/pogs';
+import { POG_CATALOG, RARITY_COLOR, RARITY_LABEL, RARITY_WEIGHT, describeActive, describePerks, pogDef } from '../data/pogs';
 import { ensureStarterPog, equippedPerks, footpegCapacity, toggleEquip, weightOf } from '../db/pogRepository';
 import { addPageControls } from '../ui/pageControls';
 import type { PogInstance } from '../db/pogSchema';
@@ -100,7 +100,7 @@ export class PogBinderScene extends Phaser.Scene {
     });
 
     this.add
-      .text(WIDTH / 2, HEIGHT - 66, 'tap a pog to equip / unequip · win more in Pog Battles', {
+      .text(WIDTH / 2, HEIGHT - 66, 'tap a pog to equip / unequip · win more in Pog Battles & Pog Quest', {
         fontSize: '12px',
         fontFamily: FONT,
         color: '#6b6180',
@@ -134,7 +134,7 @@ export class PogBinderScene extends Phaser.Scene {
       .setOrigin(0.5, 0);
 
     this.add
-      .text(x, y + 46, describePerks(def.perks).join(', '), {
+      .text(x, y + 46, [describePerks(def.perks).join(', '), def.activeEffect ? describeActive(def.activeEffect) : ''].filter(Boolean).join('\n'), {
         fontSize: '10px',
         fontFamily: FONT,
         color: '#b7aed0',

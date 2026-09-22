@@ -1,8 +1,11 @@
 import Phaser from 'phaser';
 import { CHARACTERS } from '../data/characters';
 import { COLORS, REGISTRY_KEY_LAST_PLATFORMER_RESULT, REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, WIDTH } from '../config';
-import { LEVELS } from '../data/levels';
+import { LEVELS, nextSoloLevelIndex } from '../data/levels';
+import { describeActive } from '../data/pogs';
 import type { PlatformerResult } from '../db/platformerResult';
+import { recordQuestRun, type QuestRunReward } from '../db/questRepository';
+import { masterySummary } from '../systems/characterMastery';
 
 const FONT = 'system-ui, sans-serif';
 
@@ -13,8 +16,15 @@ function fallbackResult(): PlatformerResult {
 const OUTCOME_COPY: Record<PlatformerResult['raceOutcome'], { title: string; color: string; sub: string }> = {
   playerWon: { title: 'YOU WIN THE RACE!', color: '#4ade80', sub: 'first to the flag' },
   rivalWon: { title: 'RIVAL WINS', color: '#ef4444', sub: 'they beat you to the flag' },
-  fell: { title: 'OUT OF LIVES', color: '#ef4444', sub: 'the flats got the better of you' },
+  fell: { title: 'OUT OF LIVES', color: '#ef4444', sub: 'shake it off and go again' },
 };
+
+/**
+ * Results are recorded exactly once per finished run, keyed by the
+ * result object's identity - the scene can be re-created (e.g. a
+ * resize) without double-crediting.
+ */
+const recorded = new WeakMap<PlatformerResult, Promise<QuestRunReward>>();
 
 export class PlatformerResultScene extends Phaser.Scene {
   constructor() {
@@ -23,36 +33,55 @@ export class PlatformerResultScene extends Phaser.Scene {
 
   create(): void {
     this.cameras.main.setBackgroundColor(COLORS.bg);
-    const result = (this.registry.get(REGISTRY_KEY_LAST_PLATFORMER_RESULT) as PlatformerResult | undefined) ?? fallbackResult();
+    const stored = this.registry.get(REGISTRY_KEY_LAST_PLATFORMER_RESULT) as PlatformerResult | undefined;
+    const result = stored ?? fallbackResult();
     const character = CHARACTERS.find((c) => c.id === result.characterId) ?? CHARACTERS[0];
-    const copy = OUTCOME_COPY[result.raceOutcome];
     const level = LEVELS[result.levelIndex] ?? LEVELS[0];
-    const hasNextLevel =
-      result.raceOutcome === 'playerWon' &&
-      result.levelIndex < LEVELS.length - 1 &&
-      !LEVELS[result.levelIndex + 1]?.coop; // never auto-advance a solo player into the 2P co-op level
+    const won = result.raceOutcome === 'playerWon';
+    const copy =
+      won && level.bossLevel
+        ? { title: 'BOSS DOWN!', color: '#4ade80', sub: level.coop ? 'teamwork makes the dream work' : 'the champion falls' }
+        : OUTCOME_COPY[result.raceOutcome];
+    const next = won ? nextSoloLevelIndex(result.levelIndex) : undefined;
 
-    this.add.text(WIDTH / 2, 120, character.emoji, { fontSize: '52px' }).setOrigin(0.5);
-    this.add.text(WIDTH / 2, 172, level.name, { fontSize: '13px', fontFamily: FONT, color: '#6b6180' }).setOrigin(0.5);
+    this.add.text(WIDTH / 2, 96, character.emoji, { fontSize: '52px' }).setOrigin(0.5);
+    this.add.text(WIDTH / 2, 148, level.name, { fontSize: '13px', fontFamily: FONT, color: '#6b6180' }).setOrigin(0.5);
     this.add
-      .text(WIDTH / 2, 208, copy.title, { fontSize: '26px', fontFamily: FONT, fontStyle: 'bold', color: copy.color })
+      .text(WIDTH / 2, 182, copy.title, { fontSize: '26px', fontFamily: FONT, fontStyle: 'bold', color: copy.color })
       .setOrigin(0.5);
-    this.add.text(WIDTH / 2, 244, copy.sub, { fontSize: '14px', fontFamily: FONT, color: '#b7aed0' }).setOrigin(0.5);
+    this.add.text(WIDTH / 2, 216, copy.sub, { fontSize: '14px', fontFamily: FONT, color: '#b7aed0' }).setOrigin(0.5);
 
-    this.add.rectangle(WIDTH / 2, 360, 360, 180, 0x1c1430).setStrokeStyle(1, 0x362a52);
+    this.add.rectangle(WIDTH / 2, 300, 360, 120, 0x1c1430).setStrokeStyle(1, 0x362a52);
     const stats = [
       `🪙 Coins collected: ${result.coins}`,
       `⏱️ Time: ${result.elapsedSeconds.toFixed(1)}s`,
       `👟 Best stomp combo: ${result.bestStompCombo}`,
     ];
     this.add
-      .text(WIDTH / 2, 360, stats.join('\n\n'), { fontSize: '15px', fontFamily: FONT, color: '#ffffff', align: 'center', lineSpacing: 6 })
+      .text(WIDTH / 2, 300, stats.join('\n'), { fontSize: '15px', fontFamily: FONT, color: '#ffffff', align: 'center', lineSpacing: 10 })
       .setOrigin(0.5);
 
-    let y = 540;
-    if (hasNextLevel) {
-      this.makeButton(y, 'NEXT LEVEL', 0x4ade80, '#0b2417', () => {
-        this.registry.set(REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, result.levelIndex + 1);
+    const rewardText = this.add
+      .text(WIDTH / 2, 372, 'saving…', { fontSize: '13px', fontFamily: FONT, color: '#6b6180', align: 'center', lineSpacing: 6, wordWrap: { width: WIDTH - 60 } })
+      .setOrigin(0.5, 0);
+    if (stored) {
+      let pending = recorded.get(stored);
+      if (!pending) {
+        pending = recordQuestRun(stored);
+        recorded.set(stored, pending);
+      }
+      void pending.then(
+        (reward) => { if (rewardText.active) this.showReward(rewardText, reward, character.name, won); },
+        () => { if (rewardText.active) rewardText.setText(''); },
+      );
+    } else {
+      rewardText.setText('');
+    }
+
+    let y = 560;
+    if (next !== undefined) {
+      this.makeButton(y, `NEXT: ${LEVELS[next].name.toUpperCase()}`, 0x4ade80, '#0b2417', () => {
+        this.registry.set(REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, next);
         this.scene.start('PlatformerRun');
       });
       y += 68;
@@ -62,12 +91,33 @@ export class PlatformerResultScene extends Phaser.Scene {
       this.scene.start('PlatformerRun');
     });
     y += 68;
+    this.makeButton(y, 'LEVELS', 0x38bdf8, '#07202c', () => this.scene.start('PlatformerLevelSelect'));
+    y += 68;
     this.makeButton(y, 'MENU', 0x22c55e, '#ffffff', () => this.scene.start('ModeSelect'));
+  }
+
+  private showReward(text: Phaser.GameObjects.Text, reward: QuestRunReward, characterName: string, won: boolean): void {
+    const lines: string[] = [];
+    if (reward.firstClear) lines.push('⭐ FIRST CLEAR ⭐');
+    else if (reward.newBestTime) lines.push(`⏱️ New best time!`);
+    else if (won && reward.level.bestTimeSeconds !== null) lines.push(`best time ${reward.level.bestTimeSeconds.toFixed(1)}s`);
+    if (reward.techPointsGranted > 0) lines.push(`⚙️ +${reward.techPointsGranted} Tech Point${reward.techPointsGranted > 1 ? 's' : ''}`);
+    if (reward.rewardPog) {
+      const effect = reward.rewardPog.activeEffect ? ` · ${describeActive(reward.rewardPog.activeEffect)}` : '';
+      lines.push(`${reward.rewardPog.emoji} New pog: ${reward.rewardPog.name}${effect}`);
+    }
+    lines.push(
+      reward.trainingEarned
+        ? `${characterName} · ${masterySummary(reward.mastery)}`
+        : `${characterName} · play 15s+ for training credit`,
+    );
+    text.setText(lines.join('\n')).setColor(reward.firstClear ? '#f9d64b' : '#b7aed0');
+    if (reward.firstClear) this.tweens.add({ targets: text, scale: { from: 0.85, to: 1 }, duration: 260, ease: 'Back.Out' });
   }
 
   private makeButton(y: number, label: string, color: number, textColor: string, onTap: () => void): void {
     const btn = this.add.rectangle(WIDTH / 2, y, 300, 54, color).setInteractive({ useHandCursor: true });
-    this.add.text(WIDTH / 2, y, label, { fontSize: '19px', fontFamily: FONT, fontStyle: 'bold', color: textColor }).setOrigin(0.5);
+    this.add.text(WIDTH / 2, y, label, { fontSize: '17px', fontFamily: FONT, fontStyle: 'bold', color: textColor }).setOrigin(0.5);
     btn.on('pointerdown', () => {
       btn.disableInteractive();
       this.tweens.add({ targets: btn, scale: 0.96, duration: 80, yoyo: true, onComplete: onTap });

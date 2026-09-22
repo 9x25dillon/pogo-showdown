@@ -1,10 +1,10 @@
 import Phaser from 'phaser';
-import { COYOTE_MS, JUMP_BUFFER_MS, JUMP_CUT_MULTIPLIER, JUMP_VELOCITY, MAX_FALL_SPEED } from '../data/platformerConfig';
+import { PHYS } from '../data/platformerConfig';
 
 /**
  * Shared movement/physics controller used for both the human player and
- * the AI rival in the platformer mode, so tuning never duplicates and a
- * later second human player (Phase 4) plugs into the same class.
+ * the AI rival in the platformer mode, so tuning never duplicates and the
+ * co-op second player plugs into the same function.
  */
 export interface ControllerInput {
   left: boolean;
@@ -39,8 +39,8 @@ export function updateController(
 ): void {
   const grounded = body.blocked.down || body.touching.down;
 
-  state.coyoteMs = grounded ? COYOTE_MS : Math.max(0, state.coyoteMs - dtMs);
-  state.jumpBufferMs = input.jumpPressed ? JUMP_BUFFER_MS : Math.max(0, state.jumpBufferMs - dtMs);
+  state.coyoteMs = grounded ? PHYS.coyoteMs : Math.max(0, state.coyoteMs - dtMs);
+  state.jumpBufferMs = input.jumpPressed ? PHYS.jumpBufferMs : Math.max(0, state.jumpBufferMs - dtMs);
 
   const target = input.left && !input.right ? -opts.moveSpeed : input.right && !input.left ? opts.moveSpeed : 0;
   const vx = body.velocity.x;
@@ -49,14 +49,19 @@ export function updateController(
   body.setVelocityX(Math.abs(diff) <= maxDelta ? target : vx + Math.sign(diff) * maxDelta);
 
   if (state.jumpBufferMs > 0 && state.coyoteMs > 0) {
-    body.setVelocityY(JUMP_VELOCITY);
+    body.setVelocityY(PHYS.jumpVelocity);
     state.jumpBufferMs = 0;
     state.coyoteMs = 0;
     state.jumpCutApplied = false;
   } else if (!input.jumpHeld && body.velocity.y < 0 && !state.jumpCutApplied) {
-    body.setVelocityY(body.velocity.y * JUMP_CUT_MULTIPLIER);
+    body.setVelocityY(body.velocity.y * PHYS.jumpCutMultiplier);
     state.jumpCutApplied = true;
   }
 
-  if (body.velocity.y > MAX_FALL_SPEED) body.setVelocityY(MAX_FALL_SPEED);
+  if (body.velocity.y > PHYS.maxFallSpeed) body.setVelocityY(PHYS.maxFallSpeed);
+}
+
+/** heroes (player, P2, rival) fall faster than they rise when fallGravityMultiplier > 1 */
+export function applyHeroGravity(body: Phaser.Physics.Arcade.Body): void {
+  body.setGravityY(body.velocity.y > 0 ? PHYS.gravityY * PHYS.fallGravityMultiplier : PHYS.gravityY);
 }

@@ -20,6 +20,10 @@ export class BootScene extends Phaser.Scene {
     this.makeCoinTexture();
     this.makePatrolEnemyTexture();
     this.makeFlyingEnemyTexture();
+    this.makeHopperEnemyTexture();
+    this.makeSpikerEnemyTexture();
+    this.makeTurretEnemyTexture();
+    this.makePelletTexture();
     this.makeProjectileTexture();
     this.makeBossTexture();
     this.makeGoalFlagTexture();
@@ -180,6 +184,68 @@ export class BootScene extends Phaser.Scene {
     g.fillCircle(14, 15, 1.4);
     g.fillCircle(26, 15, 1.4);
     g.generateTexture('flyingEnemy', 40, 32);
+    g.destroy();
+  }
+
+  private makeHopperEnemyTexture(): void {
+    const g = this.add.graphics();
+    // squat green spring-legged blob
+    g.fillStyle(0x16a34a, 1);
+    g.fillEllipse(22, 18, 38, 28);
+    g.fillStyle(0x86efac, 0.6);
+    g.fillEllipse(18, 11, 16, 7);
+    g.lineStyle(3, 0x14532d, 1);
+    g.lineBetween(12, 30, 8, 39);
+    g.lineBetween(32, 30, 36, 39);
+    g.fillStyle(0x1e1030, 1);
+    g.fillCircle(15, 17, 4);
+    g.fillCircle(29, 17, 4);
+    g.fillStyle(0xffffff, 1);
+    g.fillCircle(15, 16, 1.6);
+    g.fillCircle(29, 16, 1.6);
+    g.generateTexture('hopperEnemy', 44, 40);
+    g.destroy();
+  }
+
+  private makeSpikerEnemyTexture(): void {
+    const g = this.add.graphics();
+    // shell with a row of spikes on top - reads as "don't land on me"
+    g.fillStyle(0xe5e7eb, 1);
+    for (const x of [6, 16, 26, 36]) g.fillTriangle(x - 5, 16, x, 0, x + 5, 16);
+    g.fillStyle(0xea580c, 1);
+    g.fillRoundedRect(1, 13, 42, 22, 10);
+    g.fillStyle(0x1e1030, 1);
+    g.fillCircle(15, 23, 3.4);
+    g.fillCircle(29, 23, 3.4);
+    g.fillStyle(0x7c2d12, 1);
+    g.fillRect(7, 34, 8, 6);
+    g.fillRect(29, 34, 8, 6);
+    g.generateTexture('spikerEnemy', 44, 40);
+    g.destroy();
+  }
+
+  private makeTurretEnemyTexture(): void {
+    const g = this.add.graphics();
+    g.fillStyle(0x334155, 1);
+    g.fillRoundedRect(4, 30, 32, 18, 4);
+    g.fillStyle(0x64748b, 1);
+    g.fillCircle(20, 24, 13);
+    // barrel points right; the scene flips the sprite to face its target
+    g.fillStyle(0x0f172a, 1);
+    g.fillRect(24, 19, 16, 9);
+    g.fillStyle(0xef4444, 1);
+    g.fillCircle(16, 22, 3.5);
+    g.generateTexture('turretEnemy', 40, 48);
+    g.destroy();
+  }
+
+  private makePelletTexture(): void {
+    const g = this.add.graphics();
+    g.fillStyle(0xef4444, 1);
+    g.fillCircle(7, 7, 6);
+    g.fillStyle(0xfecaca, 1);
+    g.fillCircle(5, 5, 2);
+    g.generateTexture('pellet', 14, 14);
     g.destroy();
   }
 

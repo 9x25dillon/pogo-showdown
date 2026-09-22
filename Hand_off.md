@@ -1,5 +1,24 @@
 # Pogo Showdown — next-session handoff
 
+## September 21 (later): Pog Quest expansion — branch `feat/pog-quest-expansion`
+
+Pog Quest itself is merged to `master` (`e56e49b`); this branch adds the four follow-ups the user asked for at once. Not merged, not released.
+
+- **Economy hookup** (`db/questRepository.ts`): attempts of 15s+ credit character mastery (which feeds Circuit Advantage), using Pogo Dash's rule. The first clear of each level grants +1 TP (`grantQuestClearBonus`) and that level's reward pog (`LevelDef.rewardPogId`). Career tier, `careerBestScore`, `totalRuns` and the Circuit match are deliberately untouched. Progress lives in `profile.quest[levelId]`. Level 1 and co-op are always open; every other level unlocks when the previous solo level is cleared. New `PlatformerLevelSelect` scene is the Pog Quest entry point.
+- **Battle content:** 4 new item kinds (`freeze`, `magnet`, `doubleJump`, `groundPound`). 12 of the original 20 pogs now have an active effect, plus 5 new quest-drop pogs. **Every equipped active pog is carried** and swapped in-run (Q / ⇄ button); this settles old open question #4. New enemies: `hopper`, `spiker` (stomping it hurts; only a projectile or ground pound kills it), `turret` (fires pellets). `PlatformerEnemyDef.flies` was replaced by `movement`. New race level **Tech Park Tangle** (id `level5`, plays 3rd; ids are save keys, indexes aren't).
+- **Co-op gaps:** `PlatformerRunScene` was refactored around a per-player `Hero` record, giving P2 full parity: own item charges, speed boost, double jump. Lives and shields stay shared. P2 keys: arrows, `/` or Enter for item, `.` to swap. The camera follows the midpoint and leashes both players inside the view. A fallen co-op player respawns at their partner's checkpoint. There's a split-screen touch layout (each half gets ◀ ▶ JUMP + item/swap, all below the ground line). **Not tested on a real phone.**
+- **Physics tuning:** feel values moved to a mutable `PHYS` object. Open the game with `?tune` to get a live slider panel (values persist in localStorage; COPY exports them). It shows jump height/reach against the widest open pit. **The defaults were deliberately not changed**; that needs the user's own playtest. `fallGravityMultiplier` (default 1) is available for a less floaty fall.
+
+**Pre-existing bugs found and fixed** (all were on `master`):
+1. **The AI rival could never finish a race.** It released jump after 220ms (the jump-cut gave ~120px of reach), jumped 60px before the edge, and after a fall its waypoint index was past the jump, so it looped into the same pit forever. Players always won by default. `rivalAI.ts` now does full held jumps at the ledge and `resyncRivalAI` runs on respawn.
+2. **Respawns landed under the floor.** `setPosition` teleports kept the body's below-the-pit `prev` position, so Arcade separated the body out through the underside of the ground slab. Now `body.reset(x, y)` for both heroes and the rival.
+3. **Checkpoints were recorded on moving platforms**, so a respawn could land in mid-air over the pit. Checkpoints now use `blocked.down` only (static ground).
+4. **Level 1's "raised ledge" (130px up) was above the 120px jump peak**, and its underside bonked every jump from the edge. It's now a low stepping stone set 50px past the edge.
+
+**Testing notes:** the headless browser's frame rate is erratic, often under 10fps, which starves per-frame AI. The suite now drives the game at an exact 60fps with `game.headlessStep` (see `simulate` in `tests/platformer-regression.mjs`) and asserts the rival wins every race level with zero pit falls. Vite binds IPv6 `localhost`, so run `POGO_URL=http://localhost:5173 npm run test:browser`. If you kill a scratch CDP script, close its tabs (`/json/close/<id>`); orphaned game tabs slowed the browser enough to time the suite out.
+
+**Still open:** real-device playtest (feel, touch co-op ergonomics); whether Pog Quest should ever touch career tier; enemy/item balance numbers are first guesses.
+
 ## September 21 follow-up
 
 Continued on `feat/pog-quest-platformer`. Added a Pog Quest pause overlay (touch PAUSE or Escape) with resume, retry, and menu actions. The gameplay scene is paused so physics, timers, and tweens freeze together; held controls are cleared before pausing. Touch pointers are reused across retries. Camera and physics bounds now use each level's `widthPx`, fixing Signature Sprint's finish being outside the camera boundary.

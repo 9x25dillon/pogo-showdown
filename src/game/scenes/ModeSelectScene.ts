@@ -1,8 +1,9 @@
 import Phaser from 'phaser';
-import { COLORS, HEIGHT, REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, WIDTH } from '../config';
+import { COLORS, HEIGHT, WIDTH } from '../config';
 import { ensureSeasonSimulated, getProfile } from '../db/repository';
 import { TIERS } from '../db/schema';
 import { LEVELS } from '../data/levels';
+import { questProgressFor } from '../db/questRepository';
 
 interface ModeButtonOpts {
   y: number;
@@ -17,6 +18,7 @@ export class ModeSelectScene extends Phaser.Scene {
   private rankText!: Phaser.GameObjects.Text;
   private circuitSublabel?: Phaser.GameObjects.Text;
   private trickLabSublabel?: Phaser.GameObjects.Text;
+  private questSublabel?: Phaser.GameObjects.Text;
 
   constructor() {
     super('ModeSelect');
@@ -108,30 +110,11 @@ export class ModeSelectScene extends Phaser.Scene {
     this.makeModeButton({
       y: 730,
       label: '\u{1F3C1}  Pog Quest',
-      sublabel: 'race to the flag · fight & stomp',
+      sublabel: 'race · fight · boss · 2P co-op',
       color: 0x38bdf8,
       enabled: true,
-      onTap: () => {
-        this.registry.set(REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, 0);
-        this.scene.start('PlatformerRun');
-      },
+      onTap: () => this.scene.start('PlatformerLevelSelect'),
     });
-
-    const coopIndex = LEVELS.findIndex((l) => l.coop);
-    if (coopIndex >= 0) {
-      const coopLink = this.add
-        .text(WIDTH / 2, 790, '\u{1F91D} Co-op boss fight (2P, keyboard: WASD + arrows)', {
-          fontSize: '12px',
-          fontFamily: 'system-ui, sans-serif',
-          color: '#6ee7ff',
-        })
-        .setOrigin(0.5)
-        .setInteractive({ useHandCursor: true });
-      coopLink.on('pointerdown', () => {
-        this.registry.set(REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, coopIndex);
-        this.scene.start('PlatformerRun');
-      });
-    }
 
     this.add
       .text(WIDTH / 2, HEIGHT - 40, 'swipe to dodge · up to bounce · down to duck', {
@@ -157,6 +140,11 @@ export class ModeSelectScene extends Phaser.Scene {
 
     if (this.trickLabSublabel && (profile.trickLabBest ?? 0) > 0) {
       this.trickLabSublabel.setText(`freestyle combos · best ${profile.trickLabBest}`);
+    }
+
+    if (this.questSublabel) {
+      const cleared = LEVELS.filter((l) => questProgressFor(profile, l.id).clears > 0).length;
+      if (cleared > 0) this.questSublabel.setText(`race · fight · boss · 2P co-op · ${cleared}/${LEVELS.length} cleared`);
     }
 
     const circuitSub = this.circuitSublabel;
@@ -199,6 +187,7 @@ export class ModeSelectScene extends Phaser.Scene {
 
     if (opts.label.includes('Circuit')) this.circuitSublabel = sub;
     if (opts.label.includes('Trick Lab')) this.trickLabSublabel = sub;
+    if (opts.label.includes('Pog Quest')) this.questSublabel = sub;
 
     if (opts.enabled && opts.onTap) {
       bg.setInteractive({ useHandCursor: true });
