@@ -6,13 +6,15 @@ export type ItemId =
   | 'gel' | 'bone' | 'ecto' | 'herb' | 'torch' | 'potion'
   // Phase 2: realm materials and alchemy brews
   | 'ember' | 'pearl' | 'feather' | 'dust'
-  | 'fireward' | 'gills' | 'gale' | 'tonic';
+  | 'fireward' | 'gills' | 'gale' | 'tonic'
+  | 'bed' | 'chest' | 'campfire';
 
 export const ITEM_NAME: Record<ItemId, string> = {
   dirt: 'Dirt', stone: 'Stone', wood: 'Wood', copper: 'Copper Ore', iron: 'Iron Ore', soulstone: 'Soulstone',
   gel: 'Gloom Gel', bone: 'Bone', ecto: 'Ectoplasm', herb: 'Nightbloom', torch: 'Torch', potion: 'Healing Draught',
   ember: 'Ember Shard', pearl: 'Sea Pearl', feather: 'Storm Feather', dust: 'Grave Dust',
   fireward: 'Fire Ward', gills: 'Gillweed Draught', gale: 'Gale Draught', tonic: 'Strength Tonic',
+  bed: 'Wayfarer Bed', chest: 'Storage Chest', campfire: 'Campfire',
 };
 
 export const ITEM_ICON: Record<ItemId, string> = {
@@ -20,6 +22,7 @@ export const ITEM_ICON: Record<ItemId, string> = {
   gel: '🫧', bone: '🦴', ecto: '👻', herb: '🌸', torch: '🔥', potion: '🧪',
   ember: '🔸', pearl: '🦪', feather: '🪶', dust: '⚱️',
   fireward: '🧯', gills: '🫁', gale: '🌬️', tonic: '💪',
+  bed: '🛏', chest: '📦', campfire: '🔥',
 };
 
 /** what placing an item puts into the world */

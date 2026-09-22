@@ -1,6 +1,7 @@
 import { dbGet, dbPut } from '../db/LocalDB';
 import type { ItemId } from './items';
 import type { RelicId } from './realms';
+import type { HomesteadSave } from './homestead';
 
 /**
  * One saved world. The world itself is regenerated from `seed`; only the
@@ -23,6 +24,8 @@ export interface RealmSave {
   stats?: RealmStats;
   /** overworld minimap fog of war: one bit per tile, base64 */
   explored?: string;
+  /** Optional so worlds created before homesteads still load. Overworld only. */
+  homestead?: HomesteadSave;
   /** ms into the day/night cycle */
   clock: number;
   savedAt: string;

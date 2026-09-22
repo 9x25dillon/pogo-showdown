@@ -7,6 +7,7 @@ import { verifyPlatformer } from './platformer-regression.mjs';
 import { verifyRealm } from './realm-regression.mjs';
 import { verifyPortalRealms } from './realm-portals-regression.mjs';
 import { verifyForeverGate } from './realm-forever-regression.mjs';
+import { verifyHomestead } from './realm-homestead-regression.mjs';
 
 const cdpUrl = process.env.CDP_URL ?? 'http://127.0.0.1:9333';
 const gameUrl = process.env.POGO_URL ?? 'http://127.0.0.1:5173';
@@ -82,6 +83,8 @@ try {
   await page.call('Emulation.setDeviceMetricsOverride', { width: 480, height: 854, deviceScaleFactor: 1, mobile: true });
   await page.call('Page.navigate', { url: gameUrl });
   await waitFor('!!window.__game?.scene.isActive("ModeSelect")');
+
+  if (process.env.POGO_SUITE !== 'homestead') {
 
   // Starter perks must reflect the starter created during this visit.
   await start('PogBinder');
@@ -198,8 +201,28 @@ try {
   await verifyRealm({ execute, evaluate, waitFor, start, scene, textExists });
   await verifyPortalRealms({ execute, evaluate, waitFor, start, scene, textExists });
   await verifyForeverGate({ execute, evaluate, waitFor, start, scene, textExists });
+  }
+  await page.call('Emulation.setDeviceMetricsOverride', { width: 960, height: 540, deviceScaleFactor: 1, mobile: false });
+  const key = async (code, key) => {
+    await page.call('Input.dispatchKeyEvent', { type: 'keyDown', windowsVirtualKeyCode: code, key });
+    await pause();
+    await page.call('Input.dispatchKeyEvent', { type: 'keyUp', windowsVirtualKeyCode: code, key });
+    await pause();
+  };
+  const tap = async (x, y) => {
+    const rect = await evaluate(`(() => { const r = window.__game.canvas.getBoundingClientRect(); return { x:r.x,y:r.y,w:r.width,h:r.height }; })()`);
+    await page.call('Emulation.setTouchEmulationEnabled', { enabled: true });
+    await page.call('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: rect.x + x / 960 * rect.w, y: rect.y + y / 540 * rect.h }] });
+    await pause();
+    await page.call('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await pause();
+  };
+  await verifyHomestead({ execute, evaluate, waitFor, scene, key, tap, screenshot: process.env.POGO_SCREENSHOT_DIR ? async name => {
+    const { data } = await page.call('Page.captureScreenshot');
+    await writeFile(`${process.env.POGO_SCREENSHOT_DIR}/${name}.png`, Buffer.from(data, 'base64'));
+  } : undefined });
   assert.equal(page.errors.length, 0, JSON.stringify(page.errors));
-  console.log('PASS: collection paging, migration, independent mastery, training gate, tier awards, advantage caps, character UI, battle listeners, runner restart/pause, shield behavior, Trick Lab restart, obstacle cleanup, save persistence; no browser exceptions.');
+  console.log(process.env.POGO_SUITE === 'homestead' ? 'PASS: no browser exceptions.' : 'PASS: collection paging, migration, independent mastery, training gate, tier awards, advantage caps, character UI, battle listeners, runner restart/pause, shield behavior, Trick Lab restart, obstacle cleanup, save persistence; no browser exceptions.');
 } finally {
   page?.socket.close();
   await browser.call('Target.disposeBrowserContext', { browserContextId });

@@ -126,7 +126,7 @@ export class ModeSelectScene extends Phaser.Scene {
     this.makeModeButton({
       y: 706,
       label: '\u{2694}\u{FE0F}  Forever Realm',
-      sublabel: 'open world · dig, build, craft · survive the night',
+      sublabel: 'dig · build a home · store loot · conquer the realms',
       color: 0xe11d48,
       enabled: true,
       onTap: () => this.scene.start('Realm', { newWorld: false }),

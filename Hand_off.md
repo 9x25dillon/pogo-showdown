@@ -1,5 +1,28 @@
 # Pogo Showdown — next-session handoff
 
+## September 22, 2026 — Homestead expansion (current workspace)
+
+Forever Realm now has a persistent home-building loop. This expansion is committed locally; it has not been pushed or released to Android.
+
+- **Open HOME:** H, controller LT, or the HOME button. Select a furnishing, aim at a flat floor, then click / K / RT to place it. H / LT or B / Esc cancels placement without spending materials.
+- **Wayfarer Bed:** 12 wood + 4 gel; three tiles wide with three tiles of headroom. Interact to set your overworld respawn. A roof 3–7 tiles above all three bed tiles and no enemies within 10 tiles allow a full heal and sleep to dawn. A HOME compass shows direction and distance.
+- **Storage Chest:** 8 wood + 2 copper; two tiles wide; 12 distinct item types. Deposit or withdraw one item with A / click / K, a whole stack with X / J or the on-screen button. Quick stack transfers matching item types. LB/RB or arrows page through larger inventories. Contents persist across reloads and portal expeditions.
+- **Campfire:** 8 stone + 4 wood; two tiles wide; permanent light and +4 HP/s within six tiles when enemies are away, after the existing damage recovery delay.
+- **Interact:** S / D-pad down, or tap the contextual prompt. Beds and fires can be packed; chests must be empty first. Packed furnishings can be placed again without another resource cost. Packing the active bed restores the original spawn.
+- Furniture is passable, but reserves its space and supporting tiles against mining/building. It belongs only to the overworld. Portal entrances and boss behavior are unchanged.
+
+Implementation: `realm/homestead.ts` contains save types, placement rules, storage transfers, and restoration; `realm/RealmHomestead.ts` owns furniture rendering, placement preview, and the paged UI; `RealmScene.ts` supplies world/combat/save hooks. The optional `RealmSave.homestead` field keeps version-1 saves compatible. No database upgrade is needed. A separate existing bug was fixed: saving while dead now writes both spawn coordinates, instead of combining the death X with spawn Y.
+
+Pointer regression found and fixed: screen-fixed container children need their own `setScrollFactor(0)` for hit tests. Phaser 4's `container.setScrollFactor(0, 0, true)` does not propagate to inherited scroll-factor properties. Both homestead and the existing crafting panel now set children explicitly. The suite exercises real keyboard and touch events after the world camera has scrolled.
+
+Tests: `tests/realm-homestead-regression.mjs` runs as part of `npm run test:browser`. Set `POGO_SUITE=homestead` for the focused suite. Tests use an isolated browser context, so player saves are untouched. Development testing uses a separate server at `http://127.0.0.1:5174`.
+
+Validation completed: `npm run build`, `git diff --check`, and the full browser suite (existing modes, Pog Quest, Realm core, four portals, Forever Gate/Reaper, homesteads) all passed; zero browser exceptions. Desktop menu screenshots were inspected. Real keyboard and emulated touch interactions passed; physical controller/phone feel still needs a human playtest.
+
+The previous handoff below describes the state **before** this expansion. Its “everything merged” statement applies only to the September 21 work.
+
+---
+
 _Last updated after the September 21, 2026 session (one long day): Pog Quest expansion → power-ups → Forever Realm Phases 1–3 + soundtrack. Previous handoffs are in git history (`git log -p -- Hand_off.md`)._
 
 ## Start here
