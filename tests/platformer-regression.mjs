@@ -434,14 +434,18 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
     await execute(`window.__btn(${pad}, ${b}, false);`); await sleep(100);
   };
   await enter(0);
+  // the rival starts overlapping you; a well-timed rival stomp would stun you and eat the jump press
+  await execute(`${s}.rivalStunTimer = 1e9; ${p1}.stunTimer = 0;`); // a stunned rival neither moves nor stomps
   await simulate(0.5);
   // left stick runs, A jumps (held A keeps the full jump), X uses the item, Y swaps
   await execute(`window.__pads[0].axes[0] = 1;`);
   const toSpeed = await simulate(2, `return ${s}.player.body.velocity.x >= 209;`);
   assert.ok(toSpeed < 1.5, `stick run took ${toSpeed}s`);
-  await execute(`window.__pads[0].axes[0] = 0; window.__btn(0, 0, true);`);
-  await simulate(0.1);
-  assert.deepEqual(await execute(`const h = ${p1}; return [h.sprite.body.velocity.y < -300, h.input.padJump];`), [true, true]);
+  await execute(`window.__pads[0].axes[0] = 0; window.__btn(0, 0, true); window.__minVy = 0;`);
+  // capture inside the fixed-step frames: once control returns to the real loop, real frames
+  // keep the jump going and a later read can already be past the apex
+  await simulate(0.1, `window.__minVy = Math.min(window.__minVy, ${p1}.sprite.body.velocity.y); window.__padJump = ${p1}.input.padJump;`);
+  assert.deepEqual(await evaluate(`[window.__minVy < -300, window.__padJump]`), [true, true]);
   await execute(`window.__btn(0, 0, false);`);
   await simulate(1);
   assert.deepEqual(await execute(`const s = ${s}; const hero = s.heroes[0];

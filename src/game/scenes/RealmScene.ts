@@ -6,9 +6,12 @@ import { applyHeroGravity, createControllerState, updateController, type Control
 import { mergePads, readPads, rumble, type PadFrame } from '../systems/gamepad';
 import { music } from '../systems/music';
 import {
-  HOTBAR, ITEM_ICON, ITEM_NAME, PICKAXES, PLACES, POTION_HEAL, RECIPES, SWORDS,
-  type HotbarSlot, type ItemId, type Recipe,
+  BREWS, BREW_IDS, HOTBAR, ITEM_ICON, ITEM_NAME, PICKAXES, PLACES, POTION_HEAL, RECIPES, SWORDS,
+  type BrewId, type HotbarSlot, type ItemId, type Recipe,
 } from '../realm/items';
+import { generatePocket, type PocketWorld } from '../realm/pocketGen';
+import { BOSSES, createBoss, enraged, hitBoss, updateBoss, type BossCtx, type BossState, type HazardSpec } from '../realm/realmBosses';
+import { POCKETS, POCKET_ORDER, RELICS, type PocketId, type RelicId } from '../realm/realms';
 import { REALM_ENEMIES, spawnCap, spawnTable, type RealmEnemyDef } from '../realm/realmEnemies';
 import { loadRealm, newSeed, saveRealm, type RealmSave } from '../realm/realmSave';
 import { SOLID_TILES, T, TILE_INFO, isSolid } from '../realm/tiles';
@@ -34,7 +37,18 @@ const REACH_PX = TILE * 5.5;
 const MOVE_SPEED = 175;
 /** realm jumps are a bit shorter than Pog Quest's: ~5 tiles */
 const JUMP_SCALE = 0.84;
-const MAX_HP = 100;
+const BASE_HP = 100;
+const CROWN_HP = 50;
+const HEAT_DRAIN_PER_S = 2.5;
+const LAVA_DAMAGE = 20;
+const BREATH_MAX = 100;
+const BREATH_LOSS_PER_S = 10;
+const DROWN_PER_S = 10;
+const VOID_DAMAGE = 15;
+const SWIM_STROKE = -250;
+const SWIM_MAX_FALL = 110;
+const GALE_FALL = 150;
+const WIND_ACCEL = 1500;
 const HIT_INVULN_MS = 700;
 const REGEN_DELAY_MS = 4000;
 const REGEN_PER_S = 2;
@@ -52,6 +66,12 @@ interface RealmEnemy {
   def: RealmEnemyDef;
   hp: number;
   timer: number;
+  colliders: Phaser.Physics.Arcade.Collider[];
+}
+
+interface Hazard {
+  sprite: Phaser.Physics.Arcade.Sprite;
+  damage: number;
   colliders: Phaser.Physics.Arcade.Collider[];
 }
 
@@ -89,7 +109,21 @@ export class RealmScene extends Phaser.Scene {
   private dead = false;
   private deathTimer = 0;
 
-  private hp = MAX_HP;
+  /** set while in a portal realm (see realms.ts); undefined = the overworld */
+  private pocket?: PocketId;
+  private relics = new Set<RelicId>();
+  private buffs: Partial<Record<BrewId, number>> = {};
+  private breath = BREATH_MAX;
+  private airJumpsUsed = 0;
+  private lastSafe = { x: 0, y: 0 };
+  private wind = { force: 0, timer: 4000 };
+  private boss?: BossState;
+  private bossDefeated = false;
+  private gateTiles: { tx: number; ty: number }[] = [];
+  private hazards: Hazard[] = [];
+  private portalLabels: Phaser.GameObjects.GameObject[] = [];
+
+  private hp = BASE_HP;
   private invuln = 0;
   private sinceHit = 0;
   private facing: 1 | -1 = 1;
@@ -141,12 +175,30 @@ export class RealmScene extends Phaser.Scene {
   private craftPanel?: Phaser.GameObjects.Container;
   private craftRows: { bg: Phaser.GameObjects.Rectangle; text: Phaser.GameObjects.Text; recipe: Recipe }[] = [];
   private craftIndex = 0;
+  private relicText!: Phaser.GameObjects.Text;
+  private buffText!: Phaser.GameObjects.Text;
+  private breathBar!: Phaser.GameObjects.Rectangle;
+  private breathBack!: Phaser.GameObjects.Rectangle;
+  private promptText!: Phaser.GameObjects.Text;
+  private bossBar!: Phaser.GameObjects.Rectangle;
+  private bossBack!: Phaser.GameObjects.Rectangle;
+  private bossText!: Phaser.GameObjects.Text;
+  private bannerText!: Phaser.GameObjects.Text;
+  private windStreaks: Phaser.GameObjects.Rectangle[] = [];
 
   constructor() {
     super('Realm');
   }
 
-  create(data: { newWorld?: boolean } = {}): void {
+  private get maxHp(): number {
+    return BASE_HP + (this.relics.has('grave') ? CROWN_HP : 0);
+  }
+
+  private get pocketWorld(): PocketWorld | undefined {
+    return this.pocket ? (this.world as PocketWorld) : undefined;
+  }
+
+  create(data: { newWorld?: boolean; pocket?: PocketId } = {}): void {
     // Phaser hands a scene its previous start data again when started with none;
     // "new world" must apply once, or the next visit would wipe the save again
     this.sys.settings.data = {};
@@ -157,9 +209,10 @@ export class RealmScene extends Phaser.Scene {
       this.scale.setGameSize(WIDTH, HEIGHT);
     });
     this.resetState();
-    this.cameras.main.setBackgroundColor(COLORS.bg);
+    this.pocket = data.pocket;
+    this.cameras.main.setBackgroundColor(this.pocket ? POCKETS[this.pocket].sky : COLORS.bg);
     music.play('explore');
-    const loading = this.add.text(RW / 2, RH / 2, 'raising the Forever Realm…', {
+    const loading = this.add.text(RW / 2, RH / 2, this.pocket ? `crossing into the ${POCKETS[this.pocket].name}…` : 'raising the Forever Realm…', {
       fontSize: '16px', fontFamily: 'system-ui, sans-serif', color: '#b7aed0',
     }).setOrigin(0.5).setScrollFactor(0);
 
@@ -174,7 +227,19 @@ export class RealmScene extends Phaser.Scene {
     this.ready = false;
     this.dead = false;
     this.deathTimer = 0;
-    this.hp = MAX_HP;
+    this.pocket = undefined;
+    this.relics = new Set();
+    this.buffs = {};
+    this.breath = BREATH_MAX;
+    this.airJumpsUsed = 0;
+    this.wind = { force: 0, timer: 4000 };
+    this.boss = undefined;
+    this.bossDefeated = false;
+    this.gateTiles = [];
+    this.hazards = [];
+    this.portalLabels = [];
+    this.windStreaks = [];
+    this.hp = BASE_HP;
     this.invuln = 0;
     this.sinceHit = 0;
     this.facing = 1;
@@ -208,20 +273,23 @@ export class RealmScene extends Phaser.Scene {
   // ---------------- world ----------------
 
   private build(save: RealmSave | undefined): void {
-    const seed = save?.seed ?? newSeed();
-    this.world = generateWorld(seed);
+    // portal realms are regenerated every visit; only the overworld keeps its edits
+    this.world = this.pocket ? generatePocket(this.pocket, newSeed()) : generateWorld(save?.seed ?? newSeed());
     const { w, h, tiles } = this.world;
     if (save) {
-      for (const [index, id] of save.edits) {
-        if (index >= 0 && index < tiles.length) {
-          tiles[index] = id;
-          this.edits.set(index, id);
+      if (!this.pocket) {
+        for (const [index, id] of save.edits) {
+          if (index >= 0 && index < tiles.length) {
+            tiles[index] = id;
+            this.edits.set(index, id);
+          }
         }
+        this.clock = save.clock;
       }
       this.inventory = { ...save.inventory };
       this.sword = save.sword;
       this.pickaxe = save.pickaxe;
-      this.clock = save.clock;
+      this.relics = new Set(save.relics ?? []);
     }
 
     this.map = this.make.tilemap({ tileWidth: TILE, tileHeight: TILE, width: w, height: h });
@@ -244,8 +312,9 @@ export class RealmScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, w * TILE, h * TILE);
 
     const spawn = { x: this.world.spawn.tx * TILE + TILE / 2, y: (this.world.spawn.ty + 1) * TILE };
-    this.spawnPoint = save?.spawn ?? spawn;
-    const at = save?.player ?? spawn;
+    this.spawnPoint = this.pocket ? spawn : save?.spawn ?? spawn;
+    const at = this.pocket ? spawn : save?.player ?? spawn;
+    this.lastSafe = { ...at };
     const charId = this.registry.get(REGISTRY_KEY_CHARACTER) as string | undefined;
     const character = CHARACTERS.find((c) => c.id === charId) ?? CHARACTERS[0];
     this.player = this.physics.add.sprite(at.x, at.y, 'player').setOrigin(0.5, 1).setScale(0.55).setTint(character.color).setDepth(10);
@@ -254,7 +323,7 @@ export class RealmScene extends Phaser.Scene {
     body.setCollideWorldBounds(true);
     body.setGravityY(PHYS.gravityY);
     this.physics.add.collider(this.player, this.layer);
-    this.hp = save ? Math.max(1, save.player.hp) : MAX_HP;
+    this.hp = save ? Phaser.Math.Clamp(save.player.hp, 1, this.maxHp) : this.maxHp;
 
     this.cameras.main.startFollow(this.player, true, 0.14, 0.14);
     this.cameras.main.setDeadzone(90, 60);
@@ -263,7 +332,8 @@ export class RealmScene extends Phaser.Scene {
     // background wall behind everything below the original surface, so dug-out
     // tunnels and caves read as dark rock rather than open sky
     const wall = this.add.graphics().setDepth(-1);
-    wall.fillStyle(0x1b1226, 1);
+    const wallColor: Record<string, number> = { overworld: 0x1b1226, ember: 0x1c0a07, tide: 0x071a2c, gale: 0x000000, grave: 0x0b0810 };
+    wall.fillStyle(wallColor[this.pocket ?? 'overworld'], this.pocket === 'gale' ? 0 : 1); // the Gale Realm is open sky
     const pts: Phaser.Math.Vector2[] = [];
     for (let x = 0; x < w; x++) {
       const y = (this.world.surface[x] + 2) * TILE;
@@ -280,10 +350,35 @@ export class RealmScene extends Phaser.Scene {
     this.lightBrush = new Phaser.GameObjects.Image(this, 0, 0, 'lightBrush').setOrigin(0.5);
     this.skyLight = new Phaser.GameObjects.Graphics(this);
 
+    this.buildPortalLabels();
     this.buildHud();
     this.buildInput();
     this.ready = true;
+    if (this.pocket) this.banner(`${POCKETS[this.pocket].name}`, POCKETS[this.pocket].blurb);
     void this.save();
+  }
+
+  /** names and colors over each shrine portal (overworld), or the way home (portal realms) */
+  private buildPortalLabels(): void {
+    const font = 'system-ui, sans-serif';
+    const label = (x: number, y: number, text: string, color: number) => {
+      const glow = this.add.ellipse(x, y + 26, 44, 60, color, 0.25).setDepth(-0.5);
+      this.tweens.add({ targets: glow, alpha: 0.1, duration: 900, yoyo: true, repeat: -1 });
+      const t = this.add.text(x, y - 12, text, { fontSize: '10px', fontFamily: font, fontStyle: 'bold', color: '#ffffff', align: 'center', backgroundColor: '#0b0714aa', padding: { x: 4, y: 2 } })
+        .setOrigin(0.5, 1).setDepth(12);
+      this.portalLabels.push(glow, t);
+    };
+    if (this.pocket) {
+      const e = this.pocketWorld!.entrance;
+      label(4 * TILE, (e.ty - 2) * TILE, '↩ OVERWORLD\n▼ to leave', 0xa78bfa);
+      return;
+    }
+    // staggered heights so neighboring labels never overlap
+    (this.world.portals ?? []).forEach((p, i) => {
+      const def = POCKETS[p.pocket];
+      const done = this.relics.has(p.pocket);
+      label((p.tx + 1) * TILE, p.ty * TILE - (i % 2) * 30, `${done ? '✓ ' : ''}${def.name} ${'★'.repeat(def.tier)}\n${def.blurb}`, def.portalColor);
+    });
   }
 
   private tileAt(tx: number, ty: number): number {
@@ -366,9 +461,14 @@ export class RealmScene extends Phaser.Scene {
     this.infoText = hud(this.add.text(16, 36, '', { fontSize: '12px', fontFamily: font, color: '#e9d5ff' }));
     this.swordText = hud(this.add.text(RW - 16, 10, '', { fontSize: '13px', fontFamily: font, fontStyle: 'bold', color: '#fca5a5' }).setOrigin(1, 0));
 
+    this.relicText = hud(this.add.text(16, 54, '', { fontSize: '13px', fontFamily: font, color: '#ffffff' }));
+    this.buffText = hud(this.add.text(16, 74, '', { fontSize: '12px', fontFamily: font, color: '#a7f3d0' }));
+    this.breathBack = hud(this.add.rectangle(16, 94, 120, 8, 0x0c1a2e).setOrigin(0).setStrokeStyle(1, 0x38bdf8).setVisible(false));
+    this.breathBar = hud(this.add.rectangle(17, 95, 118, 6, 0x38bdf8).setOrigin(0).setVisible(false));
+
     HOTBAR.forEach((_, i) => {
-      const x = RW / 2 + (i - 2.5) * 54;
-      const box = hud(this.add.rectangle(x, 30, 48, 48, 0x1c1430, 0.85).setStrokeStyle(2, 0x362a52).setInteractive());
+      const x = RW / 2 + (i - (HOTBAR.length - 1) / 2) * 46;
+      const box = hud(this.add.rectangle(x, 30, 42, 42, 0x1c1430, 0.85).setStrokeStyle(2, 0x362a52).setInteractive());
       box.on('pointerdown', () => { this.slot = i; });
       this.slotBoxes.push(box);
       this.slotTexts.push(hud(this.add.text(x, 30, '', { fontSize: '18px', fontFamily: font, align: 'center' }).setOrigin(0.5)));
@@ -383,8 +483,19 @@ export class RealmScene extends Phaser.Scene {
     btn(44, 'PAUSE', () => this.pauseRealm());
     btn(76, 'CRAFT', () => this.toggleCraft());
 
+    this.promptText = hud(this.add.text(RW / 2, RH - 60, '', {
+      fontSize: '14px', fontFamily: font, fontStyle: 'bold', color: '#ffffff', backgroundColor: '#0b0714cc', padding: { x: 8, y: 4 },
+    }).setOrigin(0.5).setVisible(false));
+    this.bossBack = hud(this.add.rectangle(RW / 2, 112, 404, 14, 0x1c1430).setStrokeStyle(1, 0xe11d48).setVisible(false));
+    this.bossBar = hud(this.add.rectangle(RW / 2 - 200, 112, 400, 10, 0xe11d48).setOrigin(0, 0.5).setVisible(false));
+    this.bossText = hud(this.add.text(RW / 2, 97, '', { fontSize: '12px', fontFamily: font, fontStyle: 'bold', color: '#fecdd3' }).setOrigin(0.5).setVisible(false));
+    this.bannerText = hud(this.add.text(RW / 2, RH / 2 - 90, '', {
+      fontSize: '26px', fontFamily: font, fontStyle: 'bold', color: '#fef08a', align: 'center', stroke: '#0b0714', strokeThickness: 5,
+    }).setOrigin(0.5).setAlpha(0).setDepth(65));
+    for (let i = 0; i < 14; i++) this.windStreaks.push(hud(this.add.rectangle(0, 0, 60, 2, 0xffffff, 0.5).setVisible(false)));
+
     const hint = hud(this.add.text(RW / 2, RH - 12,
-      'mine & build · ⚔ fight · craft at night’s edge    🎮 A jump · X sword · RT use · RS aim · LB/RB tools · Y craft    ⌨ A/D · W · J sword · K/click use · 1-6 · E craft',
+      'mine & build · ⚔ fight · the shrine east of spawn opens the realms    🎮 A jump · X sword · RT use · RS aim · LB/RB tools · Y craft · ▼ enter portal    ⌨ A/D · W · J · K/click · 1-0 · E craft · S portal',
       { fontSize: '11px', fontFamily: font, color: '#b7aed0' }).setOrigin(0.5, 1));
     this.tweens.add({ targets: hint, alpha: 0, delay: 25_000, duration: 1500 });
 
@@ -406,20 +517,43 @@ export class RealmScene extends Phaser.Scene {
     zone(RW - 60, RH - 60, '⤒', (d) => { if (d && !this.touch.jump) this.touchJumpPressed = true; this.touch.jump = d; });
   }
 
+  private banner(title: string, sub = ''): void {
+    this.bannerText.setText(sub ? `${title}\n${sub}` : title).setAlpha(1);
+    this.tweens.killTweensOf(this.bannerText);
+    this.tweens.add({ targets: this.bannerText, alpha: 0, delay: 2600, duration: 900 });
+  }
+
   private updateHud(): void {
-    this.hpBar.width = 218 * Math.max(0, this.hp) / MAX_HP;
-    this.hpText.setText(`HP ${Math.ceil(Math.max(0, this.hp))} / ${MAX_HP}`);
-    const night = nightFactor(this.clock) > 0.5;
-    const depth = this.depthTiles();
-    this.infoText.setText(`${night ? '🌙 Night' : '☀ Day'} · ${depth > 0 ? `${depth} m deep` : 'surface'} · 🧪 ${this.count('potion')}`);
-    this.swordText.setText(`⚔ ${SWORDS[this.sword].name} (${SWORDS[this.sword].damage})`);
+    this.hpBar.width = 218 * Math.max(0, this.hp) / this.maxHp;
+    this.hpText.setText(`HP ${Math.ceil(Math.max(0, this.hp))} / ${this.maxHp}`);
+    this.relicText.setText(POCKET_ORDER.map((id) => (this.relics.has(id) ? RELICS[id].icon : '◌')).join(' '));
+    this.buffText.setText(BREW_IDS.filter((b) => (this.buffs[b] ?? 0) > 0).map((b) => `${ITEM_ICON[b]} ${Math.ceil(this.buffs[b]! / 1000)}s`).join('  ')
+      + (this.pocket === 'ember' && !this.heatProof() ? '   🔥 HEAT' : ''));
+    const showBreath = this.breath < BREATH_MAX;
+    this.breathBack.setVisible(showBreath);
+    this.breathBar.setVisible(showBreath).width = 118 * (this.breath / BREATH_MAX);
+    const b = this.boss;
+    for (const o of [this.bossBack, this.bossBar, this.bossText]) o.setVisible(!!b);
+    if (b) {
+      this.bossBar.width = 400 * (b.hp / b.def.hp);
+      this.bossText.setText(`${b.def.name}${enraged(b) ? ' · ENRAGED' : ''}`);
+    }
+    if (this.pocket) {
+      this.infoText.setText(`${POCKETS[this.pocket].name} · 🧪 ${this.count('potion')}`);
+    } else {
+      const night = nightFactor(this.clock) > 0.5;
+      const depth = this.depthTiles();
+      this.infoText.setText(`${night ? '🌙 Night' : '☀ Day'} · ${depth > 0 ? `${depth} m deep` : 'surface'} · 🧪 ${this.count('potion')}`);
+    }
+    this.swordText.setText(`⚔ ${SWORDS[this.sword].name} (${this.swordDamage()})`);
     HOTBAR.forEach((slot, i) => {
       const selected = i === this.slot;
       this.slotBoxes[i].setStrokeStyle(selected ? 3 : 2, selected ? 0xfacc15 : 0x362a52);
-      this.slotTexts[i].setText(slot === 'pickaxe' ? '⛏' : `${ITEM_ICON[slot]}\n${this.count(slot)}`).setFontSize(slot === 'pickaxe' ? 22 : 14);
+      this.slotTexts[i].setText(slot === 'pickaxe' ? '⛏' : `${ITEM_ICON[slot]}\n${this.count(slot)}`).setFontSize(slot === 'pickaxe' ? 20 : 13);
     });
     const current = HOTBAR[this.slot];
-    this.slotLabel.setText(current === 'pickaxe' ? PICKAXES[this.pickaxe].name : `${ITEM_NAME[current]} ×${this.count(current)}`);
+    const brew = (BREW_IDS as string[]).includes(current) ? ` · ${BREWS[current as BrewId].effect}` : '';
+    this.slotLabel.setText(current === 'pickaxe' ? PICKAXES[this.pickaxe].name : `${ITEM_NAME[current]} ×${this.count(current)}${brew}`);
   }
 
   private floatText(x: number, y: number, text: string, color: string): void {
@@ -437,6 +571,7 @@ export class RealmScene extends Phaser.Scene {
       a: K.A, d: K.D, w: K.W, space: K.SPACE, j: K.J, k: K.K, e: K.E, q: K.Q, esc: K.ESC,
       up: K.UP, down: K.DOWN, left: K.LEFT, right: K.RIGHT,
       one: K.ONE, two: K.TWO, three: K.THREE, four: K.FOUR, five: K.FIVE, six: K.SIX,
+      seven: K.SEVEN, eight: K.EIGHT, nine: K.NINE, zero: K.ZERO, s: K.S,
     }) as Record<string, Phaser.Input.Keyboard.Key>;
     this.input.mouse?.disableContextMenu();
     this.input.on('pointermove', () => { this.lastMouseMove = this.time.now; });
@@ -487,12 +622,12 @@ export class RealmScene extends Phaser.Scene {
   private buildCraftPanel(): void {
     const font = 'system-ui, sans-serif';
     const panel = this.add.container(RW / 2, RH / 2).setScrollFactor(0).setDepth(80);
-    panel.add(this.add.rectangle(0, 0, 560, 400, 0x0b0714, 0.96).setStrokeStyle(2, 0x7c3aed));
-    panel.add(this.add.text(0, -178, 'ALCHEMY & SMITHING', { fontSize: '18px', fontFamily: font, fontStyle: 'bold', color: '#c4b5fd' }).setOrigin(0.5));
-    panel.add(this.add.text(0, 180, 'click / A to craft · E / Y / B to close', { fontSize: '11px', fontFamily: font, color: '#6b6180' }).setOrigin(0.5));
+    panel.add(this.add.rectangle(0, 0, 560, 480, 0x0b0714, 0.96).setStrokeStyle(2, 0x7c3aed));
+    panel.add(this.add.text(0, -218, 'ALCHEMY & SMITHING', { fontSize: '18px', fontFamily: font, fontStyle: 'bold', color: '#c4b5fd' }).setOrigin(0.5));
+    panel.add(this.add.text(0, 224, 'click / A to craft · E / Y / B to close', { fontSize: '11px', fontFamily: font, color: '#6b6180' }).setOrigin(0.5));
     RECIPES.forEach((recipe, i) => {
-      const y = -130 + i * 44;
-      const bg = this.add.rectangle(0, y, 520, 38, 0x1c1430).setStrokeStyle(1, 0x362a52).setInteractive({ useHandCursor: true });
+      const y = -186 + i * 37;
+      const bg = this.add.rectangle(0, y, 520, 32, 0x1c1430).setStrokeStyle(1, 0x362a52).setInteractive({ useHandCursor: true });
       const text = this.add.text(-248, y, '', { fontSize: '13px', fontFamily: font, color: '#ffffff' }).setOrigin(0, 0.5);
       bg.on('pointerdown', () => { this.craftIndex = i; this.craft(recipe); });
       panel.add([bg, text]);
@@ -556,7 +691,7 @@ export class RealmScene extends Phaser.Scene {
       return;
     }
 
-    this.clock += dt;
+    if (!this.pocket) this.clock += dt;
     this.updateLighting(dt);
 
     if (this.dead) {
@@ -568,18 +703,40 @@ export class RealmScene extends Phaser.Scene {
     // hotbar & potion
     if (pad.pressed.lb) this.cycleSlot(-1);
     if (pad.pressed.rb) this.cycleSlot(1);
-    (['one', 'two', 'three', 'four', 'five', 'six'] as const).forEach((key, i) => { if (J(k[key])) this.slot = i; });
+    (['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'zero'] as const).forEach((key, i) => { if (J(k[key])) this.slot = i; });
     if (pad.pressed.b || J(k.q)) this.drinkPotion();
 
     // movement
     const left = k.a.isDown || k.left.isDown || pad.held.left || this.touch.left;
     const right = k.d.isDown || k.right.isDown || pad.held.right || this.touch.right;
-    const jumpPressed = pad.pressed.a || J(k.w) || J(k.space) || this.touchJumpPressed;
+    let jumpPressed = pad.pressed.a || J(k.w) || J(k.space) || this.touchJumpPressed;
     const jumpHeld = pad.held.a || k.w.isDown || k.space.isDown || this.touch.jump;
     this.touchJumpPressed = false;
     const body = this.player.body as Phaser.Physics.Arcade.Body;
-    updateController(body, { left, right, jumpPressed, jumpHeld }, this.ctrl, { moveSpeed: MOVE_SPEED, moveAccel: PHYS.moveAccel, jumpScale: JUMP_SCALE }, dt);
+    const grounded = body.blocked.down || body.touching.down;
+    const inWater = this.isWaterAt(this.player.x, this.player.y - 18);
+
+    // portals: stand in one and press down
+    const portal = this.portalHere();
+    this.promptText.setVisible(!!portal).setText(portal ? `▼ ${portal === 'home' ? 'return to the Overworld' : `enter the ${POCKETS[portal].name}`}` : '');
+    if (portal && (pad.pressed.down || J(k.down) || J(k.s))) {
+      void this.travel(portal);
+      return;
+    }
+
+    // Gale Plume: one extra jump in the air
+    if (grounded || inWater) this.airJumpsUsed = 0;
+    if (jumpPressed && !grounded && !inWater && this.ctrl.coyoteMs <= 0 && this.relics.has('gale') && this.airJumpsUsed < 1) {
+      body.setVelocityY(PHYS.jumpVelocity * JUMP_SCALE * 0.92);
+      this.ctrl.jumpCutApplied = false;
+      this.airJumpsUsed += 1;
+      jumpPressed = false;
+    }
+    const swimSpeed = inWater && !this.relics.has('tide') ? 0.7 : 1;
+    updateController(body, { left, right, jumpPressed: jumpPressed && !inWater, jumpHeld }, this.ctrl,
+      { moveSpeed: MOVE_SPEED * swimSpeed, moveAccel: PHYS.moveAccel, jumpScale: JUMP_SCALE }, dt);
     applyHeroGravity(body);
+    this.updateEnvironment(dt, body, { inWater, grounded, jumpPressed, jumpHeld });
     if (left && !right) this.facing = -1;
     else if (right && !left) this.facing = 1;
     this.player.setFlipX(this.facing < 0);
@@ -599,22 +756,121 @@ export class RealmScene extends Phaser.Scene {
 
     // regen
     this.sinceHit += dt;
-    if (this.sinceHit > REGEN_DELAY_MS && this.hp < MAX_HP) this.hp = Math.min(MAX_HP, this.hp + (REGEN_PER_S * dt) / 1000);
+    if (this.sinceHit > REGEN_DELAY_MS && this.hp < this.maxHp) this.hp = Math.min(this.maxHp, this.hp + (REGEN_PER_S * dt) / 1000);
+    for (const b of BREW_IDS) if ((this.buffs[b] ?? 0) > 0) this.buffs[b] = Math.max(0, this.buffs[b]! - dt);
 
     this.updateEnemies(dt);
+    this.updateHazards();
+    this.updateBossFight(dt);
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0) {
       this.spawnTimer = SPAWN_EVERY_MS;
       this.trySpawn();
     }
 
-    music.play(nightFactor(this.clock) > 0.5 && this.depthTiles() < 12 ? 'danger' : 'explore');
+    if (this.pocket) music.play(this.boss ? 'danger' : this.bossDefeated ? 'win' : 'explore');
+    else music.play(nightFactor(this.clock) > 0.5 && this.depthTiles() < 12 ? 'danger' : 'explore');
     this.updateHud();
     this.autosaveTimer += dt;
     if (this.autosaveTimer >= AUTOSAVE_MS) {
       this.autosaveTimer = 0;
       void this.save();
     }
+  }
+
+  private isWaterAt(x: number, y: number): boolean {
+    return this.tileAt(Math.floor(x / TILE), Math.floor(y / TILE)) === T.WATER;
+  }
+
+  private heatProof(): boolean {
+    return this.relics.has('ember') || (this.buffs.fireward ?? 0) > 0;
+  }
+
+  /**
+   * Each realm's pressure: water (swim, breath), lava, the Ember heat, the
+   * Gale void and wind. Runs after the controller so it can override it.
+   */
+  private updateEnvironment(dt: number, body: Phaser.Physics.Arcade.Body, s: { inWater: boolean; grounded: boolean; jumpPressed: boolean; jumpHeld: boolean }): void {
+    const secs = dt / 1000;
+    // swimming: floaty, strokes on jump, and your breath runs out with your head under
+    const headUnder = this.isWaterAt(this.player.x, this.player.y - 36);
+    if (s.inWater) {
+      body.setGravityY(PHYS.gravityY * 0.18);
+      // at the surface (head out) a jump breaches, full height, so you can climb out onto land
+      if (s.jumpPressed) body.setVelocityY(headUnder ? SWIM_STROKE : PHYS.jumpVelocity * JUMP_SCALE);
+      if (body.velocity.y > SWIM_MAX_FALL) body.setVelocityY(SWIM_MAX_FALL);
+    }
+    const canBreathe = this.relics.has('tide') || (this.buffs.gills ?? 0) > 0;
+    if (headUnder && !canBreathe) this.breath = Math.max(0, this.breath - BREATH_LOSS_PER_S * secs);
+    else this.breath = Math.min(BREATH_MAX, this.breath + 40 * secs);
+    if (this.breath <= 0) this.drain(DROWN_PER_S * secs);
+
+    // Gale Draught: hold jump to float down
+    if ((this.buffs.gale ?? 0) > 0 && s.jumpHeld && body.velocity.y > GALE_FALL) body.setVelocityY(GALE_FALL);
+
+    // lava burns (the Ember Heart makes you immune; a Fire Ward halves it)
+    const feet = this.tileAt(Math.floor(this.player.x / TILE), Math.floor((this.player.y - 4) / TILE));
+    const mid = this.tileAt(Math.floor(this.player.x / TILE), Math.floor((this.player.y - 20) / TILE));
+    if ((feet === T.LAVA || mid === T.LAVA) && !this.relics.has('ember')) {
+      if (this.invuln <= 0) {
+        this.hurtPlayer(LAVA_DAMAGE * ((this.buffs.fireward ?? 0) > 0 ? 0.5 : 1), this.player.x);
+        body.setVelocityY(-420);
+      }
+    } else if (s.grounded) {
+      this.lastSafe = { x: this.player.x, y: this.player.y };
+    }
+    if (this.pocket === 'ember' && !this.heatProof()) this.drain(HEAT_DRAIN_PER_S * secs);
+
+    // the Gale void: falling off the islands costs HP and puts you back on the last ground
+    if (this.pocket === 'gale') {
+      if (this.player.y > (this.world.h - 3) * TILE) {
+        body.reset(this.lastSafe.x, this.lastSafe.y);
+        this.invuln = 1000;
+        this.drain(VOID_DAMAGE);
+        this.cameras.main.flash(150, 200, 220, 255);
+      }
+      this.wind.timer -= dt;
+      if (this.wind.timer <= 0) {
+        if (this.wind.force === 0) { this.wind.force = Math.random() < 0.5 ? -1 : 1; this.wind.timer = 1600; }
+        else { this.wind.force = 0; this.wind.timer = 3500 + Math.random() * 2500; }
+      }
+      if (this.wind.force !== 0 && !s.grounded) {
+        body.setVelocityX(Phaser.Math.Clamp(body.velocity.x + this.wind.force * WIND_ACCEL * secs, -260, 260));
+      }
+      this.windStreaks.forEach((r, i) => {
+        r.setVisible(this.wind.force !== 0);
+        if (this.wind.force !== 0) {
+          const x = ((this.time.now * 0.9 + i * 137) % (RW + 120)) - 60;
+          r.setPosition(this.wind.force > 0 ? x : RW - x, 40 + ((i * 97) % (RH - 80)));
+        }
+      });
+    }
+  }
+
+  /** environmental damage: no knockback, no invulnerability window */
+  private drain(amount: number): void {
+    if (this.dead || amount <= 0) return;
+    this.hp -= amount;
+    this.sinceHit = 0;
+    if (this.hp <= 0) this.die();
+  }
+
+  /** which portal the player is standing in: a realm (overworld shrine) or 'home' (inside a realm) */
+  private portalHere(): PocketId | 'home' | null {
+    const tx = Math.floor(this.player.x / TILE);
+    const ty = Math.floor((this.player.y - 8) / TILE);
+    if (this.tileAt(tx, ty) !== T.PORTAL) return null;
+    if (this.pocket) return 'home';
+    const p = (this.world.portals ?? []).find((q) => tx >= q.tx && tx < q.tx + 2);
+    return p?.pocket ?? null;
+  }
+
+  private async travel(to: PocketId | 'home'): Promise<void> {
+    if (!this.ready) return;
+    this.ready = false; // freeze input while we save and swap worlds
+    await this.save();
+    this.cameras.main.fadeOut(250, 0, 0, 0);
+    this.time.delayedCall(260, () => this.scene.restart(to === 'home' ? {} : { pocket: to }));
   }
 
   private updateCraftInput(pad: ReturnType<typeof mergePads>, k: Record<string, Phaser.Input.Keyboard.Key>): void {
@@ -704,6 +960,8 @@ export class RealmScene extends Phaser.Scene {
       }
     } else if (slot === 'potion') {
       if (pressed) this.drinkPotion();
+    } else if ((BREW_IDS as string[]).includes(slot)) {
+      if (pressed) this.drinkBrew(slot as BrewId);
     } else if (pressed || this.placeTimer <= 0) {
       if (this.placeTile(tx, ty, slot)) this.placeTimer = PLACE_REPEAT_MS;
     }
@@ -711,7 +969,7 @@ export class RealmScene extends Phaser.Scene {
 
   private drawAim(): void {
     const slot = HOTBAR[this.slot];
-    if (!this.aim || slot === 'potion') {
+    if (!this.aim || slot === 'potion' || (BREW_IDS as string[]).includes(slot)) {
       this.aimRect.setVisible(false);
       return;
     }
@@ -730,10 +988,23 @@ export class RealmScene extends Phaser.Scene {
   }
 
   private drinkPotion(): void {
-    if (this.count('potion') <= 0 || this.hp >= MAX_HP || this.dead) return;
+    if (this.count('potion') <= 0 || this.hp >= this.maxHp || this.dead) return;
     this.inventory.potion = this.count('potion') - 1;
-    this.hp = Math.min(MAX_HP, this.hp + POTION_HEAL);
+    this.hp = Math.min(this.maxHp, this.hp + POTION_HEAL);
     this.floatText(this.player.x, this.player.y - 50, `+${POTION_HEAL} HP`, '#4ade80');
+  }
+
+  private drinkBrew(brew: BrewId): void {
+    if (this.count(brew) <= 0 || this.dead) return;
+    this.inventory[brew] = this.count(brew) - 1;
+    this.buffs[brew] = BREWS[brew].ms;
+    this.floatText(this.player.x, this.player.y - 50, `${ITEM_ICON[brew]} ${ITEM_NAME[brew]}`, '#a7f3d0');
+  }
+
+  /** blade tier, plus the Ember Heart's fire and a Strength Tonic */
+  private swordDamage(): number {
+    const base = SWORDS[this.sword].damage + (this.relics.has('ember') ? 4 : 0);
+    return Math.round(base * ((this.buffs.tonic ?? 0) > 0 ? 1.5 : 1));
   }
 
   // ---------------- combat ----------------
@@ -751,12 +1022,20 @@ export class RealmScene extends Phaser.Scene {
       duration: 160,
       onComplete: () => this.swordSprite.setVisible(false),
     });
-    const damage = SWORDS[this.sword].damage;
-    for (const e of [...this.enemies]) {
-      const b = e.sprite.body as Phaser.Physics.Arcade.Body;
-      const ex = b.center.x;
-      const ey = b.center.y;
-      if (Math.hypot(ex - hx, ey - hy) <= SWING_RANGE + Math.max(b.width, b.height) / 2) this.hurtEnemy(e, damage, dir);
+    const damage = this.swordDamage();
+    const inReach = (b: Phaser.Physics.Arcade.Body) => Math.hypot(b.center.x - hx, b.center.y - hy) <= SWING_RANGE + Math.max(b.width, b.height) / 2;
+    for (const e of [...this.enemies]) if (inReach(e.sprite.body as Phaser.Physics.Arcade.Body)) this.hurtEnemy(e, damage, dir);
+    const boss = this.boss;
+    if (boss && inReach(boss.sprite.body as Phaser.Physics.Arcade.Body)) {
+      const dealt = hitBoss(boss, damage, this.player.x);
+      if (dealt === 0) {
+        this.floatText(boss.sprite.x, boss.sprite.y - 60, 'BLOCKED', '#94a3b8');
+      } else {
+        this.floatText(boss.sprite.x, boss.sprite.y - 60, `${dealt}`, '#fca5a5');
+        boss.sprite.setTint(0xff5c5c);
+        this.time.delayedCall(90, () => { if (boss.sprite.active) boss.sprite.clearTint(); });
+        if (boss.hp <= 0) this.defeatBoss();
+      }
     }
   }
 
@@ -799,14 +1078,18 @@ export class RealmScene extends Phaser.Scene {
     (this.player.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0).enable = false;
     this.aimRect.setVisible(false);
     music.play('loss');
-    this.deathText = this.add.text(RW / 2, RH / 2, 'YOU FELL\nthe Forever Realm does not let you go…', {
+    this.deathText = this.add.text(RW / 2, RH / 2, this.pocket ? `YOU FELL\nthe ${POCKETS[this.pocket].name} casts you back to its gate…` : 'YOU FELL\nthe Forever Realm does not let you go…', {
       fontSize: '26px', fontFamily: 'system-ui, sans-serif', fontStyle: 'bold', color: '#e11d48', align: 'center',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(70);
   }
 
   private respawn(): void {
     this.dead = false;
-    this.hp = MAX_HP;
+    this.hp = this.maxHp;
+    this.breath = BREATH_MAX;
+    // dying in a realm sends you back to its entrance and resets any boss fight
+    if (this.boss) this.endBossFight(false);
+    for (const h of [...this.hazards]) this.removeHazard(h);
     this.invuln = 1500;
     this.deathText?.destroy();
     this.deathText = undefined;
@@ -817,20 +1100,167 @@ export class RealmScene extends Phaser.Scene {
     for (const e of this.enemies) if (Phaser.Math.Distance.Between(e.sprite.x, e.sprite.y, this.player.x, this.player.y) < 500) this.despawn(e);
   }
 
+  // ---------------- realm bosses ----------------
+
+  private bossCtx(): BossCtx {
+    const pw = this.pocketWorld!;
+    return {
+      player: this.player,
+      arena: {
+        x0: pw.arena.x0 * TILE,
+        x1: pw.arena.x1 * TILE,
+        floorY: pw.arena.floorY * TILE,
+        waterTopY: pw.waterTop !== undefined ? pw.waterTop * TILE : undefined,
+      },
+      hazard: (spec) => this.spawnHazard(spec),
+      summon: (id, x, y) => { this.spawnEnemy(REALM_ENEMIES[id], x, y); },
+      shake: (ms, intensity) => this.cameras.main.shake(ms, intensity),
+      float: (x, y, text, color) => this.floatText(x, y, text, color),
+    };
+  }
+
+  /** stepping into the arena closes the gate behind you and wakes the boss */
+  private updateBossFight(dt: number): void {
+    const pw = this.pocketWorld;
+    if (!pw) return;
+    if (!this.boss && !this.bossDefeated && this.player.x > (pw.arena.x0 + 3) * TILE) this.startBossFight();
+    const b = this.boss;
+    if (!b) return;
+    updateBoss(b, this.bossCtx(), dt);
+    const bd = b.sprite.body as Phaser.Physics.Arcade.Body;
+    // keep flyers inside the arena box
+    b.sprite.x = Phaser.Math.Clamp(b.sprite.x, (pw.arena.x0 + 1) * TILE, (pw.arena.x1 - 1) * TILE);
+    if (b.def.flies) b.sprite.y = Phaser.Math.Clamp(b.sprite.y, (pw.arena.floorY - 18) * TILE, (pw.arena.floorY - 1) * TILE);
+    if (b.sprite.y > this.world.h * TILE) bd.reset((pw.arena.x0 + pw.arena.x1) / 2 * TILE, (pw.arena.floorY - 2) * TILE);
+  }
+
+  private startBossFight(): void {
+    const pw = this.pocketWorld!;
+    const def = BOSSES[POCKETS[pw.pocket].boss];
+    const cx = ((pw.arena.x0 + pw.arena.x1) / 2 + 8) * TILE;
+    const y = def.flies ? (pw.arena.floorY - (def.id === 'leviathan' ? 5 : 12)) * TILE : pw.arena.floorY * TILE;
+    const sprite = this.physics.add.sprite(cx, y, def.texture).setOrigin(0.5, def.flies ? 0.5 : 1).setDepth(9);
+    const body = sprite.body as Phaser.Physics.Arcade.Body;
+    if (def.flies) body.setAllowGravity(false);
+    else {
+      body.setGravityY(PHYS.gravityY);
+      this.physics.add.collider(sprite, this.layer);
+    }
+    this.physics.add.overlap(this.player, sprite, () => {
+      const b = this.boss;
+      if (!b || b.sprite !== sprite) return;
+      const harmless = b.phase === 'reel' || b.phase === 'tired' || b.phase === 'recover';
+      if (!harmless) this.hurtPlayer(def.contactDamage, sprite.x);
+    });
+    this.boss = createBoss(def, sprite);
+    // flying bosses fight from above: look higher so they stay clear of the HUD
+    if (def.flies) this.cameras.main.setFollowOffset(0, 90);
+    // close the arena behind you
+    this.gateTiles = [];
+    for (let ty = pw.arena.floorY - 1; ty > pw.arena.floorY - 16 && ty > 0; ty--) {
+      const tx = pw.arena.x0;
+      if (this.tileAt(tx, ty) === T.AIR || this.tileAt(tx, ty) === T.WATER) {
+        this.gateTiles.push({ tx, ty });
+        this.setTile(tx, ty, T.SHRINE);
+      }
+    }
+    this.banner(def.name.toUpperCase(), POCKETS[pw.pocket].name);
+    this.cameras.main.shake(250, 0.006);
+  }
+
+  /** victory drops the relic and loot and opens a way home; a loss (death) just resets the arena */
+  private endBossFight(victory: boolean): void {
+    const b = this.boss;
+    if (!b) return;
+    this.boss = undefined;
+    this.cameras.main.setFollowOffset(0, 0);
+    const pw = this.pocketWorld!;
+    const refill = pw.pocket === 'tide' ? T.WATER : T.AIR;
+    for (const g of this.gateTiles) this.setTile(g.tx, g.ty, pw.waterTop !== undefined && g.ty >= pw.waterTop ? refill : T.AIR);
+    this.gateTiles = [];
+    for (const h of [...this.hazards]) this.removeHazard(h);
+    if (!victory) {
+      b.sprite.destroy();
+      return;
+    }
+    (b.sprite.body as Phaser.Physics.Arcade.Body).enable = false;
+    this.tweens.add({ targets: b.sprite, alpha: 0, scale: 1.4, duration: 700, onComplete: () => b.sprite.destroy() });
+  }
+
+  private defeatBoss(): void {
+    const pw = this.pocketWorld!;
+    const def = POCKETS[pw.pocket];
+    const at = { x: this.boss!.sprite.x, y: this.boss!.sprite.y - 40 };
+    this.endBossFight(true);
+    this.bossDefeated = true;
+    for (const e of [...this.enemies]) this.killEnemy(e);
+    const firstTime = !this.relics.has(pw.pocket);
+    this.relics.add(pw.pocket);
+    this.addItem(def.loot.item, def.loot.count, at);
+    const relic = RELICS[pw.pocket];
+    this.banner(`${relic.icon} ${relic.name}`, relic.power);
+    if (firstTime && this.relics.size === POCKET_ORDER.length) {
+      this.time.delayedCall(3600, () => this.banner('THE FOREVER GATE STIRS…', 'all four relics are yours'));
+    }
+    // a way home, in the middle of the arena
+    const tx = Math.floor((pw.arena.x0 + pw.arena.x1) / 2);
+    for (let dx = 0; dx < 2; dx++) for (let dy = 1; dy <= 3; dy++) this.setTile(tx + dx, pw.arena.floorY - dy, T.PORTAL);
+    this.hp = this.maxHp;
+    for (const p of readPads(this.time.now)) rumble(p.index, 400, 0.8);
+    void this.save();
+  }
+
+  private spawnHazard(spec: HazardSpec): void {
+    const sprite = this.physics.add.sprite(spec.x, spec.y, spec.texture).setDepth(12);
+    const body = sprite.body as Phaser.Physics.Arcade.Body;
+    body.setAllowGravity(!!spec.gravity);
+    if (spec.gravity) body.setGravityY(spec.gravity);
+    body.setVelocity(spec.vx, spec.vy);
+    sprite.setFlipX(spec.vx < 0);
+    const h: Hazard = { sprite, damage: spec.damage, colliders: [] };
+    h.colliders.push(this.physics.add.overlap(this.player, sprite, () => {
+      if (this.invuln > 0 || this.dead) return;
+      this.hurtPlayer(h.damage, sprite.x);
+      this.removeHazard(h);
+    }));
+    if (spec.solidStops) h.colliders.push(this.physics.add.collider(sprite, this.layer, () => this.removeHazard(h)));
+    this.hazards.push(h);
+    this.time.delayedCall(spec.lifespanMs, () => this.removeHazard(h));
+  }
+
+  private removeHazard(h: Hazard): void {
+    if (!this.hazards.includes(h)) return;
+    this.hazards = this.hazards.filter((x) => x !== h);
+    for (const c of h.colliders) c.destroy();
+    if (h.sprite.active) h.sprite.destroy();
+  }
+
+  private updateHazards(): void {
+    for (const h of [...this.hazards]) if (!h.sprite.active) this.removeHazard(h);
+  }
+
   // ---------------- creatures ----------------
 
   private trySpawn(): void {
     const depth = this.depthTiles();
     const night = nightFactor(this.clock) > 0.5;
-    if (this.enemies.length >= spawnCap(depth, night)) return;
-    const table = spawnTable(depth, night);
+    const pocketDef = this.pocket ? POCKETS[this.pocket] : undefined;
+    // no ambient spawns in (or after) a boss arena
+    if (pocketDef && (this.boss || this.bossDefeated || this.player.x > (this.pocketWorld!.arena.x0 - 20) * TILE)) return;
+    if (this.enemies.length >= (pocketDef ? pocketDef.spawnCap : spawnCap(depth, night))) return;
+    const table = pocketDef ? pocketDef.enemies : spawnTable(depth, night);
     const def = REALM_ENEMIES[table[Math.floor(Math.random() * table.length)]];
     const side = Math.random() < 0.5 ? -1 : 1;
     const x = this.player.x + side * (RW / 2 + 60 + Math.random() * 160);
     const tx = Math.floor(x / TILE);
     if (tx < 2 || tx >= this.world.w - 2) return;
     let y: number | null = null;
-    if (def.phasing) {
+    if (def.ai === 'swim') {
+      const pty = Math.floor(this.player.y / TILE);
+      for (let off = 0; off <= 14 && y === null; off++) {
+        for (const ty of [pty + off, pty - off]) if (this.tileAt(tx, ty) === T.WATER && this.tileAt(tx, ty - 1) === T.WATER) { y = ty * TILE; break; }
+      }
+    } else if (def.phasing) {
       y = this.player.y - 60 - Math.random() * 120;
     } else {
       const pty = Math.floor(this.player.y / TILE);
@@ -846,14 +1276,13 @@ export class RealmScene extends Phaser.Scene {
   }
 
   private spawnEnemy(def: RealmEnemyDef, x: number, y: number): RealmEnemy {
-    const sprite = this.physics.add.sprite(x, y, def.texture).setOrigin(0.5, def.phasing ? 0.5 : 1).setDepth(9);
+    const floats = def.ai === 'fly' || def.ai === 'swim';
+    const sprite = this.physics.add.sprite(x, y, def.texture).setOrigin(0.5, floats ? 0.5 : 1).setDepth(9);
     const body = sprite.body as Phaser.Physics.Arcade.Body;
     const e: RealmEnemy = { sprite, def, hp: def.hp, timer: 600 + Math.random() * 600, colliders: [] };
-    if (def.phasing) body.setAllowGravity(false);
-    else {
-      body.setGravityY(PHYS.gravityY);
-      e.colliders.push(this.physics.add.collider(sprite, this.layer));
-    }
+    if (floats) body.setAllowGravity(false);
+    else body.setGravityY(PHYS.gravityY);
+    if (!def.phasing) e.colliders.push(this.physics.add.collider(sprite, this.layer));
     e.colliders.push(this.physics.add.overlap(this.player, sprite, () => this.hurtPlayer(def.damage, sprite.x)));
     this.enemies.push(e);
     return e;
@@ -878,8 +1307,8 @@ export class RealmScene extends Phaser.Scene {
       e.timer -= dt;
       e.sprite.setFlipX(dir < 0);
       const grounded = body.blocked.down || body.touching.down;
-      switch (e.def.id) {
-        case 'slime':
+      switch (e.def.ai) {
+        case 'hop':
           if (grounded) {
             body.setVelocityX(body.velocity.x * 0.8);
             if (e.timer <= 0) {
@@ -888,14 +1317,27 @@ export class RealmScene extends Phaser.Scene {
             }
           }
           break;
-        case 'crawler':
+        case 'walk':
           if (e.timer <= 0) body.setVelocityX(dir * e.def.speed);
           if (grounded && (body.blocked.left || body.blocked.right) && e.timer <= 0) {
             body.setVelocityY(-430);
             e.timer = 300;
           }
           break;
-        case 'wraith': {
+        case 'swim': {
+          // eels never leave the water: any step that would take them out is cancelled
+          if (e.timer > 0) break;
+          const d = Math.hypot(dx, dy) || 1;
+          const chase = this.isWaterAt(this.player.x, this.player.y - 18);
+          let vx = chase ? (dx / d) * e.def.speed : Math.sin(this.time.now / 900 + e.sprite.x) * 50;
+          let vy = chase ? (dy / d) * e.def.speed : 0;
+          if (!this.isWaterAt(e.sprite.x + Math.sign(vx) * 18, e.sprite.y)) vx = 0;
+          if (!this.isWaterAt(e.sprite.x, e.sprite.y + Math.sign(vy) * 14)) vy = 0;
+          body.setVelocity(vx, vy);
+          if (!this.isWaterAt(e.sprite.x, e.sprite.y)) body.setVelocityY(90); // stranded: sink back in
+          break;
+        }
+        case 'fly': {
           if (e.timer > 0) break; // staggered
           const d = Math.hypot(dx, dy) || 1;
           body.setVelocity((dx / d) * e.def.speed, (dy / d) * e.def.speed + Math.sin(this.clock / 300) * 20);
@@ -910,14 +1352,15 @@ export class RealmScene extends Phaser.Scene {
 
   /** dark by night and underground; torches and soulstone push it back */
   private darknessAlpha(): number {
+    if (this.pocket) return POCKETS[this.pocket].darkness;
     const underground = Phaser.Math.Clamp((this.depthTiles() - 3) / 14, 0, 1);
     return Math.max(nightFactor(this.clock) * 0.62, underground * 0.93);
   }
 
   private updateLighting(dt: number): void {
-    const night = nightFactor(this.clock);
+    const night = this.pocket ? 0 : nightFactor(this.clock);
     // the background is the sky; caves are dark because the darkness layer covers them, not the sky
-    this.cameras.main.setBackgroundColor(lerpColor(0x4b6c9e, 0x0b0714, night));
+    this.cameras.main.setBackgroundColor(this.pocket ? POCKETS[this.pocket].sky : lerpColor(0x4b6c9e, 0x0b0714, night));
 
     const alpha = this.darknessAlpha();
     if (alpha < 0.02) {
@@ -945,7 +1388,9 @@ export class RealmScene extends Phaser.Scene {
       const y1 = Math.min(this.world.h - 1, Math.ceil(cam.worldView.bottom / TILE));
       for (let ty = y0; ty <= y1; ty++) {
         for (let tx = x0; tx <= x1; tx++) {
-          if (this.world.tiles[ty * w + tx] === T.SOULSTONE) this.lightSources.push({ x: tx * TILE + 8, y: ty * TILE + 8, r: 34 });
+          const id = this.world.tiles[ty * w + tx];
+          if (id === T.SOULSTONE) this.lightSources.push({ x: tx * TILE + 8, y: ty * TILE + 8, r: 34 });
+          else if (id === T.LAVA || id === T.PORTAL) this.lightSources.push({ x: tx * TILE + 8, y: ty * TILE + 8, r: TILE_INFO[id].light! });
         }
       }
     }
@@ -955,7 +1400,8 @@ export class RealmScene extends Phaser.Scene {
     // sunlight/moonlight reaches everything above the ground line: there the
     // darkness only needs to be as deep as the time of day makes it
     const skyDark = night * 0.62;
-    const skyErase = alpha > 0 ? 1 - skyDark / alpha : 0;
+    // portal realms have no sun: their darkness is the realm's own
+    const skyErase = !this.pocket && alpha > 0 ? 1 - skyDark / alpha : 0;
     if (skyErase > 0.01) {
       const g = this.skyLight.clear();
       const x0 = Math.max(0, Math.floor(cam.worldView.x / TILE));
@@ -982,16 +1428,25 @@ export class RealmScene extends Phaser.Scene {
   // ---------------- save ----------------
 
   private async save(): Promise<void> {
-    if (!this.ready || !this.world) return;
+    if (!this.world || !this.player) return;
+    if (this.pocket) {
+      // a portal realm never overwrites the overworld: only your gear, pack and relics travel back
+      const base = await loadRealm();
+      if (!base) return;
+      const { id: _id, version: _v, savedAt: _at, ...rest } = base;
+      await saveRealm({ ...rest, inventory: this.inventory, sword: this.sword, pickaxe: this.pickaxe, relics: [...this.relics] });
+      return;
+    }
     await saveRealm({
       seed: this.world.seed,
       edits: [...this.edits.entries()],
-      player: { x: this.player.x, y: this.dead ? this.spawnPoint.y : this.player.y, hp: this.dead ? MAX_HP : this.hp },
+      player: { x: this.player.x, y: this.dead ? this.spawnPoint.y : this.player.y, hp: this.dead ? this.maxHp : this.hp },
       spawn: this.spawnPoint,
       inventory: this.inventory,
       sword: this.sword,
       pickaxe: this.pickaxe,
       clock: this.clock,
+      relics: [...this.relics],
     });
   }
 }

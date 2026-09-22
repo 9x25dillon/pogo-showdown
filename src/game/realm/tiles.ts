@@ -18,6 +18,19 @@ export const T = {
   LEAVES: 10,
   TORCH: 11,
   HERB: 12,
+  // Phase 2: portal realms
+  BASALT: 13,
+  ASH: 14,
+  LAVA: 15, // not solid: burns on contact
+  SAND: 16,
+  CORAL: 17,
+  WATER: 18, // not solid: swim, and hold your breath
+  CLOUD: 19,
+  MARBLE: 20,
+  BONE_BRICK: 21,
+  TOMB: 22,
+  PORTAL: 23, // not solid: stand in it and press down
+  SHRINE: 24, // unbreakable shrine and realm-wall stone
 } as const;
 export type TileId = (typeof T)[keyof typeof T];
 
@@ -49,7 +62,22 @@ export const TILE_INFO: Record<number, TileInfo> = {
   [T.LEAVES]: { name: 'Leaves', solid: false, hardness: 60, minPick: 0, color: [0x14532d, 0x22804a] },
   [T.TORCH]: { name: 'Torch', solid: false, hardness: 40, minPick: 0, drop: 'torch', light: 130, color: [0x000000, 0xfbbf24] },
   [T.HERB]: { name: 'Nightbloom', solid: false, hardness: 40, minPick: 0, drop: 'herb', color: [0x000000, 0xa78bfa] },
+  [T.BASALT]: { name: 'Basalt', solid: true, hardness: 700, minPick: 0, drop: 'stone', color: [0x2b2226, 0x4a3a3f] },
+  [T.ASH]: { name: 'Ash', solid: true, hardness: 260, minPick: 0, drop: 'dirt', color: [0x3f3a3a, 0x6b5f5c] },
+  [T.LAVA]: { name: 'Lava', solid: false, hardness: Infinity, minPick: 99, light: 70, color: [0xc2410c, 0xfbbf24] },
+  [T.SAND]: { name: 'Sand', solid: true, hardness: 220, minPick: 0, drop: 'dirt', color: [0xa8905c, 0xd6c08a] },
+  [T.CORAL]: { name: 'Reef Rock', solid: true, hardness: 500, minPick: 0, drop: 'stone', color: [0x2a1a2e, 0x6b2f4a] },
+  [T.WATER]: { name: 'Water', solid: false, hardness: Infinity, minPick: 99, color: [0x1e40af, 0x3b82f6] },
+  [T.CLOUD]: { name: 'Cloudstone', solid: true, hardness: 300, minPick: 0, color: [0xcbd5e1, 0xf8fafc] },
+  [T.MARBLE]: { name: 'Marble', solid: true, hardness: 800, minPick: 0, drop: 'stone', color: [0x94a3b8, 0xe2e8f0] },
+  [T.BONE_BRICK]: { name: 'Bone Brick', solid: true, hardness: 900, minPick: 0, drop: 'bone', color: [0x3a3530, 0x78716c] },
+  [T.TOMB]: { name: 'Tomb', solid: true, hardness: 1200, minPick: 1, drop: 'dust', color: [0x292524, 0x57534e] },
+  [T.PORTAL]: { name: 'Portal', solid: false, hardness: Infinity, minPick: 99, light: 110, color: [0x4c1d95, 0xe879f9] },
+  [T.SHRINE]: { name: 'Shrine Stone', solid: true, hardness: Infinity, minPick: 99, color: [0x1f1a2e, 0x3f3560] },
 };
+
+/** tiles you're *in* rather than standing on */
+export const LIQUIDS: number[] = [T.LAVA, T.WATER];
 
 export const SOLID_TILES = Object.entries(TILE_INFO).filter(([, t]) => t.solid).map(([id]) => Number(id));
 

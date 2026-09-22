@@ -1,4 +1,5 @@
 import { T } from './tiles';
+import { POCKET_ORDER, type PocketId } from './realms';
 
 /**
  * Forever Realm world generation. Pure and seeded: the same seed always
@@ -22,7 +23,13 @@ export interface World {
   /** y of the grass surface for each column, as generated (before edits) */
   surface: Int16Array;
   spawn: { tx: number; ty: number };
+  /** overworld: the shrine's four realm portals (top-left tile, 2x3) */
+  portals?: { pocket: PocketId; tx: number; ty: number }[];
 }
+
+/** the shrine sits a short walk right of spawn on flattened ground */
+export const SHRINE_OFFSET = 14;
+export const SHRINE_W = 28;
 
 function hash(x: number, y: number, seed: number): number {
   let h = (x * 374761393 + y * 668265263 + seed * 2246822519) | 0;
@@ -72,14 +79,18 @@ export function generateWorld(seed: number, w = WORLD_W, h = WORLD_H): World {
   };
   const get = (x: number, y: number) => (x >= 0 && x < w && y >= 0 && y < h ? tiles[y * w + x] : T.BEDROCK);
 
-  // surface: broad hills plus small bumps, flattened around spawn
+  // surface: broad hills plus small bumps, flattened from spawn across the shrine
   const spawnX = Math.floor(w / 2);
+  const flatX0 = spawnX - 4;
+  const flatX1 = spawnX + SHRINE_OFFSET + SHRINE_W + 2;
+  const inFlat = (x: number) => x >= flatX0 && x <= flatX1;
   for (let x = 0; x < w; x++) {
     const broad = fbm(x / 70, 0.5, seed, 3) * 30;
     const bumps = fbm(x / 14, 3.5, seed + 9, 2) * 6;
     let s = Math.round(48 + broad + bumps);
-    const nearSpawn = Math.max(0, 1 - Math.abs(x - spawnX) / 12);
-    s = Math.round(s * (1 - nearSpawn) + 60 * nearSpawn);
+    const toFlat = x < flatX0 ? flatX0 - x : x > flatX1 ? x - flatX1 : 0;
+    const flatten = Math.max(0, 1 - toFlat / 10);
+    s = Math.round(s * (1 - flatten) + 60 * flatten);
     surface[x] = Math.max(34, Math.min(92, s));
   }
 
@@ -101,7 +112,7 @@ export function generateWorld(seed: number, w = WORLD_W, h = WORLD_H): World {
       const depth = y - s;
       const cavern = fbm(x / 26, y / 16, seed + 21) > 0.63 - Math.min(0.06, depth / 1500);
       const tunnel = Math.abs(fbm(x / 38, y / 30, seed + 37, 3) - 0.5) < 0.026;
-      const nearSpawn = Math.abs(x - spawnX) < 5 && depth < 14; // don't open a pit under the player
+      const nearSpawn = inFlat(x) && depth < 14; // don't open a pit under the player or the shrine
       if ((cavern && depth > 12) || (tunnel && !nearSpawn)) set(x, y, T.AIR);
     }
   }
@@ -124,7 +135,7 @@ export function generateWorld(seed: number, w = WORLD_W, h = WORLD_H): World {
     const s = surface[x];
     const r = hash(x, 1, seed + 91);
     const flat = Math.abs(surface[x - 1] - s) <= 1 && Math.abs(surface[x + 1] - s) <= 1;
-    if (Math.abs(x - spawnX) > 6 && flat && get(x, s) === T.GRASS && get(x, s - 1) === T.AIR) {
+    if (!inFlat(x - 3) && !inFlat(x + 3) && flat && get(x, s) === T.GRASS && get(x, s - 1) === T.AIR) {
       const height = 5 + Math.floor(r * 5);
       for (let i = 1; i <= height; i++) set(x, s - i, T.TRUNK);
       const top = s - height;
@@ -136,10 +147,24 @@ export function generateWorld(seed: number, w = WORLD_W, h = WORLD_H): World {
       }
       x += 7 + Math.floor(hash(x, 2, seed) * 8);
     } else {
-      if (r < 0.14 && get(x, s) === T.GRASS && get(x, s - 1) === T.AIR && Math.abs(x - spawnX) > 2) set(x, s - 1, T.HERB);
+      if (r < 0.14 && get(x, s) === T.GRASS && get(x, s - 1) === T.AIR && !inFlat(x)) set(x, s - 1, T.HERB);
       x += 1;
     }
   }
 
-  return { seed, w, h, tiles, surface, spawn: { tx: spawnX, ty: surface[spawnX] - 1 } };
+  // the shrine: a stone plaza with four realm portals
+  const shrineX = spawnX + SHRINE_OFFSET;
+  const floorY = surface[shrineX];
+  const portals: NonNullable<World['portals']> = [];
+  for (let x = shrineX; x < shrineX + SHRINE_W; x++) {
+    for (let y = floorY - 6; y < floorY; y++) set(x, y, T.AIR);
+    set(x, floorY, T.SHRINE);
+  }
+  POCKET_ORDER.forEach((pocket, i) => {
+    const px = shrineX + 3 + i * 7;
+    for (let dx = 0; dx < 2; dx++) for (let dy = 1; dy <= 3; dy++) set(px + dx, floorY - dy, T.PORTAL);
+    portals.push({ pocket, tx: px, ty: floorY - 3 });
+  });
+
+  return { seed, w, h, tiles, surface, spawn: { tx: spawnX, ty: surface[spawnX] - 1 }, portals };
 }

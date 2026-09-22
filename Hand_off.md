@@ -35,11 +35,36 @@ Branch history: `feat/pog-quest-expansion` and `feat/pog-quest-powerups` were fa
 - **Bug fixed during testing:** Phaser re-passes a scene's previous start data on `start()`/`restart()` with no data, so after one "New World" every later visit made another new world. `RealmScene.create` now clears `sys.settings.data`.
 - **Tests:** `tests/realm-regression.mjs`, run from `npm run test:browser`.
 
-**Phase 2 (not started; proposed):**
-- Chakan-style portal realms (elemental worlds entered from the surface, each with a boss).
-- Fuller alchemy: potions of strength, speed, fire resistance.
-- Beds or spawn points, chests and storage, background-wall placement, per-tile flood-fill lighting, a minimap.
-- A more Chakan-like hero sprite; the pogo hero stands in for now.
+**Phase 2 (done, same branch): portal realms and bosses.**
+- **The shrine** is generated about 14 tiles east of spawn on flattened ground. It holds four 2×3 portals (`World.portals`) with staggered labels. Stand in one and press ▼ (S, ↓, D-pad down).
+- **Travel:** `RealmScene` restarts with `{ pocket }` to enter a realm and `{}` to come home. The overworld save is written before leaving, so you return standing at the shrine.
+- **Realms** (`realm/realms.ts` defs, `realm/pocketGen.ts` generator) are **regenerated every visit** like dungeons. They're 220×70 tiles, with an entrance and return portal on the left and a 44-wide boss arena on the right.
+- **What a realm keeps:** saving inside one patches only inventory, gear and relics back into the overworld save (`save()` loads the base save and overwrites those fields).
+  - Ember: an ash and basalt cave with 3–5-wide lava pools, heat drain, and imps.
+  - Tide: drowned reef caves under a waterline, breathing knolls, and a dry entrance ledge. Swimming uses low gravity and jump-strokes, and a jump with your head above water breaches full height. Breath lasts 10s. Eels only move through water.
+  - Gale: sky islands with gaps of ≤5 tiles and rises of ≤3 over a void. Falling costs 15 HP and returns you to your last solid ground. Wind gusts push you in the air, and harpies fly.
+  - Grave: bone-brick crypts at 0.97 darkness, with skeleton knights.
+- **Bosses** (`realm/realmBosses.ts`, state machines behind a `BossCtx`):
+  - Cinder Tyrant: leaps and slams, sending flame waves; summons imps when enraged.
+  - Leviathan: circles spitting bubbles, lunges, then tires.
+  - Harpy Queen: throws feather fans, dives, climbs. She hovers 150px up so a jumping swing reaches her, and the camera shifts up for flying bosses.
+  - Hollow King: blocks frontal hits unless reeling (then takes 1.5×), dashes, and raises knights at ⅔ and ⅓ health.
+  - Stepping into an arena closes a shrine-stone gate behind you. Dying in a realm respawns you at its entrance and resets the fight.
+  - Victory grants the relic and loot, full HP, and a return portal in the arena, and plays the win track.
+- **Relics** (`profile`-independent, saved in `RealmSave.relics`): Ember Heart (immune to heat and lava, +4 damage), Tide Pearl (breathe underwater, full swim speed), Gale Plume (double jump everywhere), Hollow Crown (+50 max HP). With all four, a banner says "THE FOREVER GATE STIRS…", a hook for Phase 3.
+- **Alchemy:** four brews on hotbar slots 7–0. Fire Ward (no heat, half lava damage), Gillweed (breathe underwater), Gale Draught (hold jump to float), Strength Tonic (+50% damage).
+- **Bugs found and fixed while building:**
+  - Knolls couldn't be climbed out of the water, so there's now a surface breach jump.
+  - The Tide entrance started you underwater, so it now has a dry ledge.
+  - The Harpy hid behind the HUD.
+  - The flaky Pog Quest pad-jump test was reading velocity after control returned to the real game loop. It now captures inside the fixed-step frames. This was the "unexplained flake" noted earlier.
+- **Tests:** `tests/realm-portals-regression.mjs`. It includes a traversal bot that holds right, jumps walls, gaps and lava with held jumps, and swims. The bot must reach every realm's arena at 60fps.
+
+**Phase 3 (proposed):**
+- The Forever Gate: a final boss once all four relics are held.
+- Beds and chests; per-tile flood-fill lighting; a minimap.
+- A darker, Chakan-like hero sprite.
+- Portrait/landscape handling on Android.
 
 **Android:** the Capacitor shell is portrait-locked, so the realm letterboxes on phones. Unlocking orientation just for this mode needs a screen-orientation plugin; not done.
 

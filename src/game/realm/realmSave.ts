@@ -1,5 +1,6 @@
 import { dbGet, dbPut } from '../db/LocalDB';
 import type { ItemId } from './items';
+import type { RelicId } from './realms';
 
 /**
  * One saved world. The world itself is regenerated from `seed`; only the
@@ -15,6 +16,8 @@ export interface RealmSave {
   inventory: Partial<Record<ItemId, number>>;
   sword: number;
   pickaxe: number;
+  /** boss relics won in the portal realms (optional: saves from before Phase 2 have none) */
+  relics?: RelicId[];
   /** ms into the day/night cycle */
   clock: number;
   savedAt: string;

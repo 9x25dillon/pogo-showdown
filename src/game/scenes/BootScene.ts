@@ -521,6 +521,33 @@ export class BootScene extends Phaser.Scene {
             ctx.fillStyle = hex(hi); ctx.fillRect(ox, 0, TILE, 4);
             ctx.fillStyle = '#22c55e'; ctx.fillRect(ox, 4, TILE, 1);
             break;
+          case T.LAVA:
+            ctx.fillStyle = hex(base); ctx.fillRect(ox, 0, TILE, TILE);
+            ctx.fillStyle = hex(hi); ctx.fillRect(ox, 0, TILE, 3);
+            speckle('#fde68a', 4, 2);
+            break;
+          case T.WATER:
+            ctx.fillStyle = 'rgba(37, 99, 235, 0.42)'; ctx.fillRect(ox, 0, TILE, TILE);
+            ctx.fillStyle = 'rgba(147, 197, 253, 0.35)'; ctx.fillRect(ox + 2, 4, 5, 1); ctx.fillRect(ox + 9, 10, 5, 1);
+            break;
+          case T.PORTAL: {
+            const grad = ctx.createLinearGradient(ox, 0, ox + TILE, TILE);
+            grad.addColorStop(0, 'rgba(88, 28, 135, 0.85)');
+            grad.addColorStop(0.5, 'rgba(232, 121, 249, 0.85)');
+            grad.addColorStop(1, 'rgba(88, 28, 135, 0.85)');
+            ctx.fillStyle = grad; ctx.fillRect(ox, 0, TILE, TILE);
+            speckle('rgba(255,255,255,0.8)', 3, 1);
+            break;
+          }
+          case T.CLOUD:
+            ctx.fillStyle = hex(base); ctx.fillRect(ox, 2, TILE, TILE - 2);
+            ctx.fillStyle = hex(hi); ctx.beginPath(); ctx.arc(ox + 4, 5, 4, 0, Math.PI * 2); ctx.arc(ox + 11, 4, 5, 0, Math.PI * 2); ctx.fill();
+            break;
+          case T.SHRINE:
+            ctx.fillStyle = hex(base); ctx.fillRect(ox, 0, TILE, TILE);
+            ctx.strokeStyle = hex(hi); ctx.strokeRect(ox + 1.5, 1.5, TILE - 3, TILE - 3);
+            ctx.fillStyle = '#7c6fb0'; ctx.fillRect(ox + 7, 4, 2, 8); ctx.fillRect(ox + 5, 7, 6, 2);
+            break;
           case T.WOOD:
             ctx.fillStyle = hex(base); ctx.fillRect(ox, 0, TILE, TILE);
             ctx.fillStyle = hex(hi); ctx.fillRect(ox, 0, TILE, 1); ctx.fillRect(ox, 8, TILE, 1);
@@ -564,6 +591,92 @@ export class BootScene extends Phaser.Scene {
     g.fillStyle(0x78350f, 1); g.fillRect(1, 24, 14, 3); g.fillRect(6, 27, 4, 7);
     g.generateTexture('realm_sword', 16, 34);
     g.destroy();
+
+    // ---- Phase 2: realm creatures, bosses, boss fire ----
+    const make = (key: string, w: number, h: number, draw: (g: Phaser.GameObjects.Graphics) => void) => {
+      const gg = this.add.graphics();
+      draw(gg);
+      gg.generateTexture(key, w, h);
+      gg.destroy();
+    };
+    make('realm_imp', 28, 30, (gg) => {
+      gg.fillStyle(0xea580c, 1).fillCircle(14, 16, 10);
+      gg.fillStyle(0xfbbf24, 1).fillTriangle(6, 10, 9, 0, 12, 9).fillTriangle(16, 9, 19, 0, 22, 10);
+      gg.fillStyle(0x7c2d12, 1).fillTriangle(0, 16, 6, 12, 6, 20).fillTriangle(28, 16, 22, 12, 22, 20);
+      gg.fillStyle(0xfef08a, 1).fillCircle(10, 15, 2.2).fillCircle(18, 15, 2.2);
+    });
+    make('realm_eel', 44, 18, (gg) => {
+      gg.fillStyle(0x0f766e, 1).fillEllipse(22, 9, 42, 12);
+      gg.fillStyle(0x14b8a6, 1).fillTriangle(0, 9, 8, 2, 8, 16);
+      gg.fillStyle(0xfde047, 1).fillCircle(36, 7, 2.4);
+      gg.fillStyle(0x042f2e, 1).fillRect(34, 11, 8, 2);
+    });
+    make('realm_harpy', 40, 32, (gg) => {
+      gg.fillStyle(0xcbd5e1, 1).fillTriangle(0, 8, 16, 14, 4, 24).fillTriangle(40, 8, 24, 14, 36, 24);
+      gg.fillStyle(0x64748b, 1).fillEllipse(20, 17, 14, 20);
+      gg.fillStyle(0xfef3c7, 1).fillCircle(20, 9, 6);
+      gg.fillStyle(0x7f1d1d, 1).fillCircle(18, 9, 1.4).fillCircle(22, 9, 1.4);
+      gg.fillStyle(0xf59e0b, 1).fillTriangle(15, 28, 18, 32, 20, 27).fillTriangle(20, 27, 22, 32, 25, 28);
+    });
+    make('realm_knight', 30, 44, (gg) => {
+      gg.fillStyle(0x57534e, 1).fillRoundedRect(7, 0, 16, 14, 4);
+      gg.fillStyle(0x0c0a09, 1).fillRect(10, 5, 10, 3);
+      gg.fillStyle(0xa78bfa, 1).fillCircle(13, 6, 1.3).fillCircle(17, 6, 1.3);
+      gg.fillStyle(0x44403c, 1).fillRect(6, 14, 18, 16);
+      gg.fillStyle(0xd6d3d1, 1).fillRect(9, 30, 4, 14).fillRect(17, 30, 4, 14);
+      gg.fillStyle(0x78716c, 1).fillRect(24, 8, 3, 26).fillStyle(0x3f3f46, 1).fillRect(0, 16, 7, 12);
+    });
+    make('boss_tyrant', 84, 78, (gg) => {
+      gg.fillStyle(0x1c0a07, 1).fillRoundedRect(4, 14, 76, 60, 16);
+      gg.fillStyle(0x9a3412, 1).fillRoundedRect(8, 18, 68, 50, 14);
+      gg.fillStyle(0xfb923c, 1);
+      for (const x of [18, 34, 50, 66]) gg.fillTriangle(x - 7, 20, x, 0, x + 7, 20);
+      gg.fillStyle(0xfef08a, 1).fillCircle(28, 40, 7).fillCircle(56, 40, 7);
+      gg.fillStyle(0x1c0a07, 1).fillCircle(28, 40, 3).fillCircle(56, 40, 3).fillRect(30, 56, 24, 5);
+      gg.fillStyle(0x431407, 1).fillRect(12, 68, 20, 10).fillRect(52, 68, 20, 10);
+    });
+    make('boss_leviathan', 124, 48, (gg) => {
+      gg.fillStyle(0x134e4a, 1).fillEllipse(62, 24, 118, 34);
+      gg.fillStyle(0x0d9488, 1).fillTriangle(0, 24, 20, 6, 20, 42).fillTriangle(50, 8, 64, 0, 76, 8);
+      gg.fillStyle(0x99f6e4, 1).fillEllipse(70, 30, 70, 10);
+      gg.fillStyle(0xfde047, 1).fillCircle(104, 18, 5);
+      gg.fillStyle(0x042f2e, 1).fillCircle(105, 18, 2.4);
+      gg.fillStyle(0xf0fdfa, 1);
+      for (let x = 100; x < 122; x += 5) gg.fillTriangle(x, 28, x + 2.5, 35, x + 5, 28);
+    });
+    make('boss_harpy', 88, 66, (gg) => {
+      gg.fillStyle(0xe2e8f0, 1).fillTriangle(0, 10, 34, 30, 8, 50).fillTriangle(88, 10, 54, 30, 80, 50);
+      gg.fillStyle(0x94a3b8, 1).fillTriangle(8, 18, 34, 32, 14, 44).fillTriangle(80, 18, 54, 32, 74, 44);
+      gg.fillStyle(0x475569, 1).fillEllipse(44, 36, 26, 34);
+      gg.fillStyle(0xfef3c7, 1).fillCircle(44, 18, 11);
+      gg.fillStyle(0xfacc15, 1).fillTriangle(34, 10, 38, 0, 42, 8).fillTriangle(42, 8, 46, 0, 50, 8).fillTriangle(50, 8, 54, 0, 56, 10);
+      gg.fillStyle(0x7f1d1d, 1).fillCircle(40, 18, 2).fillCircle(48, 18, 2);
+      gg.fillStyle(0xf59e0b, 1).fillTriangle(36, 60, 40, 66, 44, 58).fillTriangle(44, 58, 48, 66, 52, 60);
+    });
+    make('boss_king', 64, 88, (gg) => {
+      gg.fillStyle(0xfacc15, 1).fillRect(18, 0, 28, 6).fillTriangle(18, 6, 22, 0, 26, 6).fillTriangle(38, 6, 42, 0, 46, 6);
+      gg.fillStyle(0x44403c, 1).fillRoundedRect(18, 6, 28, 22, 6);
+      gg.fillStyle(0x0c0a09, 1).fillRect(22, 14, 20, 5);
+      gg.fillStyle(0xc4b5fd, 1).fillCircle(27, 16, 2).fillCircle(37, 16, 2);
+      gg.fillStyle(0x292524, 1).fillRect(12, 28, 40, 34);
+      gg.fillStyle(0x6d28d9, 1).fillRect(12, 28, 40, 6);
+      gg.fillStyle(0xa8a29e, 1).fillRect(18, 62, 10, 26).fillRect(36, 62, 10, 26);
+      gg.fillStyle(0x71717a, 1).fillRoundedRect(46, 30, 16, 30, 4); // shield on his facing side
+      gg.fillStyle(0xd4d4d8, 1).fillRect(4, 20, 4, 50);
+    });
+    make('fx_flame', 22, 30, (gg) => {
+      gg.fillStyle(0xdc2626, 0.9).fillTriangle(0, 30, 11, 0, 22, 30);
+      gg.fillStyle(0xfbbf24, 1).fillTriangle(5, 30, 11, 10, 17, 30);
+    });
+    make('fx_bubble', 18, 18, (gg) => {
+      gg.fillStyle(0x7dd3fc, 0.45).fillCircle(9, 9, 8);
+      gg.lineStyle(2, 0xe0f2fe, 0.9).strokeCircle(9, 9, 8);
+      gg.fillStyle(0xffffff, 0.9).fillCircle(6, 6, 2);
+    });
+    make('fx_feather', 24, 10, (gg) => {
+      gg.fillStyle(0xe2e8f0, 1).fillEllipse(13, 5, 22, 7);
+      gg.lineStyle(1, 0x475569, 1).lineBetween(1, 5, 23, 5);
+    });
 
     const brush = this.textures.createCanvas('lightBrush', 256, 256);
     const bctx = brush?.getContext();
