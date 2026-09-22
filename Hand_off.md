@@ -1,241 +1,130 @@
 # Pogo Showdown — next-session handoff
 
-## September 21 (night): Forever Realm + soundtrack — branch `feat/forever-realm`
-
-The user played the Pog Quest build, said it "feels a little one dimensional", and asked for an open world mixing **Terraria** and **Chakan the Forever Man**, plus their own soundtrack (`music/`). Their choices, in their answers:
-- A **new mode** alongside Pog Quest, not a replacement.
-- **Dig + build + fight** (procedural, diggable, crafting).
-- **Landscape** for this mode.
-- The **suggested music mapping**, applied to the whole game.
-
-Branch history: `feat/pog-quest-expansion` and `feat/pog-quest-powerups` were fast-forwarded together. `feat/forever-realm` starts from the power-ups commit `3d6f178`. Nothing is merged to `master`.
-
-**Soundtrack** (`systems/music.ts`):
-- Scenes ask for a cue, not a file: `menu` score · `explore` 110 points + 50 points (a playlist) · `danger` chaose mode max · `win` woned · `loss` Loss.
-- Tracks stream through `<audio>` rather than Phaser's Web Audio loader, which would fully decode ~4-minute songs at ~100MB of memory each.
-- Browsers block audio until the first gesture; play() retries on it. **M** or the 🔊 on the main menu mutes, and the choice is remembered.
-- Shipped copies are 128 kbps MP3s in `public/music/` (25MB). The user's originals, including the ~90MB WAVs, stay in `music/`, which is git-ignored with an anchored `/music/` (a bare `music/` would also hide `public/music/`).
-- Cue map: menus → menu; Pogo Dash, Trick Lab and Pog Quest levels → explore; Pog Quest bosses and Pog Battles → danger; results → win/loss; Pogo Dash game over → loss; realm → explore by day or underground, danger at night on the surface, loss while dead.
-
-**Forever Realm, Phase 1** (`scenes/RealmScene.ts`, `realm/*`):
-- **World:** `generateWorld(seed)` is pure. 640×200 tiles of 16px: hills, a dirt band over stone, caverns plus winding tunnels, copper shallow, iron mid (32+ deep), soulstone deep (70+), trees, Nightbloom herbs, bedrock. A save stores only the seed plus `[index, tile]` edits (IndexedDB store `realm`, DB version 4).
-- **Rendering:** one Phaser tilemap layer, collision via `setCollision(SOLID_TILES)`, and a dark backdrop wall below the original surface.
-- **Landscape:** `scale.setGameSize(960, 540)` on create, and back to 480×854 on SHUTDOWN. The pause scene now lays out from the live size and takes a `target`; for the realm it shows RESUME / NEW WORLD (press twice) / SAVE & QUIT.
-- **Play:**
-  - Mining is timed by `TileInfo.hardness` ÷ pickaxe speed, and ore is gated by `minPick`. Felling a trunk takes the whole tree.
-  - Placing a block needs a neighbor and can't overlap bodies.
-  - The sword is always on attack, in 4 tiers.
-  - Crafting has 7 recipes (torches, a healing draught, copper/iron tools, the Soul Reaver).
-  - HP regenerates after 4s without a hit. Death shows "YOU FELL", then you respawn at spawn and keep your inventory.
-- **Creatures:** slime (hops), bone crawler (underground, jumps walls), wraith (night/deep, drifts through rock). They spawn off-screen by depth and time of day and despawn when far away.
-- **Day/night:** a 6-minute cycle.
-- **Lighting:** a screen-space RenderTexture filled dark, then erased by the player's light, torches, faint soulstone glow, and a per-column skylight Graphics above the terrain line.
-  - Phaser 4 gotchas: `rt.render()` is required, and `erase()` has no alpha argument; set the eraser object's alpha instead.
-- **Controls:** controller (stick, A, X sword, RT use, right stick aim at full reach, LB/RB tools, B potion, Y craft, Menu pause), keyboard (A/D, W/Space, J, K, arrows, 1-6, Q, E, Esc), mouse (aim, hold left, right-click sword, wheel), and touch buttons on non-desktop devices.
-- **Bug fixed during testing:** Phaser re-passes a scene's previous start data on `start()`/`restart()` with no data, so after one "New World" every later visit made another new world. `RealmScene.create` now clears `sys.settings.data`.
-- **Tests:** `tests/realm-regression.mjs`, run from `npm run test:browser`.
-
-**Phase 2 (done, same branch): portal realms and bosses.**
-- **The shrine** is generated about 14 tiles east of spawn on flattened ground. It holds four 2×3 portals (`World.portals`) with staggered labels. Stand in one and press ▼ (S, ↓, D-pad down).
-- **Travel:** `RealmScene` restarts with `{ pocket }` to enter a realm and `{}` to come home. The overworld save is written before leaving, so you return standing at the shrine.
-- **Realms** (`realm/realms.ts` defs, `realm/pocketGen.ts` generator) are **regenerated every visit** like dungeons. They're 220×70 tiles, with an entrance and return portal on the left and a 44-wide boss arena on the right.
-- **What a realm keeps:** saving inside one patches only inventory, gear and relics back into the overworld save (`save()` loads the base save and overwrites those fields).
-  - Ember: an ash and basalt cave with 3–5-wide lava pools, heat drain, and imps.
-  - Tide: drowned reef caves under a waterline, breathing knolls, and a dry entrance ledge. Swimming uses low gravity and jump-strokes, and a jump with your head above water breaches full height. Breath lasts 10s. Eels only move through water.
-  - Gale: sky islands with gaps of ≤5 tiles and rises of ≤3 over a void. Falling costs 15 HP and returns you to your last solid ground. Wind gusts push you in the air, and harpies fly.
-  - Grave: bone-brick crypts at 0.97 darkness, with skeleton knights.
-- **Bosses** (`realm/realmBosses.ts`, state machines behind a `BossCtx`):
-  - Cinder Tyrant: leaps and slams, sending flame waves; summons imps when enraged.
-  - Leviathan: circles spitting bubbles, lunges, then tires.
-  - Harpy Queen: throws feather fans, dives, climbs. She hovers 150px up so a jumping swing reaches her, and the camera shifts up for flying bosses.
-  - Hollow King: blocks frontal hits unless reeling (then takes 1.5×), dashes, and raises knights at ⅔ and ⅓ health.
-  - Stepping into an arena closes a shrine-stone gate behind you. Dying in a realm respawns you at its entrance and resets the fight.
-  - Victory grants the relic and loot, full HP, and a return portal in the arena, and plays the win track.
-- **Relics** (`profile`-independent, saved in `RealmSave.relics`): Ember Heart (immune to heat and lava, +4 damage), Tide Pearl (breathe underwater, full swim speed), Gale Plume (double jump everywhere), Hollow Crown (+50 max HP). With all four, a banner says "THE FOREVER GATE STIRS…", a hook for Phase 3.
-- **Alchemy:** four brews on hotbar slots 7–0. Fire Ward (no heat, half lava damage), Gillweed (breathe underwater), Gale Draught (hold jump to float), Strength Tonic (+50% damage).
-- **Bugs found and fixed while building:**
-  - Knolls couldn't be climbed out of the water, so there's now a surface breach jump.
-  - The Tide entrance started you underwater, so it now has a dry ledge.
-  - The Harpy hid behind the HUD.
-  - The flaky Pog Quest pad-jump test was reading velocity after control returned to the real game loop. It now captures inside the fixed-step frames. This was the "unexplained flake" noted earlier.
-- **Tests:** `tests/realm-portals-regression.mjs`. It includes a traversal bot that holds right, jumps walls, gaps and lava with held jumps, and swims. The bot must reach every realm's arena at 60fps.
-
-**Phase 3 (proposed):**
-- The Forever Gate: a final boss once all four relics are held.
-- Beds and chests; per-tile flood-fill lighting; a minimap.
-- A darker, Chakan-like hero sprite.
-- Portrait/landscape handling on Android.
-
-**Android:** the Capacitor shell is portrait-locked, so the realm letterboxes on phones. Unlocking orientation just for this mode needs a screen-orientation plugin; not done.
-
-## September 21 (later): Pog Quest expansion — branch `feat/pog-quest-expansion`
-
-Pog Quest itself is merged to `master` (`e56e49b`); this branch adds the four follow-ups the user asked for at once. Not merged, not released.
-
-- **Economy hookup** (`db/questRepository.ts`): attempts of 15s+ credit character mastery (which feeds Circuit Advantage), using Pogo Dash's rule. The first clear of each level grants +1 TP (`grantQuestClearBonus`) and that level's reward pog (`LevelDef.rewardPogId`). Career tier, `careerBestScore`, `totalRuns` and the Circuit match are deliberately untouched. Progress lives in `profile.quest[levelId]`. Level 1 and co-op are always open; every other level unlocks when the previous solo level is cleared. New `PlatformerLevelSelect` scene is the Pog Quest entry point.
-- **Battle content:** 4 new item kinds (`freeze`, `magnet`, `doubleJump`, `groundPound`). 12 of the original 20 pogs now have an active effect, plus 5 new quest-drop pogs. **Every equipped active pog is carried** and swapped in-run (Q / ⇄ button); this settles old open question #4. New enemies: `hopper`, `spiker` (stomping it hurts; only a projectile or ground pound kills it), `turret` (fires pellets). `PlatformerEnemyDef.flies` was replaced by `movement`. New race level **Tech Park Tangle** (id `level5`, plays 3rd; ids are save keys, indexes aren't).
-- **Co-op gaps:** `PlatformerRunScene` was refactored around a per-player `Hero` record, giving P2 full parity: own item charges, speed boost, double jump. Lives and shields stay shared. P2 keys: arrows, `/` or Enter for item, `.` to swap. The camera follows the midpoint and leashes both players inside the view. A fallen co-op player respawns at their partner's checkpoint. There's a split-screen touch layout (each half gets ◀ ▶ JUMP + item/swap, all below the ground line). **Not tested on a real phone.**
-- **Physics tuning:** feel values moved to a mutable `PHYS` object. Open the game with `?tune` to get a live slider panel (values persist in localStorage; COPY exports them). It shows jump height/reach against the widest open pit. **The defaults were deliberately not changed**; that needs the user's own playtest. `fallGravityMultiplier` (default 1) is available for a less floaty fall.
-
-**Pre-existing bugs found and fixed** (all were on `master`):
-1. **The AI rival could never finish a race.** It released jump after 220ms (the jump-cut gave ~120px of reach), jumped 60px before the edge, and after a fall its waypoint index was past the jump, so it looped into the same pit forever. Players always won by default. `rivalAI.ts` now does full held jumps at the ledge and `resyncRivalAI` runs on respawn.
-2. **Respawns landed under the floor.** `setPosition` teleports kept the body's below-the-pit `prev` position, so Arcade separated the body out through the underside of the ground slab. Now `body.reset(x, y)` for both heroes and the rival.
-3. **Checkpoints were recorded on moving platforms**, so a respawn could land in mid-air over the pit. Checkpoints now use `blocked.down` only (static ground).
-4. **Level 1's "raised ledge" (130px up) was above the 120px jump peak**, and its underside bonked every jump from the edge. It's now a low stepping stone set 50px past the edge.
-
-**Testing notes:** the headless browser's frame rate is erratic, often under 10fps, which starves per-frame AI. The suite now drives the game at an exact 60fps with `game.headlessStep` (see `simulate` in `tests/platformer-regression.mjs`) and asserts the rival wins every race level with zero pit falls. Vite binds IPv6 `localhost`, so run `POGO_URL=http://localhost:5173 npm run test:browser`. If you kill a scratch CDP script, close its tabs (`/json/close/<id>`); orphaned game tabs slowed the browser enough to time the suite out.
-
-**Follow-up (same day): more levels + a second boss.** The play order is now 9 levels: Footpeg Flats, Signature Sprint, Tech Park Tangle, Circuit Showdown (boss 1), **Rooftop Relay**, **Night Circuit**, **Summit Slam** (boss 2), Co-op Circuit, **Co-op Summit**. Co-op levels sit at the end so solo NEXT never has to skip one. Test indexes are listed at the top of `tests/platformer-regression.mjs`.
-- **Spring pads** (`LevelDef.springs`, `SPRING_VELOCITY`): running or landing on one launches you, including the rival. A pad at a pit's edge is the only way across a 180–190px pit. `largestUnbridgedGap` counts a spring within 40px before a pit as a bridge, but only the rival race sim actually proves the spring's reach.
-- **Summit Slammer** (`bossKind: 'slammer'`, 4 HP): patrol → telegraph → leap onto the nearest player's x → slam that sends a shockwave both ways along the ground (jump it, or stand on a ledge) → dizzy `stunned` window. While stunned it's harmless to touch and stompable. A hit sends it into `recover` (a hop clear, always toward the arena's middle when near an edge), during which it can't be hurt, so each window is worth one hit. At ≤ half HP it enrages: shorter patrol, faster walk, faster waves. Shockwaves use the same hazard list as turret pellets (`spawnHazard`), so freeze clears them too. The charger boss is unchanged.
-- 4 new reward pogs: `skyline`, `nightowl`, `summitcrown`, `ropeteam`.
-- Verified with a 40s fixed-60fps sim of the fight, solo and co-op: 9 and 7 slam cycles, and the boss never leaves its arena. That's a scratch check, not in the suite. The suite covers the phase transitions directly. If you script sims yourself, teleporting co-op heroes must also move the camera, or the co-op leash snaps them back.
-
-**Follow-up 2 (same day): more enemies, a third boss, Xbox controller.** The play order is now 12 levels. Midnight Mansion (race, `level10`) and Thunder Peak (boss 3, `level11`) come after Summit Slam, and Co-op Storm (`level12`) joins the other co-op levels at the end.
-- **New enemies:**
-  - `chaser` walks its strip, then charges any hero within 260px. It never leaves the strip, so it can't run itself into a pit.
-  - `ghost` drifts after you in a box and fades on a cycle. While `phased` it's harmless, unstompable, and lets projectiles pass through.
-  - `dropper` hovers, flashes, then drops a gravity bomb on a hero passing underneath.
-  - `PlatformerEnemyDef.airborne` now decides whether an enemy has gravity.
-- **Storm Conductor** (`bossKind: 'conductor'`, 5 HP):
-  - Cycle: hover out of jump reach while tracking the nearest player and firing aimed bolts (a three-bolt fan once enraged) → telegraph → dive → `perched` (the stomp window, harmless to touch) → `recover` (rises, immune for 900ms) → hover.
-  - The two springs in its arena can launch you high enough to stomp it mid-hover.
-  - A 40s fixed-60fps sim showed about 4 perches per 40s, so a perch-only win takes ~50s. The hover length (`CONDUCTOR_HOVER_MS`) is the knob if that feels long.
-- **Controller** (`systems/gamepad.ts`, `ui/padMenu.ts`):
-  - It uses the browser Gamepad API with the standard mapping, polled directly and cached per frame time, so the paused run and the pause menu can't both see one press.
-  - In play: stick/D-pad move, A jump (hold for height), X/B/RT item, Y/LB/RB swap, Menu pause. Solo: any pad drives P1. Co-op: pad 1 is P1 and pad 2 is P2 (a lone pad leaves P2 on the arrow keys). Hits and pit falls rumble the pad of the player who took them.
-  - Menus: main menu (focus starts on Pog Quest), level select (focus starts on the first uncleared solo level), pause, and results get a focus ring. A taps the focused button (it emits that button's own `pointerdown`), and B goes back. The other modes (Pogo Dash, Trick Lab, Battles…) are still touch/keyboard only.
-  - The user's desktop pad is a **Microsoft Xbox One Elite 2** on the `xpad` driver. Browsers only show a pad after a button press on the page.
-  - Test gotcha: Phaser tweens run on the wall clock, not `headlessStep`'s delta, so tests that press tweened menu buttons use real time (`tapReal`).
-
-**Follow-up 3 (branch `feat/pog-quest-powerups`, built in a worktree while the user played the previous build): power-ups, spikes, 3 levels, boss rush.** Solo now has 12 levels. Sky Garden (`level13`), Spike Foundry (`level14`) and Champion's Gauntlet (`level15`) come after Thunder Peak, and co-op is indexes 12–14.
-- **Power-up pickups** (`LevelDef.powerups`, `pu_*` textures) are separate from pog items: heroes only, and once per attempt.
-  - `star`: 6s invincible. Touching a regular enemy defeats it; bosses can't hurt you, but you still have to stomp them. It also stuns the rival and ignores pellets and spikes.
-  - `feather`: 10s; holding jump while falling caps the fall at 110px/s.
-  - `rocket`: 8s; ×1.3 jump velocity (via `ControllerOptions.jumpScale`), which reaches the "rocket-only" coin rows.
-  - `heart`: +1 life. `shield`: +1 shield hit.
-  - Timers show under lives, per player in co-op.
-- **Spike strips** (`LevelDef.spikes`): they hurt and always bounce you out. The rival doesn't collide with them; its jump waypoints sit 34px before each strip so it visibly hops them. Keep strips ≤60px wide or its 60px body clips them.
-- **Boss rush** (`LevelDef.bossRush`): every boss after the first starts `dormant` (hidden, body off, untouchable) and drops in at the arena's middle when the previous one dies. The HUD shows `BOSS n/3 · NAME`.
-- **Level select** has Solo / Co-op tabs (tap them, or LB/RB on a pad). The main menu opens Solo; the results screen returns to the tab of the level just played.
-- 3 reward pogs: `sprout`, `anvil`, `gauntlet`.
-- One suite run failed once with an uncaptured error; the next three runs were clean. If it recurs, capture the output before changing anything.
-
-**Still open:** real-device playtest (feel, touch co-op ergonomics, whether the Slammer's and Conductor's timing is readable, and the controller on the real Elite 2 pad); whether Pog Quest should ever touch career tier; enemy/item/boss balance numbers are first guesses.
-
-## September 21 follow-up
-
-Continued on `feat/pog-quest-platformer`. Added a Pog Quest pause overlay (touch PAUSE or Escape) with resume, retry, and menu actions. The gameplay scene is paused so physics, timers, and tweens freeze together; held controls are cleared before pausing. Touch pointers are reused across retries. Camera and physics bounds now use each level's `widthPx`, fixing Signature Sprint's finish being outside the camera boundary.
-
-Platformer regression coverage now lives in `tests/platformer-regression.mjs`, called by `npm run test:browser` in its isolated browser context. Covers movement/jump, pause/resume/retry/menu, rival stomps, restart listeners/pointers, level bounds and real goal overlap, boss phases/victory, solo progression boundaries, co-op input/shared lives, coins, and gap defeat. The older notes below about missing committed test scripts are superseded. Economy integration, touch co-op, and human physics tuning remain open.
-
-Updated after the September 17, 2026 session (Android release cleanup, a balance pass, and a new platformer mode built across three phases).
+_Last updated after the September 21, 2026 session (one long day): Pog Quest expansion → power-ups → Forever Realm Phases 1–3 + soundtrack. Previous handoffs are in git history (`git log -p -- Hand_off.md`)._
 
 ## Start here
 
-Two distinct pieces of work happened today, on two different lines of history:
-
-1. **On `master`**: finished the v0.4.0 Android release (it had fallen a commit behind) and ran a data-driven balance pass. `master` is clean, pushed, and unchanged since.
-2. **On a new branch, `feat/pog-quest-platformer`** (branched from `master` at `f373e1e`, per the user's explicit request to keep the released game untouched): built "Pog Quest," a genuinely new 2D side-scroller mode — gravity/jump physics, an AI rival you race *and* fight, collectible pogs reworked into usable battle items, a boss fight, and local 2-player co-op. Four commits, ~1,626 lines across 14 files (10 new). **You are almost certainly continuing on this branch, not `master`.**
+- **Everything is merged to `master` and pushed** (merge commit `ab929cd`). Today's work came in through `feat/forever-realm`, which contains `feat/pog-quest-expansion` and `feat/pog-quest-powerups`. The next session can branch fresh from `master`.
+- **Release status: nothing from today has been released to Android.** The last Play build is v0.4.0. Everything since (Pog Quest onward) is unreleased.
+- **The user's hardware:** a desktop with a **Microsoft Xbox One Elite 2** controller on the Linux `xpad` driver. The user plays in the browser at `http://localhost:5173` (`npm run dev`).
+- **Their own music** lives in `music/` (WAV and MP3, git-ignored with an anchored `/music/`). The game ships 128 kbps copies in `public/music/`.
 
 ```
-git branch --show-current   # should say feat/pog-quest-platformer
-git log --oneline master..feat/pog-quest-platformer
+git switch master && git pull
+npm run dev                      # the user plays here
+npx tsc --noEmit && npm run build
+# tests: a headless Chromium with CDP on 9333, then:
+POGO_URL=http://localhost:5173 npm run test:browser   # 5 suites, ~3-4 min
 ```
 
-**Known environment gotchas, hit and solved today — read before testing:**
+Headless browser for tests (never `pkill` by pattern; kill the PID you launched):
+```
+~/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome --headless --no-sandbox --disable-gpu \
+  --remote-debugging-port=9333 --user-data-dir=<scratch>/chrome-profile about:blank &
+```
 
-- The **system Chromium is currently broken** (`~/.config/chromium` → "Transport endpoint is not connected"). This session accidentally killed the `fuse-overlayfs` mount backing it via an overly broad `pkill -f "chromium"` cleanup command that also matched an unrelated system process. Use the **Playwright-bundled Chromium** instead: `~/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome --headless --no-sandbox --disable-gpu --remote-debugging-port=9333 --user-data-dir=/tmp/<unique-dir> about:blank`. Never `pkill` by a bare substring again — kill by the specific PID you captured at launch, or match a unique `--user-data-dir` flag.
-- **Headless Chrome's requestAnimationFrame rate is inconsistent in this environment** (confirmed on more than one freshly-launched browser process — not just a stale-process artifact). Simulated physics `dt` per frame is always correct; the wall-clock-to-frame-count ratio is not fixed. A test that does "hold input, `pause(600ms)`, assert position moved by ~X px" will intermittently and falsely look like a regression. **Poll a condition instead** (e.g. `waitFor('player.body.velocity.x >= 209')`) rather than asserting on a fixed-pause position delta. This bit the movement check in `/tmp/.../verify-platformer.mjs` twice before being fixed properly.
+## What the game is now
 
-## Product and architecture (orientation, unchanged today)
+A web-first Phaser 4 + TypeScript + Vite game with a Capacitor Android shell. All art is procedural (`BootScene`), all data is local (IndexedDB, `db/LocalDB.ts`, **DB version 4**). The main menu has 8 modes:
 
-A portrait (480×854), web-first game: TypeScript, Phaser 4, Vite, wrapped for Android via Capacitor. No external art assets — everything is procedural Graphics→`generateTexture` or emoji. IndexedDB holds progression (`LocalDB.ts`); everything is local, no accounts or network calls.
+| Mode | Where | Notes |
+|---|---|---|
+| Pogo Dash, The Circuit, Pog Battles, Yoyo Trick Lab, Leaderboard, Pog Binder | unchanged, portrait | see older handoffs |
+| **Pog Quest** | `scenes/Platformer*`, `data/levels.ts`, `data/platformerConfig.ts` | 12 solo levels (3 bosses + a boss rush finale) and 3 co-op levels, in a tabbed level select; economy hooks (`db/questRepository.ts`); 8 active pog item kinds; 5 power-up pickups; springs, spikes; `?tune` live physics panel |
+| **Forever Realm** | `scenes/RealmScene.ts`, `realm/*` | **landscape 960×540** open world (Terraria + Chakan). Phase 1: dig, build, craft, day/night, lighting, 3 creatures. Phase 2: a portal shrine, 4 elemental realms (Ember/Tide/Gale/Grave), 4 bosses, relics, brews. Phase 3: the Forever Gate, the Eternal Hall, the Eternal Reaper, the ending, a minimap, the Chakan hero |
 
-Existing modes (all on `master`, all untouched today): **Pogo Dash** (the 3-lane endless dodge/trick runner, `RunScene.ts`), **The Circuit** (daily simulated league vs. 11 historical pros, unlocks at Pro career standing), **Yoyo Trick Lab** (60s gesture-pattern combos), **Pog Battles** (turn-based best-of-3 timing slams, wagers collectible pogs), **Pog Binder** (collection/equip screen), plus per-character mastery, career tiers, and a Tech Point/Advantage gear economy. Full mechanics for all of that are documented in earlier `Hand_off.md` history (`git log -p -- Hand_off.md` on `master`, or the prior commit `f373e1e`) — trimmed here to make room for today's new material; nothing about them changed today.
+Cross-cutting systems added today:
+- `systems/music.ts`: cue-based soundtrack (`menu / explore / danger / win / loss`), streamed through `<audio>`. M mutes.
+- `systems/gamepad.ts`, `ui/padMenu.ts`: standard-mapping gamepads, cached per frame time, rumble, and menu focus rings.
+- `scenes/PlatformerPauseScene.ts`: the shared pause menu. It takes `{ target }` and lays out from the live screen size.
 
-**Pog Quest** (this branch only, not on `master`) is the new sixth mode — see the architecture table below.
-
-## Key decisions made today
-
-- **New mode on a new branch, not a rewrite of Pogo Dash on `master`.** The original ask ("replace the core mode") got superseded by the user's explicit "this can be an additional branch... to preserve the pogo showdown work." Nothing about Pogo Dash, Circuit, career tiers, or Pog Battles changed.
-- **Phased build, not one pass.** Plan-mode produced a 4-phase plan (vertical slice → more content → boss → co-op); each phase was built, tested, and committed before starting the next, rather than attempting the full end-state vision in one sitting.
-- **Arcade Physics (Phaser's built-in), added globally but inert by default.** `game.ts` now has a `physics` block, but global gravity is `0` and every other scene is untouched (none of them call `this.physics.add.*`). Gravity is set per-body only on the platformer's sprites.
-- **Camera follows the player horizontally only, never vertically** (`startFollow(player, true, 1, 0)`), on a level built wide in world-space. Avoids jump-bounce camera jitter without touching the portrait 480×854 canvas the rest of the app (and the Android shell) assumes.
-- **Touch controls are twin hold-zones + jump/item circles, not swipes.** `RunScene`'s swipe classification can't express "hold to keep running" or "hold to jump higher"; a continuous platformer needs held state, so this is a new input pattern, not a reuse.
-- **Pogs became dual-purpose, not migrated.** `PogDef.activeEffect` sits alongside the existing `perks` field. `equippedPerks()` (used by Pogo Dash and Pog Battles) is untouched; a new `equippedLoadout()` was added for the platformer's identity-preserving needs. A pog can be passive-only, active-only, or both.
-- **The rival AI shares the exact same `PlayerController` the human uses**, fed synthetic input from `rivalAI.ts` (waypoint-following) instead of a separate movement implementation — tuning never has to be kept in sync across two systems.
-- **Player↔rival stomp exchanges stun, they don't eliminate or cost a life.** This is a *different* rule from environmental hazards (which do cost lives) — deliberately, so the race stays competitive instead of becoming a one-hit knockout.
-- **Boss health is a generalization of the existing enemy model** (`maxHealth`, default 1 for ordinary enemies), not a parallel system. `damageEnemy(enemy, amount)` is the one function both a one-hit patroller and a 3-hit boss go through.
-- **Co-op has a shared lives pool but per-player invulnerability.** Getting hit doesn't make your partner briefly invincible too. This was a specific, discussed tradeoff, not an accident of shared vs. separate state.
-- **Co-op's item button, and the camera, are P1-only in this first pass.** Documented scope cuts, not oversights — see "Not done yet" below.
-
-## Unresolved assumptions — flag these back to the user, don't silently resolve them
-
-1. **Whether Pog Quest should ever feed the existing economy** (career tiers, Circuit auto-resolve, character mastery credit). Currently `recordRun()` is never called from the new scenes — deliberate non-integration, not yet a real decision either way.
-2. **Whether Pog Quest eventually *replaces* Pogo Dash** or stays a permanent second mode. The very first clarifying question got "replace," but the branch-first framing sidestepped actually doing that — right now they coexist as siblings on the mode-select screen.
-3. **Touch-based 2-player input for co-op is still unsolved.** Keyboard-only (P1 WASD, P2 arrows) was always meant as the *first*, lower-risk step, not the answer — splitting touch input across one small portrait phone screen needs its own design pass.
-4. **How many pogs should get an active effect, and whether more than one should be equippable at once.** Only 4 of 20 pogs have one; `activeItem` is hard-limited to whichever equipped pog is found first.
-5. **None of the physics/pacing constants are human-validated** (`GRAVITY_Y`, `JUMP_VELOCITY`, `MOVE_SPEED`, `RIVAL_MOVE_SPEED`, boss `chargeSpeed`, `paceMultiplier`, etc.) — all reasonable defaults per the plan's own framing, proven only via headless-browser physics assertions, never a real thumb on a real screen.
-6. **The v0.4.0 Android release does not include today's balance-tuning commits** (they landed after the tag was cut) — flagged last session too, still true, still not released.
-7. **Merge strategy and timing for `feat/pog-quest-platformer` → `master`** has not been discussed at all.
-
-## Pog Quest architecture — file map
-
-| File | Responsibility |
+### Forever Realm file map
+| File | What |
 |---|---|
-| `src/game/data/platformerConfig.ts` | Every physics/gameplay tunable in one place (gravity, jump, move speed, stomp/combo rules, boss timings, projectile speed) |
-| `src/game/data/levels.ts` | `LevelDef` type, builder helpers, `LEVEL_1`–`LEVEL_4`, `LEVELS` array |
-| `src/game/data/platformerEnemies.ts` | Enemy type table (`patroller`, `flyer`, `boss`) — texture, contact damage, stomp reward, `maxHealth`, `chargeSpeed` |
-| `src/game/data/pogs.ts` | `PogActiveEffect` (discriminated union: `shieldBurst`/`speedBurst`/`extraLife`/`projectile`), alongside the pre-existing passive `perks` |
-| `src/game/systems/PlayerController.ts` | Shared movement/physics: accel, coyote time, jump buffer, jump-cut — used by the human player, P2, and the AI rival alike |
-| `src/game/systems/rivalAI.ts` | Turns a level's authored waypoints into `ControllerInput` for the rival |
-| `src/game/db/platformerResult.ts` | `PlatformerResult` (win/loss/coins/combo/level index) — separate from `runResult.ts`, which is score/tier-shaped for Pogo Dash |
-| `src/game/db/pogRepository.ts` | `equippedLoadout()` (new, identity-preserving) alongside the untouched `equippedPerks()` |
-| `src/game/scenes/PlatformerRunScene.ts` | The gameplay scene — by far the largest file (~860 lines): movement, stomp/damage resolution, boss AI, co-op, items, HUD, controls |
-| `src/game/scenes/PlatformerResultScene.ts` | Win/loss/fell screen; offers NEXT LEVEL only when it wouldn't dump a solo player into the co-op level |
-| `src/game/scenes/ModeSelectScene.ts` | "Pog Quest" button (resets to level 0) + a compact co-op text link (`LEVELS.findIndex(l => l.coop)`) |
-| `src/game/scenes/BootScene.ts` | New procedural textures: platform tile, coin, patrol/flying/boss enemies, projectile, goal flag, shield-burst icon |
+| `realm/worldGen.ts` | seeded overworld (640×200 tiles): caves, ores by depth, trees, **the shrine** (4 portals + the Forever Gate) |
+| `realm/pocketGen.ts` | the portal realms (220×70) and the Eternal Hall (260×70), each ending in a boss arena |
+| `realm/realms.ts` | realm defs, relics, `FOREVER_SEGMENTS` |
+| `realm/realmBosses.ts` | 5 boss state machines behind a `BossCtx` (Tyrant, Leviathan, Harpy Queen, Hollow King, **Eternal Reaper**) |
+| `realm/tiles.ts`, `realm/items.ts`, `realm/realmEnemies.ts` | tile table (ids are save keys: append only), items/recipes/brews/swords, creatures with `ai` kinds |
+| `realm/realmSave.ts` | the save: seed + tile edits, inventory, gear, relics, champion, stats, minimap fog bitset |
+| `scenes/RealmScene.ts` | ~1800 lines: world build, input, mining/building, combat, environment hazards, portals/travel, boss fights, lighting, HUD, minimap, ending, save. **The next refactor candidate**: split out environment, HUD/minimap and boss plumbing. |
 
-Levels: `LEVEL_1` "Footpeg Flats" and `LEVEL_2` "Signature Sprint" are normal race-and-fight levels; `LEVEL_3` "Circuit Showdown" is the boss arena (`bossLevel: true`, no rival, no goal flag); `LEVEL_4` "Co-op Circuit" is the same boss shape at `paceMultiplier: 0.65` (`coop: true`, spawns via `player2Start`).
+### Forever Realm controls
+Controller: stick move · A jump · X sword · RT use tool (hold to mine) · right stick aim · LB/RB tools · B potion · Y craft · View minimap · Menu pause · ▼ enter a portal.
+Keyboard/mouse: A/D · W/Space · J sword · K or click use · right-click sword · 1–0 tools · Q potion · E craft · Tab minimap · S/↓ portal · Esc.
 
-## Run and verify
+## Key decisions (today)
 
-Same commands as always (`npm run dev`, `npm run build`, `npx tsc --noEmit`, `npm run test:browser`), but for the platformer specifically there is **no committed regression coverage yet** — every check this session lived in ad hoc scripts under the scratchpad (`verify-platformer.mjs`, `verify-phase2.mjs`, `verify-boss.mjs`, `verify-coop.mjs`), which are **not saved in the repo** and won't survive to next session. If picking this back up, either:
-- recreate similar scripts (the existing `tests/browser-regression.mjs` shows the CDP-over-WebSocket pattern — `Target.createBrowserContext` per test group, `window.__game.scene.getScene('PlatformerRun')` to reach in directly), or
-- fold the platformer checks into `tests/browser-regression.mjs` itself so they're not lost again.
+1. **New modes sit beside old ones; nothing is replaced.** Pog Quest stayed alongside Pogo Dash, and the Forever Realm stayed alongside Pog Quest (the user's explicit choice both times).
+2. **Pog Quest economy:** attempts of 15s+ give character mastery training (which feeds Circuit Advantage), and a first clear gives +1 Tech Point plus a reward pog. It never touches career tier, Dash score or the Circuit match.
+3. **Physics defaults were not tuned by the assistant.** Instead there's a `?tune` panel for the human to use. Feel is a human judgment.
+4. **Worlds save as a seed plus edits**, not full maps. Portal realms regenerate on every visit (dungeons); only gear, pack, relics and stats travel back.
+5. **The soundtrack streams through `<audio>` instead of Web Audio decoding** (~100MB of RAM per song otherwise), mapped by cue rather than by file.
+6. **Controller input is polled directly from the Gamepad API** (not Phaser's plugin), cached per frame time so a press is seen exactly once across stacked scenes.
+7. **The realm is landscape via `scale.setGameSize`** while it runs, restored to portrait on exit. The rest of the app stays portrait.
+8. **Relics gate the finale and make the Eternal Hall passable** (immunities, double jump, breathing). That's the progression loop. The opened gate follows the relics; it isn't saved as a tile edit.
+9. **Traversability is proven by bots at a fixed 60fps** (`game.headlessStep`, fixed seeds), not assumed from level data. This found 6+ real level-design bugs.
 
-Use `scene.restart()` (Phaser's own API) to restart the *current* scene — a manual `for (...) s.scene.stop(); scene.start(key)` loop races Phaser's scene queue when the target is already the active scene and can leave it stuck at `SHUTDOWN` status. This cost real debugging time twice today before being traced correctly.
+## Bugs found and fixed along the way (worth remembering)
 
-When forcing a stomp/hit test by setting `sprite.setPosition(...)` directly (bypassing real gameplay), call `body.updateFromGameObject()` on both bodies immediately after — Arcade bodies cache their bounds and won't reflect a manual position change until the next physics step otherwise, which looks exactly like a broken hit-detection bug but isn't.
+- **Pog Quest's AI rival could never finish a race** (a jump-cut hop, then a loop into the same pit after respawning). It existed on `master` since the mode shipped.
+- **Respawns via `setPosition` dropped bodies through the floor.** Use `body.reset(x, y)`.
+- **Checkpoints on moving platforms respawned players in mid-air.**
+- **Unreachable or bonk-prone ledges** in Pog Quest Level 1 and the Tide knolls (fixed with a surface-breach jump). **A sky island blocked the Eternal Hall's crypt door.**
+- **Phaser reuses a scene's previous start data** when `start()`/`restart()` get none, so a single "New World" wiped the save on every later visit. The realm now clears `sys.settings.data`.
+- **The camera fade persisted across `scene.restart()`**, which would have left the screen black after every portal trip. Fixed with `resetFX()` in create.
+- **Two flaky tests traced to root causes:** assertions read after control returned to the real game loop, and `stop()`+`start()` on an already-active scene left it stuck at SHUTDOWN (use `restart()`).
+
+## Unresolved assumptions (raise these with the user; don't silently decide)
+
+1. **Difficulty and feel have never had a human pass**: jump physics, boss HP and timings, heat/breath rates, enemy damage. The Reaper has 900 HP; perch-only Conductor fights take ~50s.
+2. **Android:** the Capacitor shell is portrait-locked, so the realm letterboxes on phones. Is the realm meant to ship on Android? That needs an orientation plugin and touch-control tuning. Touch co-op for Pog Quest has also never been on a real phone.
+3. **Nothing since v0.4.0 is released.** Is a release planned, and at what scope? The APK now includes ~25MB of music.
+4. **Should Pog Quest or the Forever Realm feed career tiers** or the Circuit? Currently they don't (Pog Quest only feeds mastery and Tech Points).
+5. **The realm hero replaced the chosen character** (Chakan styling). Should the character select still matter there?
+6. **Post-game:** after the Reaper, the realms are replayable but offer nothing new. New Game+, harder bosses, or beds and chests (proposed, not started)?
+7. **Crediting the soundtrack:** the ending lists track names only. Does the user want an artist name?
+
+## Test and debugging playbook (hard-won)
+
+- **Drive time yourself.** Headless Chrome runs at <10fps and irregularly. Use chunked `game.headlessStep` loops (see `simulate`/`step` in the tests), and **assert inside the stepped frames**, not in a later CDP call.
+- **Phaser tweens run on the wall clock**, not headlessStep's delta. Anything that finishes on a tween (menu buttons) needs real-time waits (`tapReal`).
+- **Scene restarts:** `restart()` an active scene; wait for a *new* state object (`world !== oldWorld`), not a flag the old instance still holds.
+- **Fixed seeds** for traversal bots (`scene.restart({ pocket, seed })`). The generator constraints are checked separately across seeds.
+- **Reproduce a flake with a trace before fixing it.** Twice today, a guessed fix was wrong.
+- **Close CDP tabs you open** (`/json/close/<id>`). Orphaned game tabs slowed the browser enough to time the suite out.
+- **Vite binds IPv6 `localhost`**, so use `POGO_URL=http://localhost:5173`.
+- **Phaser 4 API differences met today:** `rt.render()` is required on RenderTextures; `erase()` has no alpha argument (set it on the eraser object); `setTintFill(color)` is gone; `make.image(config, addToScene)`.
+- **To work while the user plays**, build in a git worktree with its own dev server on another port, so their session doesn't hot-reload mid-game.
+
+## Collaboration retrospective
+
+**Where the assistant could have been more efficient**
+1. **I guessed at a flaky test twice before measuring it.** The Pog Quest pad-jump flake got a guessed fix (move the rival), then a second guess that broke the level (the rival won the race), before a 25-iteration trace showed the real cause. I should have reproduced it with a trace first, as I eventually did.
+2. **I wrote tests with assumptions I hadn't checked** (the respawn point being inside the portal, the stick aim distance, test-injected relics persisting, the ground under a placed block), which cost several suite reruns at 3–4 minutes each. Reading the exact state before asserting on it would have saved most of them.
+3. **The realm's lighting took four screenshot rounds** (uniform darkness, sky color, erase alpha, scaled erasers) because I built it before checking Phaser 4's RenderTexture semantics. A 5-minute API spike up front would have been cheaper.
+
+**Where the user could have been more efficient**
+1. **Scope escalated every turn** ("more levels" → "open world" → "portal realms" → "final boss") without a stated end goal. A one-paragraph north star ("a Terraria/Chakan open world with 4 realms and a final boss, released on Android by X") would have let the architecture be planned once. For example, landscape and Android orientation got deferred because they weren't known up front.
+2. **"It plays fine" was the only playtest feedback.** The biggest open risk (feel, difficulty) can only be closed by you. Even three bullets per session ("jumps float, the Tyrant is too easy, I got lost in Tide") would steer tuning better than more features.
+3. **Some requests bundled 3–5 deliverables** (e.g. "commit push merge … review … key decisions … assumptions … examples … vocabulary … handoff"). That's fine for wrap-ups, but mid-build, one goal per message lets each piece be reviewed before the next is stacked on it.
+
+**Prompting tips that unlock more**
+- **Name the constraint, not just the feature:** "must run on my Android phone", "keep it under 10 minutes to beat", "bosses should be hard". Constraints change designs more than features do.
+- **Say what "done" looks like** ("I can beat Ember without dying more than twice"). I'll build tests and tuning toward it.
+- **Point at a reference moment** ("the Tyrant should feel like Chakan's fire boss", "mining should feel like Terraria's copper era"). Concrete references beat adjectives.
+
+## Vocabulary
+
+- **Deterministic simulation**: running a game with a fixed time step and seeded randomness so the same inputs always produce the same result. That's what made today's bot tests reliable ("run it deterministically at 60fps with seed 777").
+- **Root-cause analysis**: finding *why* a failure happens, not just making it go away. Today's flaky tests were fixed for real only after tracing them. Asking "what's the root cause?" pushes past quick patches.
+- **Vertical slice**: a thin but complete, playable piece of a big feature, like Phase 1 of the realm. Asking for "a vertical slice of X" gets you something to play early instead of lots of half-finished parts.
 
 ## Recommended next session
 
-1. **Playtest on a phone or at least a real browser tab**, not just headless assertions — none of the physics tuning has had human eyes/thumbs on it yet.
-2. **Decide the economy question** (unresolved assumption #1 above) before building more content that might need to change shape depending on the answer.
-3. **Save the platformer test scripts into the repo** (see "Run and verify") before they're lost to a fresh scratchpad next session.
-4. If continuing content breadth: more active pogs, more enemy variety, more levels — all follow the same data-driven patterns already established (`platformerEnemies.ts`, `levels.ts`, `PogActiveEffect`).
-5. If continuing toward the original Smash-Bros framing: touch-split co-op input is the next real design problem, not just more code.
+1. **Playtest first**, then tune through `?tune` and the boss constants (`realm/realmBosses.ts`, `data/platformerConfig.ts`). Bring back concrete notes.
+2. **Decide the Android question** (unresolved #2/#3) before more content. If yes, add an orientation plugin and a realm touch-controls pass, then cut v0.5.0.
+3. **Phase 4 candidates:** beds and chests, New Game+, per-tile flood-fill lighting, more biomes, and splitting `RealmScene.ts`.
 
-## Collaboration retrospective (today)
-
-Three ways the assistant could have been more efficient:
-
-1. Diagnosed a "movement regression" across two full debug cycles before landing on the real, durable fix (poll a condition, don't assert on a fixed-pause position delta) — the first diagnosis (blamed a stale browser process) was itself incomplete, since the identical symptom reappeared on a genuinely fresh process and should have been treated with more skepticism before being called solved.
-2. Forced a test-state change via `sprite.setPosition()` without calling `body.updateFromGameObject()`, producing a false "stomp didn't register" failure that took a debugging detour to trace — should have anticipated the caching behavior, having already used Arcade Physics bodies elsewhere in the same session.
-3. Used broad `pkill -f "chromium"` cleanup commands more than once despite having the specific PID or a unique `--user-data-dir` flag on hand from the corresponding launch command — the one time this went wrong, it broke something outside the repo that couldn't be un-broken from within the session.
-
-Three ways the user's prompting could get more out of these sessions:
-
-1. The opening ask ("make it into a 2d side scroller kind of like mario") turned out to want something much bigger — a Smash-Bros-style VS mode, bosses, co-op, an item-battle system — that only surfaced across three rounds of clarifying questions. Front-loading the fuller vision, even as a rough bullet list, would let the phased plan get scoped correctly on the first pass instead of needing that back-and-forth.
-2. Momentum phrases like "keep cooking king" are great fuel but bundle multiple possible directions into one line — naming which phase or aspect to prioritize (as happened for boss-vs-co-op, resolved via a clarifying question) saves a round trip.
-3. This very message bundles seven distinct deliverables into one ask (review, decisions, assumptions, two sets of three examples, vocabulary, a full handoff rewrite) — reasonable for a wrap-up, but for ongoing work, splitting "give me the quick version" from "now go build the long document" lets you redirect the cheap part before committing to the expensive part.
-
-**New vocabulary, both earned today:**
-
-- **Scope cut** — a boundary drawn on purpose and communicated, not an oversight. ("Co-op's item button is a scope cut, not a bug — P2 can't use items yet.") Naming it this way instead of leaving it implicit is exactly what separates "we know and chose this" from "we forgot."
-- **Flaky** (test) — a check that intermittently fails for reasons unrelated to whether the code is correct (timing, environment, load), as opposed to a real regression. Today's movement-check saga was a flaky test, not a flaky game — worth naming precisely, because the fix for a flaky test (make the assertion deterministic) is completely different from the fix for a regression (find and revert/repair the bad change).
-
-Useful older vocabulary, still relevant: **acceptance criteria** (observable conditions that define "done") and **invariant** (a rule that must stay true through changes) — both from the prior handoff, both still apply, e.g. "no life loss from a player↔rival stomp exchange" is an invariant of the race mechanic.
-
-Example next prompt: *"Continue on feat/pog-quest-platformer. I played it on my phone — jump feels floaty, tighten GRAVITY_Y. Before adding more content, save the verify scripts into tests/ so we stop losing them. Don't touch master."*
+Example next prompt:
+> "Played the Forever Realm on desktop. The Tyrant is too easy, the Tide breath runs out too fast, and I got lost in the Grave Realm. Tune those, then set up Android landscape for the realm and cut v0.5.0. Don't add new content yet."
