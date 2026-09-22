@@ -15,13 +15,18 @@ function levelTag(level: LevelDef): { label: string; color: number } {
   return { label: 'RACE', color: 0x4ade80 };
 }
 
-/** Pog Quest's hub: every level, what it rewards, and your best on it. */
+type Tab = 'solo' | 'coop';
+
+/** Pog Quest's hub: every level, what it rewards, and your best on it. Solo and co-op on separate tabs. */
 export class PlatformerLevelSelectScene extends Phaser.Scene {
+  private tab: Tab = 'solo';
+
   constructor() {
     super('PlatformerLevelSelect');
   }
 
-  create(): void {
+  create(data: { tab?: Tab } = {}): void {
+    this.tab = data.tab ?? 'solo';
     this.cameras.main.setBackgroundColor(COLORS.bg);
     this.add
       .text(WIDTH / 2, 50, 'POG QUEST', { fontSize: '28px', fontFamily: FONT, fontStyle: 'bold', color: '#38bdf8' })
@@ -50,13 +55,29 @@ export class PlatformerLevelSelectScene extends Phaser.Scene {
       padText.setText(
         pads.length === 0
           ? '🎮 controller? press any button on it'
-          : `🎮 ${pads.map((p) => padLabel(p.id)).join(' + ')} · A jump · X item · Y swap · Menu pause`,
+          : `🎮 ${pads.map((p) => padLabel(p.id)).join(' + ')} · A jump · X item · Y swap · LB/RB tabs`,
       );
     };
     this.events.on(Phaser.Scenes.Events.UPDATE, onUpdate);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.events.off(Phaser.Scenes.Events.UPDATE, onUpdate));
 
+    const tabs: Tab[] = ['solo', 'coop'];
+    tabs.forEach((tab, i) => {
+      const x = WIDTH / 2 + (i === 0 ? -80 : 80);
+      const active = tab === this.tab;
+      const bg = this.add.rectangle(x, 108, 150, 28, active ? 0x38bdf8 : 0x1c1430).setStrokeStyle(1, 0x38bdf8, 0.8)
+        .setInteractive({ useHandCursor: true });
+      this.add.text(x, 108, tab === 'solo' ? 'SOLO' : 'CO-OP 2P', {
+        fontSize: '12px', fontFamily: FONT, fontStyle: 'bold', color: active ? '#07202c' : '#b7aed0',
+      }).setOrigin(0.5);
+      bg.on('pointerdown', () => { if (!active) this.scene.restart({ tab }); });
+    });
+
     void this.render();
+  }
+
+  private switchTab(): void {
+    this.scene.restart({ tab: this.tab === 'solo' ? 'coop' : 'solo' });
   }
 
   private async render(): Promise<void> {
@@ -65,9 +86,10 @@ export class PlatformerLevelSelectScene extends Phaser.Scene {
 
     const rows: Phaser.GameObjects.Rectangle[] = [];
     let focus = -1;
-    const rowH = 54;
-    LEVELS.forEach((level, i) => {
-      const y = 120 + i * rowH;
+    const rowH = 50;
+    const shown = LEVELS.map((level, i) => ({ level, i })).filter(({ level }) => !!level.coop === (this.tab === 'coop'));
+    shown.forEach(({ level, i }, row) => {
+      const y = 150 + row * rowH;
       const unlocked = isLevelUnlocked(profile, i);
       const progress = questProgressFor(profile, level.id);
       const tag = levelTag(level);
@@ -78,10 +100,10 @@ export class PlatformerLevelSelectScene extends Phaser.Scene {
         .setStrokeStyle(2, tag.color, unlocked ? 0.8 : 0.25);
 
       this.add
-        .text(44, y - 10, `${i + 1}. ${level.name}`, { fontSize: '14px', fontFamily: FONT, fontStyle: 'bold', color: unlocked ? '#ffffff' : '#6b6180' })
+        .text(44, y - 9, `${row + 1}. ${level.name}`, { fontSize: '14px', fontFamily: FONT, fontStyle: 'bold', color: unlocked ? '#ffffff' : '#6b6180' })
         .setOrigin(0, 0.5);
       this.add
-        .text(WIDTH - 44, y - 10, tag.label, {
+        .text(WIDTH - 44, y - 9, tag.label, {
           fontSize: '10px', fontFamily: FONT, fontStyle: 'bold', color: '#0b0714',
           backgroundColor: `#${tag.color.toString(16).padStart(6, '0')}`, padding: { x: 5, y: 2 },
         })
@@ -95,12 +117,12 @@ export class PlatformerLevelSelectScene extends Phaser.Scene {
       else status = reward ? `reward: ${reward.emoji} ${reward.name}` : 'not cleared yet';
       if (level.coop && unlocked && !cleared) status += ' · 2 players';
       this.add
-        .text(44, y + 10, status, { fontSize: '11px', fontFamily: FONT, color: cleared ? '#4ade80' : '#b7aed0' })
+        .text(44, y + 9, status, { fontSize: '11px', fontFamily: FONT, color: cleared ? '#4ade80' : '#b7aed0' })
         .setOrigin(0, 0.5);
 
       if (unlocked) {
         // controller focus starts on the first solo level you haven't cleared yet
-        if (focus < 0 && !cleared && !level.coop) focus = rows.length;
+        if (focus < 0 && !cleared) focus = rows.length;
         rows.push(bg);
         bg.setInteractive({ useHandCursor: true });
         bg.on('pointerover', () => bg.setFillStyle(tag.color, 0.26));
@@ -112,6 +134,6 @@ export class PlatformerLevelSelectScene extends Phaser.Scene {
         });
       }
     });
-    attachPadMenu(this, rows, { initial: Math.max(0, focus), onBack: () => this.scene.start('ModeSelect') });
+    attachPadMenu(this, rows, { initial: Math.max(0, focus), onBack: () => this.scene.start('ModeSelect'), onShoulder: () => this.switchTab() });
   }
 }

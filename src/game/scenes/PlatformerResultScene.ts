@@ -44,6 +44,7 @@ export class PlatformerResultScene extends Phaser.Scene {
         ? { title: 'BOSS DOWN!', color: '#4ade80', sub: level.coop ? 'teamwork makes the dream work' : 'the champion falls' }
         : OUTCOME_COPY[result.raceOutcome];
     const next = won ? nextSoloLevelIndex(result.levelIndex) : undefined;
+    const toLevels = () => this.scene.start('PlatformerLevelSelect', { tab: level.coop ? 'coop' : 'solo' });
 
     this.add.text(WIDTH / 2, 96, character.emoji, { fontSize: '52px' }).setOrigin(0.5);
     this.add.text(WIDTH / 2, 148, level.name, { fontSize: '13px', fontFamily: FONT, color: '#6b6180' }).setOrigin(0.5);
@@ -93,10 +94,10 @@ export class PlatformerResultScene extends Phaser.Scene {
       this.scene.start('PlatformerRun');
     }));
     y += 68;
-    buttons.push(this.makeButton(y, 'LEVELS', 0x38bdf8, '#07202c', () => this.scene.start('PlatformerLevelSelect')));
+    buttons.push(this.makeButton(y, 'LEVELS', 0x38bdf8, '#07202c', toLevels));
     y += 68;
     buttons.push(this.makeButton(y, 'MENU', 0x22c55e, '#ffffff', () => this.scene.start('ModeSelect')));
-    attachPadMenu(this, buttons, { onBack: () => this.scene.start('PlatformerLevelSelect') });
+    attachPadMenu(this, buttons, { onBack: toLevels });
   }
 
   private showReward(text: Phaser.GameObjects.Text, reward: QuestRunReward, characterName: string, won: boolean): void {

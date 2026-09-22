@@ -116,6 +116,16 @@ export const CONDUCTOR_RISE_SPEED = 300;
 export const BOLT_SPEED = 240;
 export const BOLT_LIFESPAN_MS = 2600;
 
+/** in-level power-up pickups (LevelDef.powerups) */
+export const STAR_MS = 6000;
+export const FEATHER_MS = 10000;
+/** hold jump while falling with a feather: fall speed is capped at this */
+export const GLIDE_FALL_SPEED = 110;
+export const ROCKET_MS = 8000;
+export const ROCKET_JUMP_SCALE = 1.3;
+/** spike strips bounce you up as they hurt, so you can't stand in them */
+export const SPIKE_BOUNCE_VELOCITY = -420;
+
 /** spring pads launch anything that runs or lands on them (heroes and the rival) */
 export const SPRING_VELOCITY = -1100;
 

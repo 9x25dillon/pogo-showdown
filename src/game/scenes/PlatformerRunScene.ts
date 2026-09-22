@@ -26,6 +26,12 @@ import {
   CONDUCTOR_RISE_SPEED,
   CONDUCTOR_TELEGRAPH_MS,
   DROPPER_RELOAD_MS,
+  FEATHER_MS,
+  GLIDE_FALL_SPEED,
+  ROCKET_JUMP_SCALE,
+  ROCKET_MS,
+  SPIKE_BOUNCE_VELOCITY,
+  STAR_MS,
   DROPPER_TELEGRAPH_MS,
   DROPPER_TRIGGER_PX,
   GHOST_DRIFT_SPEED,
@@ -74,7 +80,7 @@ import {
   TURRET_FIRE_INTERVAL_MS,
   TURRET_RANGE_PX,
 } from '../data/platformerConfig';
-import { LEVELS, type LevelDef } from '../data/levels';
+import { LEVELS, type LevelDef, type PowerupKind } from '../data/levels';
 import { enemyDef, type PlatformerEnemyDef } from '../data/platformerEnemies';
 import {
   applyHeroGravity,
@@ -100,6 +106,8 @@ const ITEM_ICON: Record<PogActiveEffect['kind'], string> = {
   doubleJump: '🦘',
   groundPound: '💥',
 };
+
+const POWERUP_ICON: Record<PowerupKind, string> = { star: '⭐', feather: '🪶', rocket: '🚀', heart: '❤', shield: '⛨' };
 
 const P2_TINT = 0x38bdf8;
 const RIVAL_TINT = 0x94a3b8;
@@ -129,6 +137,8 @@ interface PatrolEnemyState {
   phased?: boolean;
   /** dropper: ms left in the pre-drop warning flash (0 = not winding up) */
   windup?: number;
+  /** boss rush: waiting its turn (hidden, body off) */
+  dormant?: boolean;
   /** conductor: dive target x, and countdown to its next bolt */
   diveX?: number;
   fireTimer?: number;
@@ -181,6 +191,12 @@ interface Hero {
   airJumpTimer: number;
   airJumpsUsed: number;
   magnetTimer: number;
+  /** power-up pickups (LevelDef.powerups) */
+  starTimer: number;
+  featherTimer: number;
+  rocketTimer: number;
+  /** the hero's own tint, restored when the star's rainbow ends */
+  tint: number;
   pounding: boolean;
   lastCheckpoint: { x: number; y: number };
   items: ItemSlot[];
@@ -255,6 +271,7 @@ export class PlatformerRunScene extends Phaser.Scene {
   private timeText!: Phaser.GameObjects.Text;
   private comboText!: Phaser.GameObjects.Text;
   private rivalPositionText!: Phaser.GameObjects.Text;
+  private powerupText!: Phaser.GameObjects.Text;
   private loadingText?: Phaser.GameObjects.Text;
 
   constructor() {
@@ -297,6 +314,7 @@ export class PlatformerRunScene extends Phaser.Scene {
     if (this.input.manager.pointersTotal < 5) this.input.addPointer(5 - this.input.manager.pointersTotal);
 
     this.buildLevel();
+    this.buildPickupsAndSpikes();
     this.buildHud();
     this.buildControls();
 
@@ -464,6 +482,82 @@ export class PlatformerRunScene extends Phaser.Scene {
     }
   }
 
+  private buildPickupsAndSpikes(): void {
+    for (const def of this.level.powerups ?? []) {
+      const pickup = this.physics.add.sprite(def.x, def.y, `pu_${def.kind}`);
+      (pickup.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
+      this.tweens.add({ targets: pickup, y: def.y - 6, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+      for (const hero of this.heroes) this.physics.add.overlap(hero.sprite, pickup, () => this.collectPowerup(hero, pickup, def.kind));
+    }
+    for (const def of this.level.spikes ?? []) {
+      const strip = this.add.tileSprite(def.x, this.level.groundY - 18, def.width, 18, 'spikeTile').setOrigin(0, 0);
+      this.physics.add.existing(strip, true);
+      for (const hero of this.heroes) this.physics.add.overlap(hero.sprite, strip, () => this.hitSpikes(hero));
+    }
+    if (this.level.bossRush) {
+      this.enemies.filter((e) => e.def.movement === 'boss').slice(1).forEach((e) => {
+        e.dormant = true;
+        e.sprite.setVisible(false);
+        (e.sprite.body as Phaser.Physics.Arcade.Body).enable = false;
+      });
+    }
+  }
+
+  private collectPowerup(hero: Hero, pickup: Phaser.Physics.Arcade.Sprite, kind: PowerupKind): void {
+    if (!pickup.active || this.gameOver) return;
+    this.tweens.killTweensOf(pickup);
+    pickup.destroy();
+    switch (kind) {
+      case 'star':
+        hero.starTimer = STAR_MS;
+        break;
+      case 'feather':
+        hero.featherTimer = FEATHER_MS;
+        break;
+      case 'rocket':
+        hero.rocketTimer = ROCKET_MS;
+        break;
+      case 'heart':
+        this.lives += 1;
+        break;
+      case 'shield':
+        this.shields += 1;
+        break;
+    }
+    const label = this.add
+      .text(hero.sprite.x, hero.sprite.y - 90, `${POWERUP_ICON[kind]} ${kind.toUpperCase()}`, {
+        fontSize: '14px', fontFamily: 'system-ui, sans-serif', fontStyle: 'bold', color: '#fef08a',
+      })
+      .setOrigin(0.5)
+      .setDepth(25);
+    this.tweens.add({ targets: label, y: label.y - 40, alpha: 0, duration: 800, onComplete: () => label.destroy() });
+    this.buzz(hero, 80, 0.3);
+  }
+
+  /** hurts (unless starred or invulnerable) and always bounces you out */
+  private hitSpikes(hero: Hero): void {
+    if (this.gameOver) return;
+    const body = hero.sprite.body as Phaser.Physics.Arcade.Body;
+    if (body.velocity.y >= 0) body.setVelocityY(SPIKE_BOUNCE_VELOCITY);
+    hero.pounding = false;
+    if (hero.starTimer > 0 || hero.invulnTimer > 0) return;
+    this.takeDamage(hero, 1);
+  }
+
+  /** boss rush: the next dormant boss drops in; false when none are left */
+  private activateNextBoss(): boolean {
+    const next = this.enemies.find((e) => e.dormant && e.alive);
+    if (!next) return false;
+    next.dormant = false;
+    const body = next.sprite.body as Phaser.Physics.Arcade.Body;
+    body.enable = true;
+    body.reset(next.originX + next.rangeX / 2, next.baseY);
+    next.sprite.setVisible(true).setAlpha(0);
+    this.tweens.add({ targets: next.sprite, alpha: 1, duration: 400 });
+    this.cameras.main.flash(260, 250, 204, 21);
+    return true;
+  }
+
   /** running or landing on a pad launches you; returns whether it fired */
   private launchFromSpring(sprite: Phaser.Physics.Arcade.Sprite, ctrl: ControllerState, pad: Phaser.Physics.Arcade.Image): boolean {
     const body = sprite.body as Phaser.Physics.Arcade.Body;
@@ -493,6 +587,10 @@ export class PlatformerRunScene extends Phaser.Scene {
       airJumpTimer: 0,
       airJumpsUsed: 0,
       magnetTimer: 0,
+      starTimer: 0,
+      featherTimer: 0,
+      rocketTimer: 0,
+      tint,
       pounding: false,
       lastCheckpoint: { x: at.x, y: at.y },
       items: [],
@@ -508,6 +606,7 @@ export class PlatformerRunScene extends Phaser.Scene {
     const style = { fontSize: '15px', fontFamily: 'system-ui, sans-serif', fontStyle: 'bold', color: '#ffffff' };
     this.coinsText = this.add.text(16, 16, '🪙 0', style).setScrollFactor(0).setDepth(30);
     this.livesText = this.add.text(16, 40, `♥ ${this.lives}`, style).setScrollFactor(0).setDepth(30);
+    this.powerupText = this.add.text(16, 64, '', { ...style, fontSize: '13px' }).setScrollFactor(0).setDepth(30);
     this.timeText = this.add.text(WIDTH - 16, 16, '0.0s', style).setOrigin(1, 0).setScrollFactor(0).setDepth(30);
     this.comboText = this.add
       .text(WIDTH / 2, 16, '', { fontSize: '15px', fontFamily: 'system-ui, sans-serif', color: '#f9d64b', fontStyle: 'bold' })
@@ -533,6 +632,14 @@ export class PlatformerRunScene extends Phaser.Scene {
 
   private updateHud(): void {
     this.coinsText.setText(`🪙 ${this.coins}`);
+    const timers = (h: Hero) =>
+      ([['star', h.starTimer], ['feather', h.featherTimer], ['rocket', h.rocketTimer]] as const)
+        .filter(([, ms]) => ms > 0)
+        .map(([k, ms]) => `${POWERUP_ICON[k]}${Math.ceil(ms / 1000)}`)
+        .join(' ');
+    this.powerupText.setText(
+      this.heroes.map((h) => ({ h, t: timers(h) })).filter(({ t }) => t).map(({ h, t }) => (this.coopMode ? `P${h.slot} ${t}` : t)).join('   '),
+    );
     this.livesText.setText(`♥ ${Math.max(0, this.lives)}${this.shields ? `  ⛨ ${this.shields}` : ''}`);
     this.timeText.setText(`${this.elapsed.toFixed(1)}s`);
     this.comboText.setText(
@@ -542,9 +649,11 @@ export class PlatformerRunScene extends Phaser.Scene {
       const ahead = this.player.x - this.rival.x;
       this.rivalPositionText.setText(ahead >= 0 ? `Rival: ahead by ${Math.round(ahead)}` : `Rival: behind by ${Math.round(-ahead)}`);
     } else {
-      const boss = this.enemies.find((e) => e.def.movement === 'boss');
+      const bosses = this.enemies.filter((e) => e.def.movement === 'boss');
+      const boss = bosses.find((e) => e.alive && !e.dormant);
       const enraged = boss && boss.def.bossKind !== 'charger' && this.bossEnraged(boss);
-      this.rivalPositionText.setText(boss && boss.alive ? `BOSS HP: ${boss.health} / ${boss.def.maxHealth}${enraged ? ' · ENRAGED' : ''}` : '');
+      const rush = this.level.bossRush && boss ? `BOSS ${bosses.indexOf(boss) + 1}/${bosses.length} · ` : '';
+      this.rivalPositionText.setText(boss ? `${rush}${boss.def.name.toUpperCase()} HP: ${boss.health} / ${boss.def.maxHealth}${enraged ? ' · ENRAGED' : ''}` : '');
     }
   }
 
@@ -900,6 +1009,13 @@ export class PlatformerRunScene extends Phaser.Scene {
     hero.speedBoostTimer = Math.max(0, hero.speedBoostTimer - dt);
     hero.airJumpTimer = Math.max(0, hero.airJumpTimer - dt);
     hero.magnetTimer = Math.max(0, hero.magnetTimer - dt);
+    hero.featherTimer = Math.max(0, hero.featherTimer - dt);
+    hero.rocketTimer = Math.max(0, hero.rocketTimer - dt);
+    if (hero.starTimer > 0) {
+      hero.starTimer = Math.max(0, hero.starTimer - dt);
+      if (hero.starTimer > 0) hero.sprite.setTint(Phaser.Display.Color.HSVToRGB((this.elapsed * 2.5) % 1, 0.6, 1).color);
+      else hero.sprite.setTint(hero.tint);
+    }
 
     const input = hero.input;
     if (input.pendingSwap) { this.swapItem(hero); input.pendingSwap = false; }
@@ -937,8 +1053,11 @@ export class PlatformerRunScene extends Phaser.Scene {
             jumpHeld: input.touchJump || input.keyJump || input.padJump,
           };
     const moveSpeed = hero.speedBoostTimer > 0 ? PHYS.moveSpeed * SPEED_BOOST_MULTIPLIER : PHYS.moveSpeed;
-    updateController(body, controllerInput, hero.ctrl, { moveSpeed, moveAccel: PHYS.moveAccel }, dt);
+    const jumpScale = hero.rocketTimer > 0 ? ROCKET_JUMP_SCALE : 1;
+    updateController(body, controllerInput, hero.ctrl, { moveSpeed, moveAccel: PHYS.moveAccel, jumpScale }, dt);
     applyHeroGravity(body);
+    // feather: holding jump while falling floats you down
+    if (hero.featherTimer > 0 && controllerInput.jumpHeld && body.velocity.y > GLIDE_FALL_SPEED) body.setVelocityY(GLIDE_FALL_SPEED);
 
     hero.sprite.setFlipX(body.velocity.x < -5 ? true : body.velocity.x > 5 ? false : hero.sprite.flipX);
     hero.sprite.setAlpha(hero.invulnTimer > 0 && Math.floor(hero.invulnTimer / 80) % 2 === 0 ? 0.4 : 1);
@@ -975,7 +1094,7 @@ export class PlatformerRunScene extends Phaser.Scene {
 
   private updatePatrolEnemies(dt: number): void {
     for (const e of this.enemies) {
-      if (!e.alive) continue;
+      if (!e.alive || e.dormant) continue;
       const body = e.sprite.body as Phaser.Physics.Arcade.Body;
       if (this.freezeTimer > 0) {
         if (e.def.airborne) body.setVelocity(0, 0);
@@ -1301,7 +1420,7 @@ export class PlatformerRunScene extends Phaser.Scene {
   private hitHeroWithPellet(hero: Hero, pellet: Phaser.Physics.Arcade.Sprite): void {
     if (!pellet.active || this.gameOver) return;
     pellet.destroy();
-    if (hero.invulnTimer > 0) return;
+    if (hero.invulnTimer > 0 || hero.starTimer > 0) return;
     this.takeDamage(hero, 1);
   }
 
@@ -1449,7 +1568,15 @@ export class PlatformerRunScene extends Phaser.Scene {
   }
 
   private resolveEnemyContact(hero: Hero, enemy: PatrolEnemyState): void {
-    if (!enemy.alive || this.gameOver || hero.invulnTimer > 0 || hero.stunTimer > 0) return;
+    if (!enemy.alive || enemy.dormant || this.gameOver) return;
+    // Pogo Star: plow through regular enemies; bosses simply can't hurt you (stomps still count)
+    if (hero.starTimer > 0 && !enemy.phased) {
+      if (enemy.def.movement !== 'boss') {
+        this.damageEnemy(enemy, enemy.health, hero);
+        return;
+      }
+    }
+    if (hero.invulnTimer > 0 || hero.stunTimer > 0) return;
     const heroBody = hero.sprite.body as Phaser.Physics.Arcade.Body;
     const enemyBody = enemy.sprite.body as Phaser.Physics.Arcade.Body;
     const isStomp = heroBody.velocity.y > 0 && heroBody.bottom <= enemyBody.top + STOMP_TOLERANCE_PX;
@@ -1468,12 +1595,13 @@ export class PlatformerRunScene extends Phaser.Scene {
     } else {
       // landing on a spiker bounces you off as well as hurting, so you don't sit in it
       if (isStomp) heroBody.setVelocityY(STOMP_BOUNCE_VELOCITY * 0.8);
+      if (hero.starTimer > 0) return; // a starred hero shrugs off boss contact
       this.takeDamage(hero, enemy.def.contactDamage);
     }
   }
 
   private damageEnemy(enemy: PatrolEnemyState, amount = 1, by: Hero = this.heroes[0]): void {
-    if (!enemy.alive) return;
+    if (!enemy.alive || enemy.dormant) return;
     if (enemy.phased) return;
     const slammer = enemy.def.bossKind === 'slammer';
     const conductor = enemy.def.bossKind === 'conductor';
@@ -1515,7 +1643,7 @@ export class PlatformerRunScene extends Phaser.Scene {
     });
     this.coins += enemy.def.stompReward;
     this.registerStomp(by);
-    if (enemy.def.movement === 'boss') this.endLevel('playerWon');
+    if (enemy.def.movement === 'boss' && !(this.level.bossRush && this.activateNextBoss())) this.endLevel('playerWon');
   }
 
   private spawnProjectile(hero: Hero): void {
@@ -1563,6 +1691,10 @@ export class PlatformerRunScene extends Phaser.Scene {
 
   private resolvePlayerRivalContact(hero: Hero = this.heroes[0]): void {
     if (!this.rival || this.gameOver || hero.stunTimer > 0 || this.rivalStunTimer > 0) return;
+    if (hero.starTimer > 0) {
+      this.stunRival(hero);
+      return;
+    }
     const heroBody = hero.sprite.body as Phaser.Physics.Arcade.Body;
     const rivalBody = this.rival.body as Phaser.Physics.Arcade.Body;
     const heroStomps = heroBody.velocity.y > 0 && heroBody.bottom <= rivalBody.top + STOMP_TOLERANCE_PX;

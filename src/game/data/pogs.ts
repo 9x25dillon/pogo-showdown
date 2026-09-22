@@ -171,6 +171,15 @@ export const POG_CATALOG: PogDef[] = [
   { id: 'lightningrod', name: 'Lightning Rod', emoji: '⚡', rarity: 'epic', color: 0x0ea5e9, droppedBy: 'quest:level12',
     blurb: 'Co-op Storm clear. Take the hit so your partner doesn’t.', perks: { shieldHits: 1 },
     activeEffect: { kind: 'shieldBurst', charges: 3, invulnMs: 2500 } },
+  { id: 'sprout', name: 'Sprout Pog', emoji: '\u{1F331}', rarity: 'rare', color: 0x4ade80, droppedBy: 'quest:level13',
+    blurb: 'Sky Garden finisher. Grows you a second jump.', perks: { starBonus: 6 },
+    activeEffect: { kind: 'doubleJump', charges: 3, windowMs: 5000 } },
+  { id: 'anvil', name: 'Anvil Pog', emoji: '\u{1F528}', rarity: 'epic', color: 0x78716c, droppedBy: 'quest:level14',
+    blurb: 'Forged in the Spike Foundry. Heavy ground pounds.', perks: { shieldHits: 1, speedScale: 0.96 },
+    activeEffect: { kind: 'groundPound', charges: 3 } },
+  { id: 'gauntlet', name: "Champion's Pog", emoji: '\u{1F3C6}', rarity: 'legendary', color: 0xfacc15, droppedBy: 'quest:level15',
+    blurb: 'Beat all three bosses back to back. A shield burst worthy of it.', perks: { extraLives: 1, flair: 0.15 },
+    activeEffect: { kind: 'shieldBurst', charges: 3, invulnMs: 3500 } },
 ];
 
 export function pogDef(id: string): PogDef | undefined {

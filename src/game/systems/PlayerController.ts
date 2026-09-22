@@ -28,6 +28,8 @@ export function createControllerState(): ControllerState {
 export interface ControllerOptions {
   moveSpeed: number;
   moveAccel: number;
+  /** multiplies jump velocity (Rocket Spring power-up); default 1 */
+  jumpScale?: number;
 }
 
 export function updateController(
@@ -49,7 +51,7 @@ export function updateController(
   body.setVelocityX(Math.abs(diff) <= maxDelta ? target : vx + Math.sign(diff) * maxDelta);
 
   if (state.jumpBufferMs > 0 && state.coyoteMs > 0) {
-    body.setVelocityY(PHYS.jumpVelocity);
+    body.setVelocityY(PHYS.jumpVelocity * (opts.jumpScale ?? 1));
     state.jumpBufferMs = 0;
     state.coyoteMs = 0;
     state.jumpCutApplied = false;

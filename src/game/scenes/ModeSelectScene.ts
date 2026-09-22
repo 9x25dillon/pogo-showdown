@@ -118,7 +118,7 @@ export class ModeSelectScene extends Phaser.Scene {
       sublabel: 'race · fight · boss · 2P co-op',
       color: 0x38bdf8,
       enabled: true,
-      onTap: () => this.scene.start('PlatformerLevelSelect'),
+      onTap: () => this.scene.start('PlatformerLevelSelect', { tab: 'solo' }),
     });
 
     // controller users almost always want Pog Quest (the only pad-playable mode), so start focused there

@@ -12,6 +12,8 @@ export interface PadMenuOptions {
   onBack?: () => void;
   /** Menu/Start button; defaults to onBack */
   onMenu?: () => void;
+  /** LB (-1) / RB (+1), e.g. to switch tabs */
+  onShoulder?: (dir: -1 | 1) => void;
 }
 
 type Focusable = Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Transform & {
@@ -46,7 +48,9 @@ export function attachPadMenu(scene: Phaser.Scene, items: Focusable[], opts: Pad
         return;
       }
     }
-    if (pressed.b) opts.onBack?.();
+    if (pressed.lb) opts.onShoulder?.(-1);
+    else if (pressed.rb) opts.onShoulder?.(1);
+    else if (pressed.b) opts.onBack?.();
     else if (pressed.menu) (opts.onMenu ?? opts.onBack)?.();
   };
 

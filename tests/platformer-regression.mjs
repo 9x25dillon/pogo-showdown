@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 // Uses the runner's isolated browser context, never the player's save.
 // Level order: 0 Footpeg Flats, 1 Signature Sprint, 2 Tech Park Tangle, 3 Circuit Showdown (boss),
 // 4 Rooftop Relay, 5 Night Circuit, 6 Summit Slam (boss 2), 7 Midnight Mansion, 8 Thunder Peak (boss 3),
-// 9 Co-op Circuit, 10 Co-op Summit, 11 Co-op Storm.
+// 9 Sky Garden, 10 Spike Foundry, 11 Champion's Gauntlet (boss rush), 12 Co-op Circuit, 13 Co-op Summit, 14 Co-op Storm.
 export async function verifyPlatformer({ execute, evaluate, waitFor, start, scene, textExists }) {
   const s = scene('PlatformerRun');
   const p1 = `${s}.heroes[0]`;
@@ -34,7 +34,7 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
 
   // The rival must be able to finish every race level on its own at real frame rates,
   // without once falling into a pit (an idle player never gets in its way).
-  for (const index of [0, 1, 2, 4, 5, 7]) {
+  for (const index of [0, 1, 2, 4, 5, 7, 9, 10]) {
     await enter(index);
     await execute(`window.__game.registry.remove('lastPlatformerResult'); window.__rivalFalls = 0;`);
     const seconds = await simulate(40, `if (s.rival.y > 900 && !window.__rivalFalling) window.__rivalFalls++;
@@ -135,7 +135,7 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
     const profile = await getProfile();
     const owned = (await getCollection()).filter(p => p.defId === 'sprinter').length;
     return [profile.quest.level2.clears, again.firstClear, again.techPointsGranted, techPointsAvailable(await getLoadout()) - tpBefore,
-      owned, again.trainingEarned, isLevelUnlocked(profile, 2), isLevelUnlocked(profile, 3), isLevelUnlocked(profile, 9)];`),
+      owned, again.trainingEarned, isLevelUnlocked(profile, 2), isLevelUnlocked(profile, 3), isLevelUnlocked(profile, 12)];`),
     [2, false, 0, 0, 1, true, true, false, true]);
 
   await enter(2);
@@ -298,9 +298,81 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
   await execute(`const s = ${s}; const e = ${cd}; e.health = 1; e.bossPhase = 'perched'; s.damageEnemy(e);`);
   await waitFor('window.__game.scene.isActive("PlatformerResult")');
   assert.equal(await evaluate(textExists('PlatformerResult', 'BOSS DOWN')), true);
+  assert.equal(await evaluate(textExists('PlatformerResult', 'NEXT: SKY GARDEN')), true);
+
+  // Power-up pickups (Sky Garden): each one through a real overlap, then its effect.
+  await enter(9);
+  assert.deepEqual(await execute(`const s = ${s}; s.physics.pause(); s.shields = 0; const hero = s.heroes[0];
+    const pickups = s.children.list.filter(o => o.texture?.key?.startsWith?.('pu_'));
+    const kinds = pickups.map(p => p.texture.key).sort();
+    const lives = s.lives;
+    s.collectPowerup(hero, pickups.find(p => p.texture.key === 'pu_heart'), 'heart');
+    s.collectPowerup(hero, pickups.find(p => p.texture.key === 'pu_rocket'), 'rocket');
+    s.collectPowerup(hero, pickups.find(p => p.texture.key === 'pu_feather'), 'feather');
+    const star = pickups.find(p => p.texture.key === 'pu_star'); s.collectPowerup(hero, star, 'star'); s.collectPowerup(hero, star, 'star');
+    return [kinds.join(','), s.lives - lives, hero.rocketTimer > 0, hero.featherTimer > 0, hero.starTimer > 0, star.active];`),
+    ['pu_feather,pu_heart,pu_rocket,pu_star', 1, true, true, true, false]);
+  assert.deepEqual(await execute(`const s = ${s}; const hero = s.heroes[0]; const body = hero.sprite.body;
+    // rocket: a grounded jump launches at 1.3x
+    hero.sprite.setPosition(200, 700); hero.sprite.body.updateFromGameObject(); body.blocked.down = true; hero.ctrl = { coyoteMs: 90, jumpBufferMs: 0, jumpCutApplied: true };
+    hero.input.pendingJump = true; hero.input.keyJump = true; s.updateHero(hero, 16);
+    const rocketJump = Math.round(body.velocity.y);
+    // feather: holding jump while falling caps the fall
+    body.blocked.down = false; body.touching.down = false; hero.sprite.setVelocityY(600); s.updateHero(hero, 16);
+    const glide = body.velocity.y;
+    hero.input.keyJump = false; hero.sprite.setVelocityY(600); s.updateHero(hero, 16); const noGlide = body.velocity.y;
+    // star: touching a regular enemy defeats it, pellets and spikes do nothing
+    const lives = s.lives; const foe = s.enemies.find(e => e.def.id === 'chaser');
+    hero.sprite.setPosition(foe.sprite.x + 20, foe.sprite.y); hero.sprite.body.updateFromGameObject(); hero.sprite.setVelocity(0, 0);
+    s.resolveEnemyContact(hero, foe);
+    const pellet = s.spawnHazard(hero.sprite.x, hero.sprite.y - 30, 'pellet', 0, 1000, false); s.hitHeroWithPellet(hero, pellet);
+    const rainbow = hero.sprite.tintTopLeft !== hero.tint;
+    hero.starTimer = 1; s.updateHero(hero, 16); const tintRestored = hero.sprite.tintTopLeft === hero.tint;
+    return [rocketJump, glide, noGlide, foe.alive, s.lives === lives, pellet.active, rainbow, tintRestored];`),
+    [-806, 110, 600, false, true, false, true, true]);
+  assert.match(await evaluate(`(${s}.heroes[0].featherTimer = 5000, ${s}.updateHud(), ${s}.powerupText.text)`), /🪶5/);
+
+  // Spike Foundry: strips hurt and bounce you out; a starred hero is immune.
+  await enter(10);
+  assert.deepEqual(await execute(`const s = ${s}; s.physics.pause(); s.shields = 0; const hero = s.heroes[0]; const lives = s.lives;
+    const strips = s.children.list.filter(o => o.texture?.key === 'spikeTile').length;
+    hero.sprite.setVelocityY(50); s.hitSpikes(hero); const hurt = [s.lives === lives - 1, hero.sprite.body.velocity.y < 0];
+    hero.invulnTimer = 0; hero.starTimer = 3000; hero.sprite.setVelocityY(50); s.hitSpikes(hero);
+    return [strips, ...hurt, s.lives === lives - 1, hero.sprite.body.velocity.y < 0];`), [7, true, true, true, true]);
+  // real overlap: stand on a strip
+  assert.equal(await execute(`const s = ${s}; const hero = s.heroes[0]; hero.starTimer = 0; hero.invulnTimer = 0; s.shields = 0;
+    window.__livesBefore = s.lives; s.physics.resume(); hero.sprite.body.reset(530, 700); return true;`), true);
+  await simulate(0.3);
+  assert.equal(await evaluate(`window.__livesBefore - ${s}.lives`), 1);
+
+  // Champion's Gauntlet: the three bosses come one at a time; the last one ends it.
+  await enter(11);
+  assert.deepEqual(await execute(`const s = ${s}; s.physics.pause();
+    const [charger, slammer, conductor] = s.enemies.filter(e => e.def.movement === 'boss');
+    const start = [!!charger.dormant, slammer.dormant, conductor.dormant, slammer.sprite.visible, slammer.sprite.body.enable];
+    s.updateHud(); const hud1 = s.rivalPositionText.text;
+    s.damageEnemy(slammer); const dormantUntouchable = slammer.health === 4;
+    s.damageEnemy(charger, 3);
+    const second = [charger.alive, slammer.dormant, slammer.sprite.visible, slammer.sprite.body.enable, conductor.dormant, s.gameOver];
+    s.updateHud(); const hud2 = s.rivalPositionText.text;
+    s.damageEnemy(slammer, 4);
+    const third = [conductor.dormant, s.gameOver];
+    return [...start, hud1, dormantUntouchable, ...second, hud2, ...third];`),
+    [false, true, true, false, false, 'BOSS 1/3 · CIRCUIT CHAMPION HP: 3 / 3', true,
+      false, false, true, true, true, false, 'BOSS 2/3 · SUMMIT SLAMMER HP: 4 / 4', false, false]);
+  await execute(`const s = ${s}; s.damageEnemy(s.enemies.find(e => e.def.id === 'conductor'), 5);`);
+  await waitFor('window.__game.scene.isActive("PlatformerResult")');
+  assert.equal(await evaluate(textExists('PlatformerResult', 'BOSS DOWN')), true);
   assert.equal(await evaluate(textExists('PlatformerResult', 'NEXT')), false); // only co-op levels remain: never routes a solo player there
 
-  await enter(9);
+  // Level select tabs: co-op levels live on their own tab.
+  await start('PlatformerLevelSelect');
+  await waitFor(textExists('PlatformerLevelSelect', "Champion's Gauntlet"));
+  assert.equal(await evaluate(textExists('PlatformerLevelSelect', 'Co-op Circuit')), false);
+  await execute(`window.__game.scene.getScene('PlatformerLevelSelect').switchTab();`);
+  await waitFor(textExists('PlatformerLevelSelect', 'Co-op Storm'));
+
+  await enter(12);
   assert.deepEqual(await execute(`const s = ${s}; s.physics.pause(); s.shields = 0;
     const [a, b] = s.heroes;
     s.input.keyboard.emit('keydown', { key: 'ArrowRight' });
@@ -396,7 +468,7 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
 
   // co-op: the first pad drives P1, the second P2
   await execute(`window.__pads.push(window.__mkPad(1));`);
-  await enter(9);
+  await enter(12);
   await simulate(0.2);
   await execute(`window.__pads[1].axes[0] = 1;`);
   await simulate(0.3);
@@ -419,5 +491,5 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
   await waitFor("window.__game.scene.isActive('PlatformerLevelSelect')");
   await execute(`window.__pads = [];`);
   await simulate(0.1);
-  console.log('PASS: Pog Quest rival finishes all 6 races at 60fps, springs, Summit Slammer, chaser/ghost/dropper, Storm Conductor hover/bolts/dive/perch/spring stomp, Xbox controller gameplay/pause/menus/co-op pads/rumble, pit respawn, movement/jump, pause/resume/retry/menu, rival stomp, scene restarts, level select gating, gap reach, first-clear rewards, hopper/spiker/turret, freeze/swap/double jump/magnet/ground pound, boss phases/victory, solo progression, co-op controls/touch split/items/camera leash/respawn/lives, coin collection, gap defeat.');
+  console.log('PASS: Pog Quest rival finishes all 8 races at 60fps, power-ups star/feather/rocket/heart/shield, spike strips, boss rush, level select tabs, springs, Summit Slammer, chaser/ghost/dropper, Storm Conductor hover/bolts/dive/perch/spring stomp, Xbox controller gameplay/pause/menus/co-op pads/rumble, pit respawn, movement/jump, pause/resume/retry/menu, rival stomp, scene restarts, level select gating, gap reach, first-clear rewards, hopper/spiker/turret, freeze/swap/double jump/magnet/ground pound, boss phases/victory, solo progression, co-op controls/touch split/items/camera leash/respawn/lives, coin collection, gap defeat.');
 }

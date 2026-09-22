@@ -33,6 +33,8 @@ export class BootScene extends Phaser.Scene {
     this.makeBombTexture();
     this.makeConductorBossTexture();
     this.makeBoltTexture();
+    this.makePowerupTextures();
+    this.makeSpikeTileTexture();
     this.makeProjectileTexture();
     this.makeBossTexture();
     this.makeGoalFlagTexture();
@@ -408,6 +410,81 @@ export class BootScene extends Phaser.Scene {
     g.fillStyle(0xcffafe, 1);
     g.fillCircle(9, 9, 4.5);
     g.generateTexture('bolt', 18, 18);
+    g.destroy();
+  }
+
+  /** every pickup sits on the same glowing disc so they read as "grab me", distinct from coins */
+  private makePowerupTextures(): void {
+    const disc = (g: Phaser.GameObjects.Graphics, color: number) => {
+      g.fillStyle(color, 0.28);
+      g.fillCircle(18, 18, 18);
+      g.lineStyle(2, color, 0.9);
+      g.strokeCircle(18, 18, 16);
+    };
+    const star = (g: Phaser.GameObjects.Graphics, cx: number, cy: number, outer: number, inner: number) => {
+      const pts: Phaser.Math.Vector2[] = [];
+      for (let i = 0; i < 10; i++) {
+        const r = i % 2 === 0 ? outer : inner;
+        const a = -Math.PI / 2 + (Math.PI / 5) * i;
+        pts.push(new Phaser.Math.Vector2(cx + Math.cos(a) * r, cy + Math.sin(a) * r));
+      }
+      g.fillPoints(pts, true);
+    };
+    const make = (key: string, color: number, draw: (g: Phaser.GameObjects.Graphics) => void) => {
+      const g = this.add.graphics();
+      disc(g, color);
+      draw(g);
+      g.generateTexture(key, 36, 36);
+      g.destroy();
+    };
+    make('pu_star', 0xfacc15, (g) => {
+      g.fillStyle(0xfacc15, 1);
+      star(g, 18, 19, 13, 6);
+      g.fillStyle(0xfff7c2, 1);
+      star(g, 18, 19, 6, 3);
+    });
+    make('pu_feather', 0x5eead4, (g) => {
+      g.fillStyle(0xccfbf1, 1);
+      g.fillEllipse(18, 16, 10, 24);
+      g.lineStyle(2, 0x0f766e, 1);
+      g.lineBetween(12, 30, 22, 6);
+    });
+    make('pu_rocket', 0xf97316, (g) => {
+      g.fillStyle(0xe5e7eb, 1);
+      g.fillRoundedRect(13, 8, 10, 18, 5);
+      g.fillStyle(0xef4444, 1);
+      g.fillTriangle(13, 12, 18, 3, 23, 12);
+      g.fillTriangle(9, 26, 13, 18, 13, 26);
+      g.fillTriangle(27, 26, 23, 18, 23, 26);
+      g.fillStyle(0xfbbf24, 1);
+      g.fillTriangle(14, 26, 22, 26, 18, 33);
+    });
+    make('pu_heart', 0xf43f5e, (g) => {
+      g.fillStyle(0xf43f5e, 1);
+      g.fillCircle(13, 15, 6);
+      g.fillCircle(23, 15, 6);
+      g.fillTriangle(7, 17, 29, 17, 18, 29);
+    });
+    make('pu_shield', 0x38bdf8, (g) => {
+      g.fillStyle(0x38bdf8, 1);
+      g.fillRoundedRect(10, 7, 16, 20, { tl: 7, tr: 7, bl: 2, br: 2 });
+      g.fillTriangle(10, 25, 26, 25, 18, 31);
+      g.fillStyle(0xe0f2fe, 1);
+      g.fillRect(17, 10, 2, 16);
+    });
+  }
+
+  private makeSpikeTileTexture(): void {
+    const g = this.add.graphics();
+    g.fillStyle(0x374151, 1);
+    g.fillRect(0, 14, 20, 4);
+    g.fillStyle(0xd1d5db, 1);
+    g.fillTriangle(0, 15, 5, 0, 10, 15);
+    g.fillTriangle(10, 15, 15, 0, 20, 15);
+    g.fillStyle(0xef4444, 1);
+    g.fillTriangle(3, 3, 5, 0, 7, 3);
+    g.fillTriangle(13, 3, 15, 0, 17, 3);
+    g.generateTexture('spikeTile', 20, 18);
     g.destroy();
   }
 

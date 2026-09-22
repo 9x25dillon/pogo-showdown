@@ -40,6 +40,19 @@ Pog Quest itself is merged to `master` (`e56e49b`); this branch adds the four fo
   - The user's desktop pad is a **Microsoft Xbox One Elite 2** on the `xpad` driver. Browsers only show a pad after a button press on the page.
   - Test gotcha: Phaser tweens run on the wall clock, not `headlessStep`'s delta, so tests that press tweened menu buttons use real time (`tapReal`).
 
+**Follow-up 3 (branch `feat/pog-quest-powerups`, built in a worktree while the user played the previous build): power-ups, spikes, 3 levels, boss rush.** Solo now has 12 levels. Sky Garden (`level13`), Spike Foundry (`level14`) and Champion's Gauntlet (`level15`) come after Thunder Peak, and co-op is indexes 12–14.
+- **Power-up pickups** (`LevelDef.powerups`, `pu_*` textures) are separate from pog items: heroes only, and once per attempt.
+  - `star`: 6s invincible. Touching a regular enemy defeats it; bosses can't hurt you, but you still have to stomp them. It also stuns the rival and ignores pellets and spikes.
+  - `feather`: 10s; holding jump while falling caps the fall at 110px/s.
+  - `rocket`: 8s; ×1.3 jump velocity (via `ControllerOptions.jumpScale`), which reaches the "rocket-only" coin rows.
+  - `heart`: +1 life. `shield`: +1 shield hit.
+  - Timers show under lives, per player in co-op.
+- **Spike strips** (`LevelDef.spikes`): they hurt and always bounce you out. The rival doesn't collide with them; its jump waypoints sit 34px before each strip so it visibly hops them. Keep strips ≤60px wide or its 60px body clips them.
+- **Boss rush** (`LevelDef.bossRush`): every boss after the first starts `dormant` (hidden, body off, untouchable) and drops in at the arena's middle when the previous one dies. The HUD shows `BOSS n/3 · NAME`.
+- **Level select** has Solo / Co-op tabs (tap them, or LB/RB on a pad). The main menu opens Solo; the results screen returns to the tab of the level just played.
+- 3 reward pogs: `sprout`, `anvil`, `gauntlet`.
+- One suite run failed once with an uncaptured error; the next three runs were clean. If it recurs, capture the output before changing anything.
+
 **Still open:** real-device playtest (feel, touch co-op ergonomics, whether the Slammer's and Conductor's timing is readable, and the controller on the real Elite 2 pad); whether Pog Quest should ever touch career tier; enemy/item/boss balance numbers are first guesses.
 
 ## September 21 follow-up
