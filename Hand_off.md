@@ -68,6 +68,12 @@ Device and packaging:
 - **iPhone:** detected over USB, but no build is possible here. iOS needs Xcode on macOS, and there is no `@capacitor/ios` project.
 - The RPM is built in Docker `fedora:42`. It was installed in a clean container, and the launcher served the game and music on `127.0.0.1:47219`. The fixed port is deliberate: IndexedDB saves are per origin.
 
+## Free software and F-Droid (v0.5.1)
+
+- The user chose **GPL-3.0-or-later** for the code (`LICENSE`) and **CC BY-SA 4.0** for their soundtrack (`LICENSE-MUSIC`, with credits in `public/music/LICENSE.txt`). The music is credited to "9x25dillon"; change that if they want another artist name.
+- F-Droid prep: removed the Google Services Gradle plugin; keyless release builds are unsigned; Fastlane metadata is in `fastlane/metadata/android/en-US/`; the draft fdroiddata recipe and steps are in `fdroid/`. The merge request to gitlab.com/fdroid/fdroiddata needs the user's GitLab account and hasn't been opened. Expect reviewers to adjust the Node setup (Vite 8 needs Node 20.19+).
+- v0.5.1 (versionCode 6) is tagged and released with a signed APK and RPM. The repo is public, with a new description, topics and homepage.
+
 ## Decisions and open questions
 
 Decided this session:
