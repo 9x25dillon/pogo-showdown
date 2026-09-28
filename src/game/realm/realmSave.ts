@@ -20,6 +20,8 @@ export interface RealmSave {
   inventory: Partial<Record<ItemId, number>>;
   sword: number;
   pickaxe: number;
+  /** crafted yoyo tier, 0 = none (optional: older saves have none) */
+  yoyo?: number;
   /** boss relics won in the portal realms (optional: saves from before Phase 2 have none) */
   relics?: RelicId[];
   /** beat the Eternal Reaper behind the Forever Gate */

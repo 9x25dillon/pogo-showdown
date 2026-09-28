@@ -19,13 +19,16 @@ import { RealmHomestead } from '../realm/RealmHomestead';
 import { RealmExpedition } from '../realm/RealmExpedition';
 import { RealmHeroMenu } from '../realm/RealmHeroMenu';
 import { RealmDuel } from '../realm/RealmDuel';
+import { RealmYoyo } from '../realm/RealmYoyo';
+import { TRICK_EFFECTS, YOYOS, tricksFor } from '../realm/yoyo';
+import { INPUT_GLYPH, TRICKS, type TrickInput } from '../data/tricks';
 import { BOSS_XP, ORE_XP, killXp } from '../realm/hero';
 import { RealmHero, realmActiveText } from '../realm/RealmHero';
 import { grantMilestone, loadHeroSnapshot, type HeroSnapshot } from '../realm/progression';
 import type { PanelRow } from '../realm/RealmPanel';
 
 /** a hotbar entry: a fixed item/tool slot, or one equipped pog's active ability */
-type Slot = HotbarSlot | `pog:${string}`;
+type Slot = HotbarSlot | 'yoyo' | `pog:${string}`;
 
 /**
  * The Forever Realm: an open, procedurally generated world you can dig
@@ -158,6 +161,12 @@ export class RealmScene extends Phaser.Scene {
   private hero!: RealmHero;
   private heroMenu?: RealmHeroMenu;
   private duel?: RealmDuel;
+  private yoyo!: RealmYoyo;
+  private stickNeutral = true;
+  private dash = { vx: 0, ms: 0 };
+  /** a bounce that stomps on landing (Boingy Boing, the pogo stick) */
+  private stomp: { damage: number; airborne: boolean } | null = null;
+  private trickPad: Phaser.GameObjects.GameObject[] = [];
   private proMarks = new Map<string, Phaser.GameObjects.Rectangle>();
   private heroText!: Phaser.GameObjects.Text;
   private comboText!: Phaser.GameObjects.Text;
@@ -172,6 +181,7 @@ export class RealmScene extends Phaser.Scene {
   private inventory: Partial<Record<ItemId, number>> = {};
   private sword = 0;
   private pickaxe = 0;
+  private yoyoTier = 0;
   private slot = 0;
   private spawnPoint = { x: 0, y: 0 };
   private clock = CYCLE_MS * 0.1;
@@ -314,6 +324,7 @@ export class RealmScene extends Phaser.Scene {
     this.inventory = { torch: 6, potion: 1 };
     this.sword = 0;
     this.pickaxe = 0;
+    this.yoyoTier = 0;
     this.slot = 0;
     this.clock = CYCLE_MS * 0.1;
     this.edits = new Map();
@@ -341,6 +352,10 @@ export class RealmScene extends Phaser.Scene {
     this.foundryMapMark = undefined;
     this.heroMenu = undefined;
     this.duel = undefined;
+    this.stickNeutral = true;
+    this.dash = { vx: 0, ms: 0 };
+    this.stomp = null;
+    this.trickPad = [];
     this.proMarks = new Map();
     this.slots = [...HOTBAR];
     this.projectiles = [];
@@ -369,6 +384,7 @@ export class RealmScene extends Phaser.Scene {
       this.inventory = { ...save.inventory };
       this.sword = save.sword;
       this.pickaxe = save.pickaxe;
+      this.yoyoTier = save.yoyo ?? 0;
       this.relics = new Set(save.relics ?? []);
       this.champion = !!save.champion;
       this.stats = { ...emptyStats(), ...save.stats };
@@ -500,6 +516,26 @@ export class RealmScene extends Phaser.Scene {
       records: () => this.records(),
       gear: () => this.gearRows(),
     });
+
+    this.yoyo = new RealmYoyo(this, {
+      player: () => this.player,
+      facing: () => this.facing,
+      aimPoint: () => (this.aim ? { x: (this.aim.tx + 0.5) * TILE, y: (this.aim.ty + 0.5) * TILE } : null),
+      hero: () => this.hero,
+      maxHp: () => this.maxHp,
+      enemies: () => this.enemies,
+      hurtEnemy: (e, damage, dir, crit) => this.hurtEnemy(e as RealmEnemy, damage, dir, crit),
+      boss: () => this.boss?.sprite,
+      damageBoss: (damage, crit) => this.damageBoss(damage, crit),
+      solidAt: (x, y) => isSolid(this.tileAt(Math.floor(x / TILE), Math.floor(y / TILE))),
+      invuln: (ms) => { this.invuln = Math.max(this.invuln, ms); },
+      heal: (hp) => { this.hp = Math.min(this.maxHp, this.hp + hp); this.floatText(this.player.x, this.player.y - 50, `+${Math.round(hp)} HP`, '#4ade80'); },
+      launch: (scale) => { (this.player.body as Phaser.Physics.Arcade.Body).setVelocityY(PHYS.jumpVelocity * JUMP_SCALE * scale); },
+      bounceStomp: (scale, damage) => this.bounceStomp(scale, damage),
+      dash: (dx) => { this.dash = { vx: dx / 0.18, ms: 180 }; },
+      float: (x, y, text, color) => this.floatText(x, y, text, color),
+      shake: (ms, intensity) => this.cameras.main.shake(ms, intensity),
+    }, this.yoyoTier);
 
     if (!this.pocket) {
       this.duel = new RealmDuel(this, {
@@ -719,6 +755,17 @@ export class RealmScene extends Phaser.Scene {
     zone(150, RH - 60, '▶', (d) => { this.touch.right = d; });
     zone(RW - 150, RH - 60, '⚔', (d) => { if (d && !this.touch.attack) this.touchAttackPressed = true; this.touch.attack = d; });
     zone(RW - 60, RH - 60, '⤒', (d) => { if (d && !this.touch.jump) this.touchJumpPressed = true; this.touch.jump = d; });
+    // the trick pad: only while the yoyo is in hand
+    const trick = (x: number, y: number, label: string, dir: TrickInput) => {
+      const r = this.add.circle(x, y, 22, 0x5eead4, 0.22).setScrollFactor(0).setDepth(60).setInteractive();
+      const t = this.add.text(x, y, label, { fontSize: '16px', color: '#ffffff' }).setOrigin(0.5).setScrollFactor(0).setDepth(61);
+      r.on('pointerdown', () => this.yoyo.input(dir));
+      this.trickPad.push(r, t);
+    };
+    trick(RW - 150, RH - 190, '↑', 'up');
+    trick(RW - 150, RH - 130, '↓', 'down');
+    trick(RW - 206, RH - 160, '←', 'left');
+    trick(RW - 94, RH - 160, '→', 'right');
   }
 
   private banner(title: string, sub = ''): void {
@@ -773,6 +820,8 @@ export class RealmScene extends Phaser.Scene {
       this.slotTexts[i]?.setText(this.slotIcon(slot)).setFontSize(slot === 'pickaxe' ? 20 : 13);
     });
     this.slotLabel.setText(this.slotName(this.slots[this.slot]));
+    const yoyoInHand = this.slots[this.slot] === 'yoyo';
+    for (const o of this.trickPad) (o as Phaser.GameObjects.Arc).setVisible(yoyoInHand);
   }
 
   private activeFor(slot: Slot) {
@@ -781,6 +830,7 @@ export class RealmScene extends Phaser.Scene {
 
   private slotIcon(slot: Slot): string {
     if (slot === 'pickaxe') return '⛏';
+    if (slot === 'yoyo') return `🪀\n${this.yoyo.strings}`;
     const active = this.activeFor(slot);
     if (active) return `${active.def.emoji}\n${this.hero.chargesLeft(active.id)}`;
     return `${ITEM_ICON[slot as ItemId]}\n${this.count(slot as ItemId)}`;
@@ -789,6 +839,7 @@ export class RealmScene extends Phaser.Scene {
   private slotName(slot: Slot | undefined): string {
     if (!slot) return '';
     if (slot === 'pickaxe') return PICKAXES[this.pickaxe].name;
+    if (slot === 'yoyo') return `${YOYOS[this.yoyoTier].name} · ${this.yoyo.status()}`;
     const active = this.activeFor(slot);
     if (active) return `${active.def.name} · ${realmActiveText(active.effect)} · ${this.hero.chargesLeft(active.id)} left (refills when you sleep or cross a portal)`;
     const brew = (BREW_IDS as string[]).includes(slot) ? ` · ${BREWS[slot as BrewId].effect}` : '';
@@ -802,7 +853,7 @@ export class RealmScene extends Phaser.Scene {
     this.slotBoxes = [];
     this.slotTexts = [];
     const previous = this.slots[this.slot];
-    this.slots = [...HOTBAR, ...this.hero.activeRows().map((r) => `pog:${r.id}` as Slot)];
+    this.slots = [...HOTBAR, ...(this.yoyoTier > 0 ? ['yoyo' as const] : []), ...this.hero.activeRows().map((r) => `pog:${r.id}` as Slot)];
     const keep = previous ? this.slots.indexOf(previous) : -1;
     this.slot = keep >= 0 ? keep : Math.min(this.slot, this.slots.length - 1);
     const n = this.slots.length;
@@ -900,7 +951,39 @@ export class RealmScene extends Phaser.Scene {
   }
 
   private gearRows(): PanelRow[] {
-    return [];
+    const y = YOYOS[this.yoyoTier];
+    const rows: PanelRow[] = [{
+      label: this.yoyoTier ? `🪀 ${y.name} · ${y.damage} damage · reach ${y.reach} · tricks up to ${y.maxLen} inputs · craft a better one at the bench`
+        : '🪀 No yoyo yet · craft a Wooden Yoyo (6 wood, 2 gel) at the bench to start landing tricks',
+    }];
+    for (const t of TRICKS) {
+      const known = t.sequence.length <= y.maxLen;
+      rows.push({ label: `${known ? '' : '🔒 '}${t.name} ${t.sequence.map((i) => INPUT_GLYPH[i]).join(' ')} · ${TRICK_EFFECTS[t.name]?.blurb ?? ''}`, enabled: known, color: known ? '#5eead4' : undefined });
+    }
+    return rows;
+  }
+
+  /** arrow keys, or a right-stick flick out from centre, while a trick window is open */
+  private readTrickInput(pads: PadFrame[], k: Record<string, Phaser.Input.Keyboard.Key>, active: boolean): void {
+    if (!active || this.yoyoTier === 0) return;
+    const J = Phaser.Input.Keyboard.JustDown;
+    const keys: [Phaser.Input.Keyboard.Key, TrickInput][] = [[k.up, 'up'], [k.down, 'down'], [k.left, 'left'], [k.right, 'right']];
+    for (const [key, dir] of keys) if (J(key)) this.yoyo.input(dir);
+    const stick = pads.map((p) => p.sticks).find((st) => Math.hypot(st.rx, st.ry) > 0.7);
+    if (!stick) {
+      if (pads.every((p) => Math.hypot(p.sticks.rx, p.sticks.ry) < 0.3)) this.stickNeutral = true;
+      return;
+    }
+    // a stick already held when the window opened (aiming the throw) doesn't count until it recentres
+    if (this.stickNeutral && this.yoyo.window > 0) {
+      this.yoyo.input(Math.abs(stick.rx) > Math.abs(stick.ry) ? (stick.rx > 0 ? 'right' : 'left') : (stick.ry > 0 ? 'down' : 'up'));
+    }
+    this.stickNeutral = false;
+  }
+
+  private bounceStomp(scale: number, damage: number): void {
+    (this.player.body as Phaser.Physics.Arcade.Body).setVelocityY(PHYS.jumpVelocity * JUMP_SCALE * scale);
+    this.stomp = { damage, airborne: false };
   }
 
   private pauseRealm(): void {
@@ -936,13 +1019,15 @@ export class RealmScene extends Phaser.Scene {
   private buildCraftPanel(): void {
     const font = 'system-ui, sans-serif';
     const panel = this.add.container(RW / 2, RH / 2).setScrollFactor(0).setDepth(80);
-    panel.add(this.add.rectangle(0, 0, 560, 480, 0x0b0714, 0.96).setStrokeStyle(2, 0x7c3aed));
+    panel.add(this.add.rectangle(0, 0, 900, 480, 0x0b0714, 0.96).setStrokeStyle(2, 0x7c3aed));
     panel.add(this.add.text(0, -218, 'ALCHEMY & SMITHING', { fontSize: '18px', fontFamily: font, fontStyle: 'bold', color: '#c4b5fd' }).setOrigin(0.5));
-    panel.add(this.add.text(0, 224, 'click / A to craft · E / Y / B to close', { fontSize: '11px', fontFamily: font, color: '#6b6180' }).setOrigin(0.5));
+    panel.add(this.add.text(0, 224, 'click / A to craft · ↑ ↓ choose · E / Y / B to close', { fontSize: '11px', fontFamily: font, color: '#6b6180' }).setOrigin(0.5));
+    const perColumn = Math.ceil(RECIPES.length / 2);
     RECIPES.forEach((recipe, i) => {
-      const y = -186 + i * 37;
-      const bg = this.add.rectangle(0, y, 520, 32, 0x1c1430).setStrokeStyle(1, 0x362a52).setInteractive({ useHandCursor: true });
-      const text = this.add.text(-248, y, '', { fontSize: '13px', fontFamily: font, color: '#ffffff' }).setOrigin(0, 0.5);
+      const x = i < perColumn ? -222 : 222;
+      const y = -180 + (i % perColumn) * 46;
+      const bg = this.add.rectangle(x, y, 432, 40, 0x1c1430).setStrokeStyle(1, 0x362a52).setInteractive({ useHandCursor: true });
+      const text = this.add.text(x - 206, y, '', { fontSize: '12px', fontFamily: font, color: '#ffffff', lineSpacing: 2 }).setOrigin(0, 0.5);
       bg.on('pointerdown', () => { this.craftIndex = i; this.craft(recipe); });
       panel.add([bg, text]);
       this.craftRows.push({ bg, text, recipe });
@@ -953,6 +1038,7 @@ export class RealmScene extends Phaser.Scene {
   }
 
   private canCraft(recipe: Recipe): boolean {
+    if ('yoyo' in recipe.gives && this.yoyoTier >= recipe.gives.yoyo) return false;
     if ('sword' in recipe.gives && this.sword >= recipe.gives.sword) return false;
     if ('pickaxe' in recipe.gives && this.pickaxe >= recipe.gives.pickaxe) return false;
     return Object.entries(recipe.cost).every(([item, n]) => this.count(item as ItemId) >= (n ?? 0));
@@ -960,11 +1046,12 @@ export class RealmScene extends Phaser.Scene {
 
   private refreshCraft(): void {
     this.craftRows.forEach(({ bg, text, recipe }, i) => {
-      const owned = ('sword' in recipe.gives && this.sword >= recipe.gives.sword) || ('pickaxe' in recipe.gives && this.pickaxe >= recipe.gives.pickaxe);
+      const owned = ('sword' in recipe.gives && this.sword >= recipe.gives.sword) || ('pickaxe' in recipe.gives && this.pickaxe >= recipe.gives.pickaxe)
+        || ('yoyo' in recipe.gives && this.yoyoTier >= recipe.gives.yoyo);
       const cost = Object.entries(recipe.cost)
         .map(([item, n]) => `${ITEM_ICON[item as ItemId]} ${this.count(item as ItemId)}/${n}`)
         .join('   ');
-      text.setText(`${recipe.name}    ${owned ? '✓ owned' : cost}`);
+      text.setText(`${recipe.name}\n${owned ? '✓ owned' : cost}`);
       text.setColor(owned ? '#6b6180' : this.canCraft(recipe) ? '#4ade80' : '#b7aed0');
       bg.setStrokeStyle(i === this.craftIndex ? 2 : 1, i === this.craftIndex ? 0xfacc15 : 0x362a52);
     });
@@ -981,7 +1068,12 @@ export class RealmScene extends Phaser.Scene {
     const g = recipe.gives;
     if ('item' in g) this.addItem(g.item, g.count);
     else if ('sword' in g) this.sword = g.sword;
-    else this.pickaxe = g.pickaxe;
+    else if ('yoyo' in g) {
+      this.yoyoTier = g.yoyo;
+      this.yoyo.tier = g.yoyo;
+      this.rebuildHotbar();
+      this.banner(`🪀 ${YOYOS[g.yoyo].name}`, `select it on the hotbar · use to throw, then flick tricks · ${tricksFor(g.yoyo).length} tricks known`);
+    } else this.pickaxe = g.pickaxe;
     this.floatText(this.player.x, this.player.y - 50, `✦ ${recipe.name}`, '#c4b5fd');
     this.refreshCraft();
     this.updateHud();
@@ -1053,9 +1145,14 @@ export class RealmScene extends Phaser.Scene {
     (['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'zero'] as const).forEach((key, i) => { if (J(k[key]) && i < this.slots.length) this.slot = i; });
     if (pad.pressed.b || J(k.q)) this.drinkPotion();
 
+    // yoyo in hand: the arrow keys and right-stick flicks are trick inputs, not movement or aim
+    const yoyoInHand = this.slots[this.slot] === 'yoyo';
+    this.readTrickInput(pads, k, yoyoInHand);
+    const downPressed = pad.pressed.down || J(k.s) || (!yoyoInHand && J(k.down));
+
     // movement
-    const left = k.a.isDown || k.left.isDown || pad.held.left || this.touch.left;
-    const right = k.d.isDown || k.right.isDown || pad.held.right || this.touch.right;
+    const left = k.a.isDown || (!yoyoInHand && k.left.isDown) || pad.held.left || this.touch.left;
+    const right = k.d.isDown || (!yoyoInHand && k.right.isDown) || pad.held.right || this.touch.right;
     let jumpPressed = pad.pressed.a || J(k.w) || J(k.space) || this.touchJumpPressed;
     const jumpHeld = pad.held.a || k.w.isDown || k.space.isDown || this.touch.jump;
     this.touchJumpPressed = false;
@@ -1077,15 +1174,15 @@ export class RealmScene extends Phaser.Scene {
       : expeditionPrompt ? expeditionPrompt
       : furniture ? `▼ / S / tap · ${ITEM_NAME[furniture.kind]}` : '',
     );
-    if (portal && (pad.pressed.down || J(k.down) || J(k.s))) {
+    if (portal && downPressed) {
       void this.travel(portal);
       return;
     }
-    if (duelPrompt && !this.homestead?.placing && (pad.pressed.down || J(k.down) || J(k.s))) { this.duel?.interact(); return; }
-    if (furniture && !this.homestead?.placing && (pad.pressed.down || J(k.down) || J(k.s))) {
+    if (duelPrompt && !this.homestead?.placing && downPressed) { this.duel?.interact(); return; }
+    if (furniture && !this.homestead?.placing && downPressed) {
       this.homestead?.interact(); return;
     }
-    if (expeditionPrompt && (pad.pressed.down || J(k.down) || J(k.s))) { this.expedition?.interact(); return; }
+    if (expeditionPrompt && downPressed) { this.expedition?.interact(); return; }
 
     // Gale Plume (always) and a double-jump pog (while it lasts): extra jumps in the air
     if (grounded || inWater) this.airJumpsUsed = 0;
@@ -1102,6 +1199,7 @@ export class RealmScene extends Phaser.Scene {
       { moveSpeed: speed, moveAccel: PHYS.moveAccel * (speed / MOVE_SPEED), jumpScale: JUMP_SCALE * this.hero.stats.jumpMult }, dt);
     applyHeroGravity(body);
     this.updatePound(body, grounded);
+    if (this.dash.ms > 0) { this.dash.ms -= dt; body.setVelocityX(this.dash.vx); body.setVelocityY(Math.min(body.velocity.y, 0)); }
     this.updateEnvironment(dt, body, { inWater, grounded, jumpPressed, jumpHeld });
     if (left && !right) this.facing = -1;
     else if (right && !left) this.facing = 1;
@@ -1125,6 +1223,7 @@ export class RealmScene extends Phaser.Scene {
     this.sinceHit += dt;
     if (this.sinceHit > REGEN_DELAY_MS && this.hp < this.maxHp) this.hp = Math.min(this.maxHp, this.hp + ((REGEN_PER_S * this.hero.stats.regenMult + (this.homestead?.warmth() ? 4 : 0)) * dt) / 1000);
     this.hero.tick(dt);
+    this.yoyo.update(dt);
     this.applyFreeze();
     this.updateProjectiles();
     for (const b of BREW_IDS) if ((this.buffs[b] ?? 0) > 0) this.buffs[b] = Math.max(0, this.buffs[b]! - dt);
@@ -1297,8 +1396,9 @@ export class RealmScene extends Phaser.Scene {
       ay = pointer.worldY;
     } else {
       const padFrames = mergePads(pads).held;
-      const up = k.up.isDown || (padFrames.up && !padFrames.left && !padFrames.right);
-      const down = k.down.isDown || (padFrames.down && !padFrames.left && !padFrames.right);
+      const arrows = this.slots[this.slot] !== 'yoyo';
+      const up = (arrows && k.up.isDown) || (padFrames.up && !padFrames.left && !padFrames.right);
+      const down = (arrows && k.down.isDown) || (padFrames.down && !padFrames.left && !padFrames.right);
       if (up) {
         ax = cx;
         ay = this.player.y - 44;
@@ -1343,6 +1443,11 @@ export class RealmScene extends Phaser.Scene {
       if (pressed && this.hero.useActive(slot.slice(4))) this.updateHud();
       return;
     }
+    if (slot === 'yoyo') {
+      this.mining = null;
+      if (pressed) this.yoyo.use();
+      return;
+    }
     if (!held || !this.aim) {
       this.mining = null;
       return;
@@ -1374,7 +1479,7 @@ export class RealmScene extends Phaser.Scene {
   private drawAim(): void {
     if (this.homestead?.placing) { this.aimRect.setVisible(false); return; }
     const slot = this.slots[this.slot];
-    if (!this.aim || slot === 'potion' || slot.startsWith('pog:') || (BREW_IDS as string[]).includes(slot)) {
+    if (!this.aim || slot === 'potion' || slot === 'yoyo' || slot.startsWith('pog:') || (BREW_IDS as string[]).includes(slot)) {
       this.aimRect.setVisible(false);
       return;
     }
@@ -1583,6 +1688,10 @@ export class RealmScene extends Phaser.Scene {
   }
 
   private updatePound(body: Phaser.Physics.Arcade.Body, grounded: boolean): void {
+    if (this.stomp) {
+      if (!grounded) this.stomp.airborne = true;
+      else if (this.stomp.airborne && body.velocity.y >= 0) { const d = this.stomp.damage; this.stomp = null; this.shockwave(d); }
+    }
     if (this.pound === null) return;
     if (grounded || this.isWaterAt(this.player.x, this.player.y - 18)) {
       const damage = this.pound;
@@ -2139,7 +2248,7 @@ export class RealmScene extends Phaser.Scene {
       if (!base) return;
       const { id: _id, version: _v, savedAt: _at, ...rest } = base;
       await saveRealm({
-        ...rest, inventory: this.inventory, sword: this.sword, pickaxe: this.pickaxe, relics: [...this.relics],
+        ...rest, inventory: this.inventory, sword: this.sword, pickaxe: this.pickaxe, yoyo: this.yoyoTier, relics: [...this.relics],
         champion: this.champion, stats: this.stats, expeditions: this.expedition?.progress, hero: this.hero?.save(),
       });
       return;
@@ -2152,6 +2261,7 @@ export class RealmScene extends Phaser.Scene {
       inventory: this.inventory,
       sword: this.sword,
       pickaxe: this.pickaxe,
+      yoyo: this.yoyoTier,
       clock: this.clock,
       relics: [...this.relics],
       champion: this.champion,
