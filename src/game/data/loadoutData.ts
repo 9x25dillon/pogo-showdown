@@ -33,8 +33,6 @@ export const MASTERY_TIERS: TierFlavor[] = [
   { name: 'Grandmaster Instinct', emoji: '\u{1F9E0}', color: 0xf9d64b },
 ];
 
-/** cumulative Advantage points at each tier (0-4) */
-export const TIER_POINTS: readonly number[] = [0, 6, 12, 18, 24];
 
 /** TP cost to reach each tier from the previous one (index 0 unused) */
 export const TIER_STEP_COST: readonly number[] = [0, 2, 4, 6, 6];
@@ -43,17 +41,6 @@ export const TIER_STEP_COST: readonly number[] = [0, 2, 4, 6, 6];
 export const TIER_CUMULATIVE_COST: readonly number[] = [0, 2, 6, 12, 18];
 
 export const MAX_AXIS_TIER: AxisTier = 4;
-export const SYNERGY_BONUS = 6;
-export const ADVANTAGE_CAP = 30;
-export const NATURAL_CAP = 15;
-export const TRADE_IN_REFUND_RATE = 0.5;
 
-/** lifetime Tech Point sources - both finite, so the whole economy is capped */
-export const TP_PER_TIER_UP = 1; // x5 tier-ups possible (Amateur..Elite) = 5 TP
-export const TP_PER_CIRCUIT_WIN = 1;
-export const TP_FROM_WINS_CAP = 20;
 export const TP_PER_QUEST_CLEAR = 1; // first clear of each Pog Quest level - finite, one per level
 
-/** Character Level: every four qualifying runs with this character, up to level 10 */
-export const RUNS_PER_CHARACTER_LEVEL = 4;
-export const CHARACTER_LEVEL_MAX = 10; // reached at 40 training runs per character

@@ -36,10 +36,10 @@ export class PlatformerPauseScene extends Phaser.Scene {
         newWorld.once('pointerdown', () => this.leave('Realm', { newWorld: true }));
       });
       buttons.push(newWorld);
-      buttons.push(this.button(cy + 73, 'SAVE & QUIT', () => this.leave('ModeSelect')));
+      buttons.push(this.button(cy + 73, 'SAVE & QUIT', () => this.leave('Title')));
     } else {
-      buttons.push(this.button(cy - 2, 'RETRY LEVEL', () => this.leave('PlatformerRun')));
-      buttons.push(this.button(cy + 73, 'MENU', () => this.leave('ModeSelect')));
+      buttons.push(this.button(cy - 2, 'RETRY RIFT', () => this.leave('PlatformerRun')));
+      buttons.push(this.button(cy + 73, 'LEAVE RIFT', () => this.leave('Realm')));
     }
     // B or Menu resumes, mirroring Escape
     attachPadMenu(this, buttons, { onBack: () => this.resumeRun() });

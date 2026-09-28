@@ -3,6 +3,7 @@ import type { ItemId } from './items';
 import type { RelicId } from './realms';
 import type { HomesteadSave } from './homestead';
 import type { ExpeditionProgress } from './expeditions';
+import type { HeroSave } from './RealmHero';
 
 /**
  * One saved world. The world itself is regenerated from `seed`; only the
@@ -28,6 +29,8 @@ export interface RealmSave {
   /** Optional so worlds created before homesteads still load. Overworld only. */
   homestead?: HomesteadSave;
   expeditions?: ExpeditionProgress;
+  /** unbanked XP, spent revives and pog charges: must survive portal trips */
+  hero?: HeroSave;
   /** ms into the day/night cycle */
   clock: number;
   savedAt: string;
