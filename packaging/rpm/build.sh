@@ -8,7 +8,7 @@ VERSION=$(node -p "require('./package.json').version")
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE/pogo-showdown-$VERSION"
-cp -a dist packaging/rpm/pogo-showdown.sh packaging/rpm/pogo-showdown.desktop packaging/rpm/pogo-showdown.svg "$STAGE/pogo-showdown-$VERSION/"
+cp -a dist LICENSE LICENSE-MUSIC packaging/rpm/pogo-showdown.sh packaging/rpm/pogo-showdown.desktop packaging/rpm/pogo-showdown.svg "$STAGE/pogo-showdown-$VERSION/"
 tar -C "$STAGE" -czf "$STAGE/pogo-showdown-$VERSION.tar.gz" "pogo-showdown-$VERSION"
 mkdir -p packaging/rpm/out
 docker run --rm -v "$STAGE:/src:ro" -v "$PWD/packaging/rpm:/pkg" fedora:42 sh -c "

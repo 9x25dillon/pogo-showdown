@@ -1,7 +1,7 @@
 {
   "name": "pogo-showdown",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.5.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -23,5 +23,11 @@
     "@capacitor/android": "^8.5.2",
     "@capacitor/core": "^8.5.2",
     "phaser": "^4.2.1"
+  },
+  "license": "GPL-3.0-or-later",
+  "description": "Open-world pogo action game: dig, build, duel, trick, dash and fight through the Forever Realm",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/9x25dillon/pogo-showdown.git"
   }
 }

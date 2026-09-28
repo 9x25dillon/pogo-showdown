@@ -56,8 +56,9 @@ The Forever Realm used to be one of eight menu modes. Now it's the whole game, a
 
 ## Install
 
-- **Android:** grab `pogo-showdown-v0.5.0.apk` from [Releases](https://github.com/9x25dillon/pogo-showdown/releases). The app plays in landscape.
-- **Fedora / RHEL / openSUSE:** `sudo dnf install ./pogo-showdown-0.5.0-1.noarch.rpm`, then launch **Pogo Showdown** from your app menu or run `pogo-showdown`. It serves the game on `127.0.0.1:47219` and opens your browser. The port is fixed so your saves persist; set `POGO_PORT` to change it.
+- **Android:** grab `pogo-showdown-v0.5.1.apk` from [Releases](https://github.com/9x25dillon/pogo-showdown/releases). The app plays in landscape.
+- **Fedora / RHEL / openSUSE:** `sudo dnf install ./pogo-showdown-0.5.1-1.noarch.rpm`, then launch **Pogo Showdown** from your app menu or run `pogo-showdown`. It serves the game on `127.0.0.1:47219` and opens your browser. The port is fixed so your saves persist; set `POGO_PORT` to change it.
+- **F-Droid:** submission prepared; see [`fdroid/`](fdroid/README.md).
 - **Any browser:** `npm install && npm run build`, then serve `dist/`.
 
 ## Develop
@@ -75,6 +76,11 @@ Browser regression tests drive the real game through Chrome DevTools. Start the 
 
 The game's balance lives in pure modules, so tuning happens in one place: `src/game/realm/hero.ts` (levels, perks, pog stats), `duels.ts`, `yoyo.ts`, `dash.ts`, `arena.ts`, `rifts.ts` and `items.ts`.
 
-## Credits
+## License
 
-Code and procedural art by the Pogo Showdown project. Soundtrack by the developer. All rights reserved.
+Pogo Showdown is free software.
+
+- **Code and procedural art:** [GNU GPL v3.0 or later](LICENSE).
+- **Soundtrack** (`public/music/`) by 9x25dillon: [Creative Commons Attribution-ShareAlike 4.0](LICENSE-MUSIC). Track list and credit are in `public/music/LICENSE.txt`.
+
+Built with [Phaser](https://phaser.io) (MIT), [Capacitor](https://capacitorjs.com) (MIT) and [Vite](https://vite.dev) (MIT). No ads, no tracking, no network access: saves stay on your device.

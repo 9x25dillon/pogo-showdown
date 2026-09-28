@@ -1,0 +1,34 @@
+# Draft metadata for fdroiddata (https://gitlab.com/fdroid/fdroiddata): copy to
+# metadata/com.pogoshowdown.app.yml in a fork and open a merge request.
+Categories:
+  - Games
+License: GPL-3.0-or-later
+AuthorName: 9x25dillon
+SourceCode: https://github.com/9x25dillon/pogo-showdown
+IssueTracker: https://github.com/9x25dillon/pogo-showdown/issues
+Changelog: https://github.com/9x25dillon/pogo-showdown/releases
+
+AutoName: Pogo Showdown
+
+RepoType: git
+Repo: https://github.com/9x25dillon/pogo-showdown.git
+
+Builds:
+  - versionName: 0.5.1
+    versionCode: 6
+    commit: v0.5.1
+    subdir: android/app
+    sudo:
+      - apt-get update
+      - apt-get install -y npm
+    init: cd ../.. && npm ci
+    gradle:
+      - yes
+    prebuild: cd ../.. && npm run build && npx cap sync android
+    scanignore:
+      - node_modules/@capacitor/android/capacitor/build.gradle
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 0.5.1
+CurrentVersionCode: 6

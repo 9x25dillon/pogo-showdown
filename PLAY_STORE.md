@@ -29,8 +29,8 @@ Release bundle (what Play wants): `android/app/build/outputs/bundle/release/app-
    ```
 2. Copy `android/keystore.properties.example` to `android/keystore.properties` and fill in the
    passwords. That file and `*.jks` are gitignored.
-3. `npm run android:release`. Without `keystore.properties` the release build falls back to the
-   debug key so it still compiles, but Play will reject it.
+3. `npm run android:release`. Without `keystore.properties` the release build is unsigned
+   (F-Droid's build server signs its own; see `fdroid/`).
 
 ## Upload key (generated 2026-09-16)
 

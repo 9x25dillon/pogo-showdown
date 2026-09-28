@@ -2,7 +2,7 @@ Name:           pogo-showdown
 Version:        %{pogo_version}
 Release:        1%{?dist}
 Summary:        Open-world pogo action game: dig, build, duel, trick, dash and fight
-License:        LicenseRef-Proprietary
+License:        GPL-3.0-or-later AND CC-BY-SA-4.0
 URL:            https://github.com/9x25dillon/pogo-showdown
 BuildArch:      noarch
 Source0:        pogo-showdown-%{version}.tar.gz
@@ -32,12 +32,16 @@ install -Dm644 pogo-showdown.desktop %{buildroot}%{_datadir}/applications/pogo-s
 install -Dm644 pogo-showdown.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/pogo-showdown.svg
 
 %files
+%license LICENSE LICENSE-MUSIC
 %{_bindir}/pogo-showdown
 %{_datadir}/pogo-showdown
 %{_datadir}/applications/pogo-showdown.desktop
 %{_datadir}/icons/hicolor/scalable/apps/pogo-showdown.svg
 
 %changelog
+* Mon Sep 28 2026 9x25dillon <deathmilk@gmail.com> - 0.5.1-1
+- Free software: GPL-3.0-or-later code, CC BY-SA 4.0 soundtrack.
+
 * Mon Sep 28 2026 9x25dillon <deathmilk@gmail.com> - 0.5.0-1
 - The Forever Realm becomes the whole game: hero levels, pog gear, duelists,
   yoyo tricks, pogo stick and Dash Trials, the Circuit Arena and Quest Rifts.
