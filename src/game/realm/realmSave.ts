@@ -38,6 +38,8 @@ export interface RealmSave {
   hero?: HeroSave;
   /** where each duelist stands, and whether you've seen them (overworld only) */
   duelSpots?: Record<string, DuelSpot>;
+  /** the Circuit Arena's overworld gate */
+  arenaGate?: { tx: number; ty: number };
   /** ms into the day/night cycle */
   clock: number;
   savedAt: string;
