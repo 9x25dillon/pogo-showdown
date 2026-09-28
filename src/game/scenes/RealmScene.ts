@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { COLORS, HEIGHT, WIDTH } from '../config';
+import { COLORS, HEIGHT, REGISTRY_KEY_CHARACTER, REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, WIDTH } from '../config';
 import { PHYS } from '../data/platformerConfig';
 import { applyHeroGravity, createControllerState, updateController, type ControllerState } from '../systems/PlayerController';
 import { mergePads, readPads, rumble, type PadFrame } from '../systems/gamepad';
@@ -22,6 +22,8 @@ import { RealmDuel } from '../realm/RealmDuel';
 import { RealmYoyo } from '../realm/RealmYoyo';
 import { RealmDash } from '../realm/RealmDash';
 import { RealmArena } from '../realm/RealmArena';
+import { RealmRifts } from '../realm/RealmRifts';
+import { SHRINE_OFFSET, SHRINE_W } from '../realm/worldGen';
 import { TRICK_EFFECTS, YOYOS, tricksFor } from '../realm/yoyo';
 import { INPUT_GLYPH, TRICKS, type TrickInput } from '../data/tricks';
 import { BOSS_XP, ORE_XP, killXp } from '../realm/hero';
@@ -166,6 +168,8 @@ export class RealmScene extends Phaser.Scene {
   private yoyo!: RealmYoyo;
   private dashTrials?: RealmDash;
   private arena?: RealmArena;
+  private rifts?: RealmRifts;
+  private riftMarks: Phaser.GameObjects.Rectangle[] = [];
   private arenaMapMark?: Phaser.GameObjects.Rectangle;
   private hasPogo = false;
   /** on the pogo stick: auto-bounce, stomps, faster, but hits hurt more and you don't regenerate */
@@ -366,6 +370,8 @@ export class RealmScene extends Phaser.Scene {
     this.stickNeutral = true;
     this.dashTrials = undefined;
     this.arena = undefined;
+    this.rifts = undefined;
+    this.riftMarks = [];
     this.arenaMapMark = undefined;
     this.hasPogo = false;
     this.riding = false;
@@ -601,6 +607,16 @@ export class RealmScene extends Phaser.Scene {
         reloadHero: async () => { this.hero.refresh(await loadHeroSnapshot()); },
         save: () => { void this.save(); },
       }, save?.duelSpots);
+      this.rifts = new RealmRifts(this, {
+        world: this.world,
+        player: () => this.player,
+        hero: () => this.hero,
+        reserved: () => this.reservedColumns(),
+        available: () => this.ready && !this.dead && !this.ending && !this.craftPanel?.visible && !this.homestead?.open && !this.expedition?.open && !this.heroMenu?.open,
+        pause: (open) => this.menuPause(open),
+        notify: (title, sub) => this.banner(title, sub),
+        enter: (i) => void this.enterRift(i),
+      }, save?.riftSpots);
     }
 
     this.buildPortalLabels();
@@ -772,7 +788,7 @@ export class RealmScene extends Phaser.Scene {
       if (!this.ready || this.dead || this.homestead?.open || this.craftPanel?.visible || this.expedition?.open || this.heroMenu?.open || this.duel?.open) return;
       const portal = this.portalHere();
       if (portal) void this.travel(portal);
-      else if (this.duel?.prompt() || this.dashTrials?.prompt() || this.arena?.prompt()) this.interactActivity();
+      else if (this.duel?.prompt() || this.dashTrials?.prompt() || this.arena?.prompt() || this.rifts?.prompt()) this.interactActivity();
       else if (this.expedition?.prompt()) this.expedition.interact();
       else if (!this.homestead?.placing) this.homestead?.interact();
     });
@@ -827,6 +843,14 @@ export class RealmScene extends Phaser.Scene {
   private updateHud(): void {
     this.expeditionText?.setText(this.arena?.hud() || this.dashTrials?.hud() || (this.pocket === 'arena' ? '' : this.expedition?.objective() ?? ''));
     this.arenaMapMark?.setVisible(!!this.minimapDot?.visible);
+    if (this.rifts) {
+      const next = this.rifts.nextRift();
+      this.riftMarks.forEach((mark, i) => {
+        const state = this.rifts!.state(i);
+        const show = i === next || (this.rifts!.spots[i].seen && state !== 'sealed');
+        mark.setVisible(!!this.minimapDot?.visible && show).setFillStyle(state === 'cleared' ? 0xfacc15 : 0xa855f7).setSize(i === next ? 6 : 4, i === next ? 6 : 4);
+      });
+    }
     if (this.foundryMapMark) this.foundryMapMark.setVisible(!!this.expedition?.progress.discovered && !!this.minimapDot?.visible);
     const seen = new Set(this.duel?.seenPros() ?? []);
     for (const [id, mark] of this.proMarks) mark.setVisible(!!this.minimapDot?.visible && seen.has(id));
@@ -1003,6 +1027,7 @@ export class RealmScene extends Phaser.Scene {
       ...(this.duel?.recordLines() ?? []),
       ...(this.dashTrials?.recordLines() ?? []),
       ...(this.arena?.recordLines() ?? []),
+      ...(this.rifts?.recordLines() ?? []),
     ];
   }
 
@@ -1042,6 +1067,33 @@ export class RealmScene extends Phaser.Scene {
     if (this.duel?.prompt()) this.duel.interact();
     else if (this.dashTrials?.prompt()) this.dashTrials.interact();
     else if (this.arena?.prompt()) this.arena.interact();
+    else if (this.rifts?.prompt()) this.rifts.interact();
+  }
+
+  /** columns the rifts keep clear of: spawn, the shrine, and every world object */
+  private reservedColumns(): number[] {
+    const sx = this.world.spawn.tx;
+    const cols = [sx];
+    for (let x = sx + SHRINE_OFFSET - 2; x <= sx + SHRINE_OFFSET + SHRINE_W + 2; x++) cols.push(x);
+    const e = this.expedition?.entrance;
+    if (e) cols.push(e.tx, e.tx + 2);
+    const g = this.arena?.gate;
+    if (g) cols.push(g.tx, g.tx + 2, g.tx + 4);
+    for (const c of this.dashTrials?.courses ?? []) cols.push(Math.floor(c.start.x / TILE));
+    for (const spot of Object.values(this.duel?.spots ?? {})) cols.push(spot.tx);
+    return cols;
+  }
+
+  /** save, then hand the hero to Pog Quest; the result screen brings them back here */
+  private async enterRift(index: number): Promise<void> {
+    if (!this.ready) return;
+    this.ready = false;
+    this.menuPause(false);
+    await this.save();
+    this.registry.set(REGISTRY_KEY_CHARACTER, this.hero.character.id);
+    this.registry.set(REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, index);
+    this.cameras.main.fadeOut(250, 0, 0, 0);
+    this.time.delayedCall(260, () => this.scene.start('PlatformerRun'));
   }
 
   private mount(): void {
@@ -1251,6 +1303,10 @@ export class RealmScene extends Phaser.Scene {
       this.arena.updateInput(pad.pressed, k);
       return;
     }
+    if (this.rifts?.open) {
+      this.rifts.updateInput(pad.pressed, k);
+      return;
+    }
     if (pad.pressed.r3 || J(k.n)) { this.expedition?.toggleJournal(); return; }
     if (pad.pressed.l3 || J(k.i)) { this.toggleHeroMenu(); return; }
     if (this.homestead?.placing && (pad.pressed.b || J(k.esc))) { this.homestead.cancelPlacement(); return; }
@@ -1300,7 +1356,7 @@ export class RealmScene extends Phaser.Scene {
     // portals: stand in one and press down
     const portal = this.portalHere();
     const sealed = !portal && this.nearSealedGate();
-    const duelPrompt = !portal && !sealed ? this.duel?.prompt() || this.dashTrials?.prompt() || this.arena?.prompt() : '';
+    const duelPrompt = !portal && !sealed ? this.duel?.prompt() || this.dashTrials?.prompt() || this.arena?.prompt() || this.rifts?.prompt() : '';
     const furniture = !portal && !sealed && !duelPrompt ? this.homestead?.nearby() : undefined;
     const expeditionPrompt = this.expedition?.prompt();
     this.promptText.setVisible(!!portal || sealed || !!duelPrompt || !!furniture || !!this.homestead?.placing || !!expeditionPrompt).setText(
@@ -1376,6 +1432,7 @@ export class RealmScene extends Phaser.Scene {
     this.duel?.update(dt);
     this.dashTrials?.update(dt);
     this.arena?.update(dt);
+    this.rifts?.update();
     this.drawPogo();
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0) {
@@ -2311,6 +2368,9 @@ export class RealmScene extends Phaser.Scene {
       this.proMarks.set(id, this.add.rectangle(box.x + ((spot.tx + 0.5) / w) * dw, box.y + (spot.ty / h) * dh, 4, 4, 0xfde68a)
         .setScrollFactor(0).setDepth(60).setVisible(false));
     }
+    this.rifts?.spots.forEach((spot) => {
+      this.riftMarks.push(this.add.rectangle(box.x + ((spot.tx + 1.5) / w) * dw, box.y + (spot.ty / h) * dh, 4, 4, 0xa855f7).setScrollFactor(0).setDepth(60).setVisible(false));
+    });
     if (!this.pocket && this.arena?.gate) {
       const g = this.arena.gate;
       this.arenaMapMark = this.add.rectangle(box.x + ((g.tx + 2) / w) * dw, box.y + (g.ty / h) * dh, 5, 5, 0xef4444).setScrollFactor(0).setDepth(60);
@@ -2435,6 +2495,7 @@ export class RealmScene extends Phaser.Scene {
       hero: this.hero?.save(),
       duelSpots: this.duel?.spots,
       arenaGate: this.arena?.gate,
+      riftSpots: this.rifts?.spots,
     });
   }
 }

@@ -5,6 +5,7 @@ import type { HomesteadSave } from './homestead';
 import type { ExpeditionProgress } from './expeditions';
 import type { HeroSave } from './RealmHero';
 import type { DuelSpot } from './duels';
+import type { RiftSpot } from './rifts';
 
 /**
  * One saved world. The world itself is regenerated from `seed`; only the
@@ -40,6 +41,8 @@ export interface RealmSave {
   duelSpots?: Record<string, DuelSpot>;
   /** the Circuit Arena's overworld gate */
   arenaGate?: { tx: number; ty: number };
+  /** where each Pog Quest rift stands, by LEVELS index */
+  riftSpots?: RiftSpot[];
   /** ms into the day/night cycle */
   clock: number;
   savedAt: string;
