@@ -77,6 +77,10 @@ const AUTOSAVE_MS = 30_000;
 const SPAWN_EVERY_MS = 1200;
 const DESPAWN_PX = 1400;
 const RESPAWN_MS = 3500;
+/** the hotbar lives between the HP column (to x 236) and the sword label/buttons (from x ~795) */
+const HOTBAR_X0 = 244;
+const HOTBAR_X1 = 790;
+const HOTBAR_CX = (HOTBAR_X0 + HOTBAR_X1) / 2;
 
 interface RealmEnemy {
   sprite: Phaser.Physics.Arcade.Sprite;
@@ -759,17 +763,17 @@ export class RealmScene extends Phaser.Scene {
     hud(this.add.rectangle(16, 14, 220, 16, 0x1c1430).setOrigin(0).setStrokeStyle(1, 0x7f1d1d));
     this.hpBar = hud(this.add.rectangle(17, 15, 218, 14, 0xdc2626).setOrigin(0));
     this.hpText = hud(this.add.text(126, 22, '', { fontSize: '11px', fontFamily: font, fontStyle: 'bold', color: '#ffffff' }).setOrigin(0.5));
-    this.heroText = hud(this.add.text(16, 34, '', { fontSize: '12px', fontFamily: font, fontStyle: 'bold', color: '#fde68a' }));
-    this.infoText = hud(this.add.text(16, 52, '', { fontSize: '12px', fontFamily: font, color: '#e9d5ff' }));
+    this.heroText = hud(this.add.text(16, 33, '', { fontSize: '11px', fontFamily: font, fontStyle: 'bold', color: '#fde68a', lineSpacing: 1 }));
+    this.infoText = hud(this.add.text(16, 66, '', { fontSize: '12px', fontFamily: font, color: '#e9d5ff' }));
     this.swordText = hud(this.add.text(RW - 16, 10, '', { fontSize: '13px', fontFamily: font, fontStyle: 'bold', color: '#fca5a5' }).setOrigin(1, 0));
 
-    this.relicText = hud(this.add.text(16, 70, '', { fontSize: '13px', fontFamily: font, color: '#ffffff' }));
-    this.buffText = hud(this.add.text(16, 90, '', { fontSize: '12px', fontFamily: font, color: '#a7f3d0' }));
-    this.breathBack = hud(this.add.rectangle(16, 110, 120, 8, 0x0c1a2e).setOrigin(0).setStrokeStyle(1, 0x38bdf8).setVisible(false));
-    this.breathBar = hud(this.add.rectangle(17, 111, 118, 6, 0x38bdf8).setOrigin(0).setVisible(false));
+    this.relicText = hud(this.add.text(16, 84, '', { fontSize: '13px', fontFamily: font, color: '#ffffff' }));
+    this.buffText = hud(this.add.text(16, 104, '', { fontSize: '12px', fontFamily: font, color: '#a7f3d0' }));
+    this.breathBack = hud(this.add.rectangle(16, 124, 120, 8, 0x0c1a2e).setOrigin(0).setStrokeStyle(1, 0x38bdf8).setVisible(false));
+    this.breathBar = hud(this.add.rectangle(17, 125, 118, 6, 0x38bdf8).setOrigin(0).setVisible(false));
 
-    this.slotLabel = hud(this.add.text(RW / 2, 64, '', { fontSize: '12px', fontFamily: font, color: '#fef08a' }).setOrigin(0.5, 0));
-    this.comboText = hud(this.add.text(RW / 2, 82, '', { fontSize: '15px', fontFamily: font, fontStyle: 'bold', color: '#f472b6', stroke: '#0b0714', strokeThickness: 3 }).setOrigin(0.5, 0));
+    this.slotLabel = hud(this.add.text(HOTBAR_CX, 64, '', { fontSize: '12px', fontFamily: font, color: '#fef08a' }).setOrigin(0.5, 0));
+    this.comboText = hud(this.add.text(HOTBAR_CX, 82, '', { fontSize: '15px', fontFamily: font, fontStyle: 'bold', color: '#f472b6', stroke: '#0b0714', strokeThickness: 3 }).setOrigin(0.5, 0));
     this.rebuildHotbar();
 
     const btn = (y: number, label: string, onTap: () => void) => {
@@ -782,8 +786,8 @@ export class RealmScene extends Phaser.Scene {
     if (this.homestead) btn(108, 'HOME · H', () => this.toggleHome());
     btn(this.homestead ? 140 : 76 + 32, 'JOURNAL', () => this.expedition?.toggleJournal());
     btn(this.homestead ? 172 : 140, 'HERO · I', () => this.toggleHeroMenu());
-    this.homeText = hud(this.add.text(16, 129, '', { fontSize: '12px', fontFamily: font, color: '#a7f3d0' }));
-    this.expeditionText = hud(this.add.text(16, 152, '', { fontSize: '11px', fontFamily: font, color: '#f9d68c', wordWrap: { width: 510 } }));
+    this.homeText = hud(this.add.text(16, 143, '', { fontSize: '12px', fontFamily: font, color: '#a7f3d0' }));
+    this.expeditionText = hud(this.add.text(16, 166, '', { fontSize: '11px', fontFamily: font, color: '#f9d68c', wordWrap: { width: 510 } }));
 
     this.promptText = hud(this.add.text(RW / 2, RH - 60, '', {
       fontSize: '14px', fontFamily: font, fontStyle: 'bold', color: '#ffffff', backgroundColor: '#0b0714cc', padding: { x: 8, y: 4 },
@@ -873,7 +877,7 @@ export class RealmScene extends Phaser.Scene {
       + (this.hazardHere() === 'ember' && !this.heatProof() ? '   🔥 HEAT' : ''));
     const h = this.hero;
     const xp = h.xpProgress();
-    this.heroText.setText(`${h.character.emoji} ${h.character.name} · Lv ${xp.level}${xp.level < 20 ? ` · ${xp.into}/${xp.need} XP` : ''}${h.unbanked ? ` · +${h.unbanked} unbanked` : ''}`
+    this.heroText.setText(`${h.character.emoji} ${h.character.name} · Lv ${xp.level}${xp.level < 20 ? ` · ${xp.into}/${xp.need} XP` : ''}\n${h.unbanked ? `+${h.unbanked} unbanked` : 'all XP banked'}`
       + `${h.stats.guardPips ? ` · 🛡${'◆'.repeat(h.guard)}${'◇'.repeat(h.stats.guardPips - h.guard)}` : ''}${h.stats.revives ? ` · ✚${h.revivesLeft}` : ''}`);
     this.comboText.setText(h.combo > 1 ? `COMBO ×${h.combo} · +${Math.round((h.comboMult - 1) * 100)}%` : '');
     const showBreath = this.breath < BREATH_MAX;
@@ -939,10 +943,11 @@ export class RealmScene extends Phaser.Scene {
     const keep = previous ? this.slots.indexOf(previous) : -1;
     this.slot = keep >= 0 ? keep : Math.min(this.slot, this.slots.length - 1);
     const n = this.slots.length;
-    const gap = n > 12 ? 38 : 46;
-    const size = n > 12 ? 34 : 42;
+    // between the HP column and the button column, shrinking as the bar grows
+    const gap = Math.min(46, Math.floor((HOTBAR_X1 - HOTBAR_X0) / n));
+    const size = gap - 4;
     this.slots.forEach((_, i) => {
-      const x = RW / 2 + (i - (n - 1) / 2) * gap;
+      const x = HOTBAR_CX + (i - (n - 1) / 2) * gap;
       const box = this.add.rectangle(x, 30, size, size, 0x1c1430, 0.85).setStrokeStyle(2, 0x362a52).setInteractive().setScrollFactor(0).setDepth(60);
       box.on('pointerdown', () => { this.slot = i; });
       this.slotBoxes.push(box);
