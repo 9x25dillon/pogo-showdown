@@ -22,6 +22,8 @@ export interface RealmSave {
   pickaxe: number;
   /** crafted yoyo tier, 0 = none (optional: older saves have none) */
   yoyo?: number;
+  /** crafted the pogo stick */
+  pogo?: boolean;
   /** boss relics won in the portal realms (optional: saves from before Phase 2 have none) */
   relics?: RelicId[];
   /** beat the Eternal Reaper behind the Forever Gate */

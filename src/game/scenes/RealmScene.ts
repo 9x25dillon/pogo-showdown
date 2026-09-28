@@ -20,6 +20,7 @@ import { RealmExpedition } from '../realm/RealmExpedition';
 import { RealmHeroMenu } from '../realm/RealmHeroMenu';
 import { RealmDuel } from '../realm/RealmDuel';
 import { RealmYoyo } from '../realm/RealmYoyo';
+import { RealmDash } from '../realm/RealmDash';
 import { TRICK_EFFECTS, YOYOS, tricksFor } from '../realm/yoyo';
 import { INPUT_GLYPH, TRICKS, type TrickInput } from '../data/tricks';
 import { BOSS_XP, ORE_XP, killXp } from '../realm/hero';
@@ -28,7 +29,7 @@ import { grantMilestone, loadHeroSnapshot, type HeroSnapshot } from '../realm/pr
 import type { PanelRow } from '../realm/RealmPanel';
 
 /** a hotbar entry: a fixed item/tool slot, or one equipped pog's active ability */
-type Slot = HotbarSlot | 'yoyo' | `pog:${string}`;
+type Slot = HotbarSlot | 'yoyo' | 'pogo' | `pog:${string}`;
 
 /**
  * The Forever Realm: an open, procedurally generated world you can dig
@@ -162,6 +163,13 @@ export class RealmScene extends Phaser.Scene {
   private heroMenu?: RealmHeroMenu;
   private duel?: RealmDuel;
   private yoyo!: RealmYoyo;
+  private dashTrials?: RealmDash;
+  private hasPogo = false;
+  /** on the pogo stick: auto-bounce, stomps, faster, but hits hurt more and you don't regenerate */
+  private riding = false;
+  private pogoGfx!: Phaser.GameObjects.Graphics;
+  private lastJumpPressAt = -1e9;
+  private stompChain = 0;
   private stickNeutral = true;
   private dash = { vx: 0, ms: 0 };
   /** a bounce that stomps on landing (Boingy Boing, the pogo stick) */
@@ -353,6 +361,11 @@ export class RealmScene extends Phaser.Scene {
     this.heroMenu = undefined;
     this.duel = undefined;
     this.stickNeutral = true;
+    this.dashTrials = undefined;
+    this.hasPogo = false;
+    this.riding = false;
+    this.lastJumpPressAt = -1e9;
+    this.stompChain = 0;
     this.dash = { vx: 0, ms: 0 };
     this.stomp = null;
     this.trickPad = [];
@@ -385,6 +398,7 @@ export class RealmScene extends Phaser.Scene {
       this.sword = save.sword;
       this.pickaxe = save.pickaxe;
       this.yoyoTier = save.yoyo ?? 0;
+      this.hasPogo = !!save.pogo;
       this.relics = new Set(save.relics ?? []);
       this.champion = !!save.champion;
       this.stats = { ...emptyStats(), ...save.stats };
@@ -537,7 +551,20 @@ export class RealmScene extends Phaser.Scene {
       shake: (ms, intensity) => this.cameras.main.shake(ms, intensity),
     }, this.yoyoTier);
 
+    this.pogoGfx = this.add.graphics().setDepth(10);
     if (!this.pocket) {
+      this.dashTrials = new RealmDash(this, {
+        world: this.world,
+        player: () => this.player,
+        hero: () => this.hero,
+        night: () => nightFactor(this.clock) > 0.5,
+        riding: () => this.riding,
+        available: () => this.ready && !this.dead && !this.ending && !this.craftPanel?.visible && !this.homestead?.open && !this.expedition?.open && !this.heroMenu?.open && !this.duel?.open,
+        pause: (open) => this.menuPause(open),
+        notify: (title, sub) => { this.banner(title, sub); this.bannerText.setFontSize(20); },
+        grant: (item, count) => this.addItem(item, count, this.player),
+        save: () => { void this.save(); },
+      });
       this.duel = new RealmDuel(this, {
         world: this.world,
         player: () => this.player,
@@ -723,6 +750,7 @@ export class RealmScene extends Phaser.Scene {
       const portal = this.portalHere();
       if (portal) void this.travel(portal);
       else if (this.duel?.prompt()) this.duel.interact();
+      else if (this.dashTrials?.prompt()) this.dashTrials.interact();
       else if (this.expedition?.prompt()) this.expedition.interact();
       else if (!this.homestead?.placing) this.homestead?.interact();
     });
@@ -775,7 +803,7 @@ export class RealmScene extends Phaser.Scene {
   }
 
   private updateHud(): void {
-    this.expeditionText?.setText(this.expedition?.objective() ?? '');
+    this.expeditionText?.setText(this.dashTrials?.hud() || (this.expedition?.objective() ?? ''));
     if (this.foundryMapMark) this.foundryMapMark.setVisible(!!this.expedition?.progress.discovered && !!this.minimapDot?.visible);
     const seen = new Set(this.duel?.seenPros() ?? []);
     for (const [id, mark] of this.proMarks) mark.setVisible(!!this.minimapDot?.visible && seen.has(id));
@@ -831,6 +859,7 @@ export class RealmScene extends Phaser.Scene {
   private slotIcon(slot: Slot): string {
     if (slot === 'pickaxe') return '⛏';
     if (slot === 'yoyo') return `🪀\n${this.yoyo.strings}`;
+    if (slot === 'pogo') return this.riding ? '🦘\nON' : '🦘';
     const active = this.activeFor(slot);
     if (active) return `${active.def.emoji}\n${this.hero.chargesLeft(active.id)}`;
     return `${ITEM_ICON[slot as ItemId]}\n${this.count(slot as ItemId)}`;
@@ -840,6 +869,8 @@ export class RealmScene extends Phaser.Scene {
     if (!slot) return '';
     if (slot === 'pickaxe') return PICKAXES[this.pickaxe].name;
     if (slot === 'yoyo') return `${YOYOS[this.yoyoTier].name} · ${this.yoyo.status()}`;
+    if (slot === 'pogo') return this.riding ? 'Pogo Stick · riding · hold jump for a super bounce, press it just before landing for a perfect · use to hop off'
+      : 'Pogo Stick · use to hop on: faster, bouncier, stomps enemies · hits hurt 25% more, no regen';
     const active = this.activeFor(slot);
     if (active) return `${active.def.name} · ${realmActiveText(active.effect)} · ${this.hero.chargesLeft(active.id)} left (refills when you sleep or cross a portal)`;
     const brew = (BREW_IDS as string[]).includes(slot) ? ` · ${BREWS[slot as BrewId].effect}` : '';
@@ -853,7 +884,7 @@ export class RealmScene extends Phaser.Scene {
     this.slotBoxes = [];
     this.slotTexts = [];
     const previous = this.slots[this.slot];
-    this.slots = [...HOTBAR, ...(this.yoyoTier > 0 ? ['yoyo' as const] : []), ...this.hero.activeRows().map((r) => `pog:${r.id}` as Slot)];
+    this.slots = [...HOTBAR, ...(this.hasPogo ? ['pogo' as const] : []), ...(this.yoyoTier > 0 ? ['yoyo' as const] : []), ...this.hero.activeRows().map((r) => `pog:${r.id}` as Slot)];
     const keep = previous ? this.slots.indexOf(previous) : -1;
     this.slot = keep >= 0 ? keep : Math.min(this.slot, this.slots.length - 1);
     const n = this.slots.length;
@@ -947,6 +978,7 @@ export class RealmScene extends Phaser.Scene {
       `Relics ${POCKET_ORDER.map((id) => (this.relics.has(id) ? RELICS[id].icon : '◌')).join(' ')}${this.champion ? ' · ✦ Forever Champion' : ''}`,
       `Buried Foundry · ${this.expedition?.progress.clears ?? 0} clears · ${this.expedition?.progress.cachesOpened ?? 0} caches`,
       ...(this.duel?.recordLines() ?? []),
+      ...(this.dashTrials?.recordLines() ?? []),
     ];
   }
 
@@ -979,6 +1011,67 @@ export class RealmScene extends Phaser.Scene {
       this.yoyo.input(Math.abs(stick.rx) > Math.abs(stick.ry) ? (stick.rx > 0 ? 'right' : 'left') : (stick.ry > 0 ? 'down' : 'up'));
     }
     this.stickNeutral = false;
+  }
+
+  private mount(): void {
+    if (!this.hasPogo || this.isWaterAt(this.player.x, this.player.y - 18)) return;
+    this.riding = true;
+    this.stompChain = 0;
+    this.floatText(this.player.x, this.player.y - 56, '🦘 BOING', '#fde68a');
+  }
+
+  private dismount(): void {
+    if (!this.riding) return;
+    this.riding = false;
+    this.pogoGfx?.clear();
+  }
+
+  /** landing on the stick: a hop, a held-jump super bounce, or a perfectly timed one */
+  private pogoBounce(body: Phaser.Physics.Arcade.Body, grounded: boolean, jumpHeld: boolean): void {
+    if (!grounded || body.velocity.y < 0) return;
+    this.stompChain = 0;
+    const perfect = this.time.now - this.lastJumpPressAt < 150;
+    const factor = perfect ? 1.45 : jumpHeld ? 1.2 : 0.62;
+    body.setVelocityY(PHYS.jumpVelocity * JUMP_SCALE * this.hero.stats.jumpMult * factor);
+    this.ctrl.jumpCutApplied = true;
+    this.lastJumpPressAt = -1e9;
+    if (perfect) {
+      this.hero.hitLanded();
+      this.floatText(this.player.x, this.player.y - 50, 'PERFECT BOUNCE', '#fde047');
+    }
+  }
+
+  /** riding and falling onto something: it takes the hit, you bounce */
+  private tryStomp(sprite: Phaser.Physics.Arcade.Sprite, e?: RealmEnemy): boolean {
+    const pb = this.player.body as Phaser.Physics.Arcade.Body;
+    const tb = sprite.body as Phaser.Physics.Arcade.Body;
+    if (!this.riding || this.dead || pb.velocity.y < 120 || pb.bottom > tb.top + 14) return false;
+    const { damage, crit } = this.hero.strike(12 + pb.velocity.y / 30);
+    pb.setVelocityY(PHYS.jumpVelocity * JUMP_SCALE * 0.95);
+    this.ctrl.jumpCutApplied = true;
+    this.stompChain++;
+    this.invuln = Math.max(this.invuln, 150);
+    if (e) this.hurtEnemy(e, damage, sprite.x < this.player.x ? -1 : 1, crit);
+    else this.damageBoss(damage, crit);
+    this.hero.hitLanded();
+    this.dashTrials?.stomped(this.stompChain);
+    if (this.stompChain > 1) this.floatText(this.player.x, this.player.y - 60, `STOMP ×${this.stompChain}`, '#fde68a');
+    return true;
+  }
+
+  /** the stick under the hero, with your equipped pogs stacked on the footpeg */
+  private drawPogo(): void {
+    const g = this.pogoGfx.clear();
+    if (!this.riding || this.dead) return;
+    const x = this.player.x + this.facing * 5;
+    const y = this.player.y;
+    g.lineStyle(2, 0x9ca3af).lineBetween(x, y - 30, x, y + 3);
+    g.lineStyle(2, 0x1f2937).lineBetween(x - 5, y - 30, x + 5, y - 30);
+    g.lineStyle(1, 0xe5e7eb);
+    for (let i = 0; i < 3; i++) g.lineBetween(x - 3, y - 2 - i * 3, x + 3, y - 3 - i * 3);
+    g.fillStyle(0x374151).fillRect(x - 7, y - 12, 14, 2);
+    this.hero.snap.pogs.filter((r) => r.instance.equipped).slice(0, 6)
+      .forEach((r, i) => g.fillStyle(r.def.color, 1).fillEllipse(x + 5, y - 13 - i * 2, 8, 3));
   }
 
   private bounceStomp(scale: number, damage: number): void {
@@ -1038,6 +1131,7 @@ export class RealmScene extends Phaser.Scene {
   }
 
   private canCraft(recipe: Recipe): boolean {
+    if ('pogo' in recipe.gives && this.hasPogo) return false;
     if ('yoyo' in recipe.gives && this.yoyoTier >= recipe.gives.yoyo) return false;
     if ('sword' in recipe.gives && this.sword >= recipe.gives.sword) return false;
     if ('pickaxe' in recipe.gives && this.pickaxe >= recipe.gives.pickaxe) return false;
@@ -1047,7 +1141,7 @@ export class RealmScene extends Phaser.Scene {
   private refreshCraft(): void {
     this.craftRows.forEach(({ bg, text, recipe }, i) => {
       const owned = ('sword' in recipe.gives && this.sword >= recipe.gives.sword) || ('pickaxe' in recipe.gives && this.pickaxe >= recipe.gives.pickaxe)
-        || ('yoyo' in recipe.gives && this.yoyoTier >= recipe.gives.yoyo);
+        || ('yoyo' in recipe.gives && this.yoyoTier >= recipe.gives.yoyo) || ('pogo' in recipe.gives && this.hasPogo);
       const cost = Object.entries(recipe.cost)
         .map(([item, n]) => `${ITEM_ICON[item as ItemId]} ${this.count(item as ItemId)}/${n}`)
         .join('   ');
@@ -1068,7 +1162,11 @@ export class RealmScene extends Phaser.Scene {
     const g = recipe.gives;
     if ('item' in g) this.addItem(g.item, g.count);
     else if ('sword' in g) this.sword = g.sword;
-    else if ('yoyo' in g) {
+    else if ('pogo' in g) {
+      this.hasPogo = true;
+      this.rebuildHotbar();
+      this.banner('🦘 POGO STICK', 'select it on the hotbar and use it to hop on · Dash Trials: 🏁 flags near spawn');
+    } else if ('yoyo' in g) {
       this.yoyoTier = g.yoyo;
       this.yoyo.tier = g.yoyo;
       this.rebuildHotbar();
@@ -1112,6 +1210,10 @@ export class RealmScene extends Phaser.Scene {
     if (this.duel?.open) {
       this.duel.update(dt);
       this.duel.updateInput(pad.pressed, k);
+      return;
+    }
+    if (this.dashTrials?.open) {
+      this.dashTrials.updateInput(pad.pressed, k);
       return;
     }
     if (pad.pressed.r3 || J(k.n)) { this.expedition?.toggleJournal(); return; }
@@ -1163,7 +1265,7 @@ export class RealmScene extends Phaser.Scene {
     // portals: stand in one and press down
     const portal = this.portalHere();
     const sealed = !portal && this.nearSealedGate();
-    const duelPrompt = !portal && !sealed ? this.duel?.prompt() : '';
+    const duelPrompt = !portal && !sealed ? this.duel?.prompt() || this.dashTrials?.prompt() : '';
     const furniture = !portal && !sealed && !duelPrompt ? this.homestead?.nearby() : undefined;
     const expeditionPrompt = this.expedition?.prompt();
     this.promptText.setVisible(!!portal || sealed || !!duelPrompt || !!furniture || !!this.homestead?.placing || !!expeditionPrompt).setText(
@@ -1178,7 +1280,7 @@ export class RealmScene extends Phaser.Scene {
       void this.travel(portal);
       return;
     }
-    if (duelPrompt && !this.homestead?.placing && downPressed) { this.duel?.interact(); return; }
+    if (duelPrompt && !this.homestead?.placing && downPressed) { if (this.duel?.prompt()) this.duel.interact(); else this.dashTrials?.interact(); return; }
     if (furniture && !this.homestead?.placing && downPressed) {
       this.homestead?.interact(); return;
     }
@@ -1194,11 +1296,14 @@ export class RealmScene extends Phaser.Scene {
       jumpPressed = false;
     }
     const swimSpeed = inWater && !this.relics.has('tide') ? 0.7 : 1;
-    const speed = MOVE_SPEED * swimSpeed * this.hero.stats.moveMult * (this.hero.timers.speed > 0 ? 1.6 : 1);
-    updateController(body, { left, right, jumpPressed: jumpPressed && !inWater, jumpHeld }, this.ctrl,
+    if (this.riding && inWater) this.dismount();
+    if (jumpPressed) this.lastJumpPressAt = this.time.now;
+    const speed = MOVE_SPEED * swimSpeed * this.hero.stats.moveMult * (this.hero.timers.speed > 0 ? 1.6 : 1) * (this.riding ? 1.35 : 1);
+    updateController(body, { left, right, jumpPressed: jumpPressed && !inWater && !this.riding, jumpHeld }, this.ctrl,
       { moveSpeed: speed, moveAccel: PHYS.moveAccel * (speed / MOVE_SPEED), jumpScale: JUMP_SCALE * this.hero.stats.jumpMult }, dt);
     applyHeroGravity(body);
     this.updatePound(body, grounded);
+    if (this.riding) this.pogoBounce(body, grounded, jumpHeld);
     if (this.dash.ms > 0) { this.dash.ms -= dt; body.setVelocityX(this.dash.vx); body.setVelocityY(Math.min(body.velocity.y, 0)); }
     this.updateEnvironment(dt, body, { inWater, grounded, jumpPressed, jumpHeld });
     if (left && !right) this.facing = -1;
@@ -1221,7 +1326,7 @@ export class RealmScene extends Phaser.Scene {
 
     // regen
     this.sinceHit += dt;
-    if (this.sinceHit > REGEN_DELAY_MS && this.hp < this.maxHp) this.hp = Math.min(this.maxHp, this.hp + ((REGEN_PER_S * this.hero.stats.regenMult + (this.homestead?.warmth() ? 4 : 0)) * dt) / 1000);
+    if (this.sinceHit > REGEN_DELAY_MS && this.hp < this.maxHp && !this.riding) this.hp = Math.min(this.maxHp, this.hp + ((REGEN_PER_S * this.hero.stats.regenMult + (this.homestead?.warmth() ? 4 : 0)) * dt) / 1000);
     this.hero.tick(dt);
     this.yoyo.update(dt);
     this.applyFreeze();
@@ -1234,6 +1339,8 @@ export class RealmScene extends Phaser.Scene {
     this.updateBossFight(dt);
     this.expedition?.update(dt);
     this.duel?.update(dt);
+    this.dashTrials?.update(dt);
+    this.drawPogo();
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0) {
       this.spawnTimer = SPAWN_EVERY_MS;
@@ -1443,6 +1550,12 @@ export class RealmScene extends Phaser.Scene {
       if (pressed && this.hero.useActive(slot.slice(4))) this.updateHud();
       return;
     }
+    if (slot === 'pogo') {
+      this.mining = null;
+      if (pressed) { if (this.riding) this.dismount(); else this.mount(); }
+      return;
+    }
+    if (held && this.riding && !slot.startsWith('pog:')) this.dismount();
     if (slot === 'yoyo') {
       this.mining = null;
       if (pressed) this.yoyo.use();
@@ -1479,7 +1592,7 @@ export class RealmScene extends Phaser.Scene {
   private drawAim(): void {
     if (this.homestead?.placing) { this.aimRect.setVisible(false); return; }
     const slot = this.slots[this.slot];
-    if (!this.aim || slot === 'potion' || slot === 'yoyo' || slot.startsWith('pog:') || (BREW_IDS as string[]).includes(slot)) {
+    if (!this.aim || slot === 'potion' || slot === 'yoyo' || slot === 'pogo' || slot.startsWith('pog:') || (BREW_IDS as string[]).includes(slot)) {
       this.aimRect.setVisible(false);
       return;
     }
@@ -1588,7 +1701,8 @@ export class RealmScene extends Phaser.Scene {
       return;
     }
     this.hero.hurt();
-    this.hp -= damage;
+    this.dashTrials?.hurt();
+    this.hp -= damage * (this.riding ? 1.25 : 1);
     this.invuln = HIT_INVULN_MS * this.hero.stats.invulnMult;
     this.sinceHit = 0;
     const away = this.player.x < fromX ? -1 : 1;
@@ -1607,6 +1721,8 @@ export class RealmScene extends Phaser.Scene {
       return;
     }
     const lost = this.hero.onDeath();
+    this.dashTrials?.fail('you fell');
+    this.dismount();
     this.homestead?.cancelPlacement();
     this.dead = true;
     this.stats.deaths += 1;
@@ -1780,6 +1896,7 @@ export class RealmScene extends Phaser.Scene {
       const b = this.boss;
       if (!b || b.sprite !== sprite) return;
       const harmless = b.phase === 'reel' || b.phase === 'tired' || b.phase === 'recover' || this.hero.frozen;
+      if (this.tryStomp(sprite)) return;
       if (!harmless) this.hurtPlayer(def.contactDamage, sprite.x);
     });
     this.boss = createBoss(def, sprite);
@@ -1931,7 +2048,7 @@ export class RealmScene extends Phaser.Scene {
     if (floats) body.setAllowGravity(false);
     else body.setGravityY(PHYS.gravityY);
     if (!def.phasing) e.colliders.push(this.physics.add.collider(sprite, this.layer));
-    e.colliders.push(this.physics.add.overlap(this.player, sprite, () => { if (!this.hero.frozen) this.hurtPlayer(def.damage, sprite.x); }));
+    e.colliders.push(this.physics.add.overlap(this.player, sprite, () => { if (!this.hero.frozen && !this.tryStomp(sprite, e)) this.hurtPlayer(def.damage, sprite.x); }));
     this.enemies.push(e);
     return e;
   }
@@ -2248,7 +2365,7 @@ export class RealmScene extends Phaser.Scene {
       if (!base) return;
       const { id: _id, version: _v, savedAt: _at, ...rest } = base;
       await saveRealm({
-        ...rest, inventory: this.inventory, sword: this.sword, pickaxe: this.pickaxe, yoyo: this.yoyoTier, relics: [...this.relics],
+        ...rest, inventory: this.inventory, sword: this.sword, pickaxe: this.pickaxe, yoyo: this.yoyoTier, pogo: this.hasPogo, relics: [...this.relics],
         champion: this.champion, stats: this.stats, expeditions: this.expedition?.progress, hero: this.hero?.save(),
       });
       return;
@@ -2262,6 +2379,7 @@ export class RealmScene extends Phaser.Scene {
       sword: this.sword,
       pickaxe: this.pickaxe,
       yoyo: this.yoyoTier,
+      pogo: this.hasPogo,
       clock: this.clock,
       relics: [...this.relics],
       champion: this.champion,
