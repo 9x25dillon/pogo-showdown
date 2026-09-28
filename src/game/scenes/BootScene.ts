@@ -739,6 +739,17 @@ export class BootScene extends Phaser.Scene {
       gg.fillStyle(0xfde68a, 1);
       for (const [x, y] of [[20, 70], [76, 76], [30, 96], [66, 98]]) gg.fillCircle(x, y, 2); // the four relic embers it wears
     });
+    // duelists: a white body tinted with their color, and an untinted head
+    make('npc_body', 16, 26, (gg) => {
+      gg.fillStyle(0xffffff, 1).fillRoundedRect(2, 0, 12, 16, 3);
+      gg.fillStyle(0xd4d4d8, 1).fillRect(3, 16, 4, 10).fillRect(9, 16, 4, 10);
+      gg.fillStyle(0x1f1b2d, 1).fillRect(3, 23, 4, 3).fillRect(9, 23, 4, 3);
+    });
+    make('npc_head', 14, 14, (gg) => {
+      gg.fillStyle(0xf1c7a3, 1).fillCircle(7, 7, 6);
+      gg.fillStyle(0x3f2a1d, 1).fillRect(1, 0, 12, 4);
+      gg.fillStyle(0x0c0a09, 1).fillCircle(5, 8, 1).fillCircle(9, 8, 1);
+    });
     make('fx_pog', 18, 18, (gg) => {
       gg.fillStyle(0xf9d64b, 1).fillCircle(9, 9, 9);
       gg.fillStyle(0xdc2626, 1).fillCircle(9, 9, 6);

@@ -4,6 +4,7 @@ import type { RelicId } from './realms';
 import type { HomesteadSave } from './homestead';
 import type { ExpeditionProgress } from './expeditions';
 import type { HeroSave } from './RealmHero';
+import type { DuelSpot } from './duels';
 
 /**
  * One saved world. The world itself is regenerated from `seed`; only the
@@ -31,6 +32,8 @@ export interface RealmSave {
   expeditions?: ExpeditionProgress;
   /** unbanked XP, spent revives and pog charges: must survive portal trips */
   hero?: HeroSave;
+  /** where each duelist stands, and whether you've seen them (overworld only) */
+  duelSpots?: Record<string, DuelSpot>;
   /** ms into the day/night cycle */
   clock: number;
   savedAt: string;

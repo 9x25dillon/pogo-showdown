@@ -18,6 +18,7 @@ import { GATE_H, GATE_W, TILE, generateWorld, type World } from '../realm/worldG
 import { RealmHomestead } from '../realm/RealmHomestead';
 import { RealmExpedition } from '../realm/RealmExpedition';
 import { RealmHeroMenu } from '../realm/RealmHeroMenu';
+import { RealmDuel } from '../realm/RealmDuel';
 import { BOSS_XP, ORE_XP, killXp } from '../realm/hero';
 import { RealmHero, realmActiveText } from '../realm/RealmHero';
 import { grantMilestone, loadHeroSnapshot, type HeroSnapshot } from '../realm/progression';
@@ -156,6 +157,8 @@ export class RealmScene extends Phaser.Scene {
 
   private hero!: RealmHero;
   private heroMenu?: RealmHeroMenu;
+  private duel?: RealmDuel;
+  private proMarks = new Map<string, Phaser.GameObjects.Rectangle>();
   private heroText!: Phaser.GameObjects.Text;
   private comboText!: Phaser.GameObjects.Text;
   private slots: Slot[] = [...HOTBAR];
@@ -337,6 +340,8 @@ export class RealmScene extends Phaser.Scene {
     this.expedition = undefined;
     this.foundryMapMark = undefined;
     this.heroMenu = undefined;
+    this.duel = undefined;
+    this.proMarks = new Map();
     this.slots = [...HOTBAR];
     this.projectiles = [];
     this.pound = null;
@@ -417,7 +422,7 @@ export class RealmScene extends Phaser.Scene {
         tile: (x, y) => this.tileAt(x, y),
         pack: () => this.inventory,
         player: () => this.player,
-        available: () => this.ready && !this.dead && !this.ending && !this.craftPanel?.visible && !this.expedition?.open && !this.heroMenu?.open,
+        available: () => this.ready && !this.dead && !this.ending && !this.craftPanel?.visible && !this.expedition?.open && !this.heroMenu?.open && !this.duel?.open,
         danger: () => this.enemies.some(e => e.hp > 0 && Phaser.Math.Distance.Between(e.sprite.x, e.sprite.y, this.player.x, this.player.y) < 160),
         changed: (crafted) => { if (crafted !== undefined) this.stats.placed++; if (crafted) this.stats.crafted++; this.lightScanTimer = 0; this.updateHud(); void this.save(); },
         claim: (at) => { this.spawnPoint = at ?? spawn; },
@@ -447,7 +452,7 @@ export class RealmScene extends Phaser.Scene {
       player: () => this.player,
       occupied: (x, y) => !!this.homestead?.protects(x, y, true),
       tile: (x, y) => this.tileAt(x, y), setTile: (x, y, id) => this.setTile(x, y, id),
-      available: () => this.ready && !this.dead && !this.ending && !this.craftPanel?.visible && !this.homestead?.open && !this.heroMenu?.open,
+      available: () => this.ready && !this.dead && !this.ending && !this.craftPanel?.visible && !this.homestead?.open && !this.heroMenu?.open && !this.duel?.open,
       pause: (open) => {
         this.pointerUse = false; this.mining = null;
         this.touch = { left: false, right: false, jump: false, attack: false };
@@ -491,10 +496,26 @@ export class RealmScene extends Phaser.Scene {
       hero: () => this.hero,
       pause: (open) => this.menuPause(open),
       switchBlocked: () => this.switchBlocked(),
-      reloaded: () => { this.updateHud(); void this.save(); },
+      reloaded: (switched) => { if (switched) this.duel?.refreshRoster(); this.updateHud(); void this.save(); },
       records: () => this.records(),
       gear: () => this.gearRows(),
     });
+
+    if (!this.pocket) {
+      this.duel = new RealmDuel(this, {
+        world: this.world,
+        player: () => this.player,
+        hero: () => this.hero,
+        pack: () => this.inventory,
+        day: () => Math.floor(this.clock / CYCLE_MS),
+        available: () => this.ready && !this.dead && !this.ending && !this.craftPanel?.visible && !this.homestead?.open && !this.expedition?.open && !this.heroMenu?.open,
+        pause: (open) => this.menuPause(open),
+        notify: (title, sub) => this.banner(title, sub),
+        grant: (item, count) => this.addItem(item, count, this.player),
+        reloadHero: async () => { this.hero.refresh(await loadHeroSnapshot()); },
+        save: () => { void this.save(); },
+      }, save?.duelSpots);
+    }
 
     this.buildPortalLabels();
     this.buildHud();
@@ -662,9 +683,10 @@ export class RealmScene extends Phaser.Scene {
       fontSize: '14px', fontFamily: font, fontStyle: 'bold', color: '#ffffff', backgroundColor: '#0b0714cc', padding: { x: 8, y: 4 },
     }).setOrigin(0.5).setVisible(false));
     this.promptText.setInteractive({ useHandCursor: true }).on('pointerdown', () => {
-      if (!this.ready || this.dead || this.homestead?.open || this.craftPanel?.visible || this.expedition?.open || this.heroMenu?.open) return;
+      if (!this.ready || this.dead || this.homestead?.open || this.craftPanel?.visible || this.expedition?.open || this.heroMenu?.open || this.duel?.open) return;
       const portal = this.portalHere();
       if (portal) void this.travel(portal);
+      else if (this.duel?.prompt()) this.duel.interact();
       else if (this.expedition?.prompt()) this.expedition.interact();
       else if (!this.homestead?.placing) this.homestead?.interact();
     });
@@ -708,6 +730,8 @@ export class RealmScene extends Phaser.Scene {
   private updateHud(): void {
     this.expeditionText?.setText(this.expedition?.objective() ?? '');
     if (this.foundryMapMark) this.foundryMapMark.setVisible(!!this.expedition?.progress.discovered && !!this.minimapDot?.visible);
+    const seen = new Set(this.duel?.seenPros() ?? []);
+    for (const [id, mark] of this.proMarks) mark.setVisible(!!this.minimapDot?.visible && seen.has(id));
     const home = this.homestead?.home;
     const dx = home ? (home.tx + 1.5) * TILE - this.player.x : 0;
     const dy = home ? (home.ty + 1) * TILE - this.player.y : 0;
@@ -818,7 +842,7 @@ export class RealmScene extends Phaser.Scene {
         if (this.endingReady) void this.travel('home');
         return;
       }
-      if (over.length > 0 || this.craftPanel?.visible || this.homestead?.open || this.expedition?.open || this.heroMenu?.open || this.dead || !this.ready) return;
+      if (over.length > 0 || this.craftPanel?.visible || this.homestead?.open || this.expedition?.open || this.heroMenu?.open || this.duel?.open || this.dead || !this.ready) return;
       this.lastMouseMove = this.time.now;
       if (pointer.rightButtonDown()) this.swing();
       else this.pointerUse = true;
@@ -839,7 +863,7 @@ export class RealmScene extends Phaser.Scene {
   }
 
   private toggleHeroMenu(): void {
-    if (!this.heroMenu?.open && (!this.ready || this.dead || this.homestead?.open || this.expedition?.open || this.craftPanel?.visible || this.ending)) return;
+    if (!this.heroMenu?.open && (!this.ready || this.dead || this.homestead?.open || this.expedition?.open || this.duel?.open || this.craftPanel?.visible || this.ending)) return;
     this.homestead?.cancelPlacement();
     this.heroMenu?.toggle();
   }
@@ -871,6 +895,7 @@ export class RealmScene extends Phaser.Scene {
       `⚔ ${s.slain} slain · 👑 ${s.bosses} bosses · ✝ ${s.deaths} deaths`,
       `Relics ${POCKET_ORDER.map((id) => (this.relics.has(id) ? RELICS[id].icon : '◌')).join(' ')}${this.champion ? ' · ✦ Forever Champion' : ''}`,
       `Buried Foundry · ${this.expedition?.progress.clears ?? 0} clears · ${this.expedition?.progress.cachesOpened ?? 0} caches`,
+      ...(this.duel?.recordLines() ?? []),
     ];
   }
 
@@ -895,7 +920,7 @@ export class RealmScene extends Phaser.Scene {
   }
 
   private toggleCraft(): void {
-    if (!this.ready || this.dead || this.homestead?.open || this.expedition?.open || this.ending) return;
+    if (!this.ready || this.dead || this.homestead?.open || this.expedition?.open || this.heroMenu?.open || this.duel?.open || this.ending) return;
     this.homestead?.cancelPlacement();
     if (!this.craftPanel) this.buildCraftPanel();
     const open = !this.craftPanel!.visible;
@@ -992,6 +1017,11 @@ export class RealmScene extends Phaser.Scene {
       else this.heroMenu.updateInput(pad.pressed, k);
       return;
     }
+    if (this.duel?.open) {
+      this.duel.update(dt);
+      this.duel.updateInput(pad.pressed, k);
+      return;
+    }
     if (pad.pressed.r3 || J(k.n)) { this.expedition?.toggleJournal(); return; }
     if (pad.pressed.l3 || J(k.i)) { this.toggleHeroMenu(); return; }
     if (this.homestead?.placing && (pad.pressed.b || J(k.esc))) { this.homestead.cancelPlacement(); return; }
@@ -1036,12 +1066,14 @@ export class RealmScene extends Phaser.Scene {
     // portals: stand in one and press down
     const portal = this.portalHere();
     const sealed = !portal && this.nearSealedGate();
-    const furniture = !portal && !sealed ? this.homestead?.nearby() : undefined;
+    const duelPrompt = !portal && !sealed ? this.duel?.prompt() : '';
+    const furniture = !portal && !sealed && !duelPrompt ? this.homestead?.nearby() : undefined;
     const expeditionPrompt = this.expedition?.prompt();
-    this.promptText.setVisible(!!portal || sealed || !!furniture || !!this.homestead?.placing || !!expeditionPrompt).setText(
+    this.promptText.setVisible(!!portal || sealed || !!duelPrompt || !!furniture || !!this.homestead?.placing || !!expeditionPrompt).setText(
       portal ? `▼ ${portal === 'home' ? 'return to the Overworld' : portal === 'forever' ? 'pass through the Forever Gate' : `enter the ${POCKETS[portal].name}`}`
       : sealed ? `the Forever Gate is sealed · ${this.relics.size}/${POCKET_ORDER.length} relics`
       : this.homestead?.placing ? this.homestead.placementHint()
+      : duelPrompt ? duelPrompt
       : expeditionPrompt ? expeditionPrompt
       : furniture ? `▼ / S / tap · ${ITEM_NAME[furniture.kind]}` : '',
     );
@@ -1049,6 +1081,7 @@ export class RealmScene extends Phaser.Scene {
       void this.travel(portal);
       return;
     }
+    if (duelPrompt && !this.homestead?.placing && (pad.pressed.down || J(k.down) || J(k.s))) { this.duel?.interact(); return; }
     if (furniture && !this.homestead?.placing && (pad.pressed.down || J(k.down) || J(k.s))) {
       this.homestead?.interact(); return;
     }
@@ -1101,6 +1134,7 @@ export class RealmScene extends Phaser.Scene {
     this.updateHazards();
     this.updateBossFight(dt);
     this.expedition?.update(dt);
+    this.duel?.update(dt);
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0) {
       this.spawnTimer = SPAWN_EVERY_MS;
@@ -2006,6 +2040,11 @@ export class RealmScene extends Phaser.Scene {
     for (const p of this.world.portals ?? []) mark(p.tx + 1, p.ty + 1, POCKETS[p.pocket].portalColor);
     if (this.world.foreverGate) mark(this.world.foreverGate.tx + 2, this.world.foreverGate.ty + 2, 0xfde68a);
     if (this.pocketWorld) mark((this.pocketWorld.arena.x0 + this.pocketWorld.arena.x1) / 2, this.pocketWorld.arena.floorY - 4, 0xe11d48);
+    for (const id of this.duel?.proIds() ?? []) {
+      const spot = this.duel!.spots[id];
+      this.proMarks.set(id, this.add.rectangle(box.x + ((spot.tx + 0.5) / w) * dw, box.y + (spot.ty / h) * dh, 4, 4, 0xfde68a)
+        .setScrollFactor(0).setDepth(60).setVisible(false));
+    }
     if (!this.pocket && this.expedition?.entrance) {
       const e = this.expedition.entrance;
       this.foundryMapMark = this.add.rectangle(box.x + ((e.tx + 1) / w) * dw, box.y + (e.ty / h) * dh, 5, 5, 0xfbbf24)
@@ -2121,6 +2160,7 @@ export class RealmScene extends Phaser.Scene {
       homestead: this.homestead?.data,
       expeditions: this.expedition?.progress,
       hero: this.hero?.save(),
+      duelSpots: this.duel?.spots,
     });
   }
 }
