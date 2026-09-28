@@ -158,7 +158,7 @@ export async function verifyPortalRealms({ execute, evaluate, waitFor, scene }) 
     const pw = s.pocketWorld; const mid = Math.floor((pw.arena.x0 + pw.arena.x1) / 2);
     await s.save();
     const { loadRealm } = await import('/src/game/realm/realmSave.ts'); const saved = await loadRealm();
-    return [!!s.boss, s.bossDefeated, s.relics.has('grave'), s.maxHp, s.count('dust') >= 10, s.tileAt(mid, pw.arena.floorY - 1) === T.PORTAL, s.gateTiles.length, saved.relics.includes('grave')];`),
+    return [!!s.boss, s.bossDefeated, s.relics.has('grave'), s.maxHp - s.hero.stats.maxHpBonus, s.count('dust') >= 10, s.tileAt(mid, pw.arena.floorY - 1) === T.PORTAL, s.gateTiles.length, saved.relics.includes('grave')];`),
     [false, true, true, 150, true, true, 0, true]);
   await step(0.2);
   assert.equal(await evaluate('window.__music.cue'), 'win');

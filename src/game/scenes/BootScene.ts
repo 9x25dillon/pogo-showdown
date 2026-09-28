@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { COLORS } from '../config';
+import { CHARACTERS } from '../data/characters';
 import { TILE_INFO, T } from '../realm/tiles';
 import { TILE } from '../realm/worldGen';
 
@@ -42,7 +43,7 @@ export class BootScene extends Phaser.Scene {
     this.makeBossTexture();
     this.makeGoalFlagTexture();
     this.makeShieldBurstTexture();
-    this.scene.start('ModeSelect');
+    this.scene.start('Title');
   }
 
   private makePlayerTexture(): void {
@@ -712,16 +713,18 @@ export class BootScene extends Phaser.Scene {
       gg.fillStyle(0xd4d4d8, 1).fillRect(4, 20, 4, 50);
     });
     // ---- Phase 3: the Chakan-styled hero, the Eternal Reaper, its soul bolts and tidal waves ----
-    make('realm_hero', 28, 46, (gg) => {
+    // one hero per highschooler: the same Chakan silhouette, their color on the hatband, sash and cloak lining
+    for (const c of CHARACTERS) make(`realm_hero_${c.id}`, 28, 46, (gg) => {
       gg.fillStyle(0x1e1b2e, 1).fillRect(0, 9, 28, 3); // hat brim
       gg.fillStyle(0x2a2540, 1).fillRoundedRect(7, 0, 14, 10, 3); // crown
-      gg.fillStyle(0x7f1d1d, 1).fillRect(7, 7, 14, 2); // hatband
+      gg.fillStyle(c.color, 1).fillRect(7, 7, 14, 2); // hatband
       gg.fillStyle(0xe7e5e4, 1).fillRoundedRect(8, 12, 12, 11, 4); // skull
       gg.fillStyle(0x0c0a09, 1).fillCircle(11, 16, 2).fillCircle(17, 16, 2).fillRect(12, 20, 4, 1);
       gg.fillStyle(0x6b7280, 1).lineStyle(2, 0x9ca3af, 1).lineBetween(2, 20, 11, 30).lineBetween(26, 20, 17, 30); // crossed blades on the back
       gg.fillStyle(0x1f1b2d, 1).fillTriangle(4, 44, 14, 22, 24, 44); // cloak
+      gg.fillStyle(c.color, 0.35).fillTriangle(8, 44, 14, 30, 20, 44); // lining
       gg.fillStyle(0x2e2a42, 1).fillRect(9, 23, 10, 16);
-      gg.fillStyle(0x991b1b, 1).fillRect(9, 31, 10, 2); // sash
+      gg.fillStyle(c.color, 1).fillRect(9, 31, 10, 2); // sash
       gg.fillStyle(0x0c0a09, 1).fillRect(9, 39, 4, 7).fillRect(15, 39, 4, 7);
     });
     make('boss_reaper', 96, 110, (gg) => {
@@ -735,6 +738,23 @@ export class BootScene extends Phaser.Scene {
       gg.fillStyle(0xd4d4d8, 1).fillTriangle(84, 6, 40, 0, 60, 14); // blade
       gg.fillStyle(0xfde68a, 1);
       for (const [x, y] of [[20, 70], [76, 76], [30, 96], [66, 98]]) gg.fillCircle(x, y, 2); // the four relic embers it wears
+    });
+    // duelists: a white body tinted with their color, and an untinted head
+    make('npc_body', 16, 26, (gg) => {
+      gg.fillStyle(0xffffff, 1).fillRoundedRect(2, 0, 12, 16, 3);
+      gg.fillStyle(0xd4d4d8, 1).fillRect(3, 16, 4, 10).fillRect(9, 16, 4, 10);
+      gg.fillStyle(0x1f1b2d, 1).fillRect(3, 23, 4, 3).fillRect(9, 23, 4, 3);
+    });
+    make('npc_head', 14, 14, (gg) => {
+      gg.fillStyle(0xf1c7a3, 1).fillCircle(7, 7, 6);
+      gg.fillStyle(0x3f2a1d, 1).fillRect(1, 0, 12, 4);
+      gg.fillStyle(0x0c0a09, 1).fillCircle(5, 8, 1).fillCircle(9, 8, 1);
+    });
+    make('fx_pog', 18, 18, (gg) => {
+      gg.fillStyle(0xf9d64b, 1).fillCircle(9, 9, 9);
+      gg.fillStyle(0xdc2626, 1).fillCircle(9, 9, 6);
+      gg.lineStyle(2, 0xffffff, 0.9).strokeCircle(9, 9, 8);
+      gg.fillStyle(0xffffff, 0.9).fillCircle(7, 7, 2);
     });
     make('fx_soul', 20, 20, (gg) => {
       gg.fillStyle(0xa78bfa, 0.45).fillCircle(10, 10, 10);

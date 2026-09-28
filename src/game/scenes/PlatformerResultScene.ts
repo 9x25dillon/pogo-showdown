@@ -1,11 +1,10 @@
 import Phaser from 'phaser';
 import { CHARACTERS } from '../data/characters';
 import { COLORS, REGISTRY_KEY_LAST_PLATFORMER_RESULT, REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, WIDTH } from '../config';
-import { LEVELS, nextSoloLevelIndex } from '../data/levels';
-import { describeActive } from '../data/pogs';
+import { LEVELS } from '../data/levels';
+import { realmActiveText } from '../realm/RealmHero';
 import type { PlatformerResult } from '../db/platformerResult';
 import { recordQuestRun, type QuestRunReward } from '../db/questRepository';
-import { masterySummary } from '../systems/characterMastery';
 import { attachPadMenu } from '../ui/padMenu';
 import { music } from '../systems/music';
 
@@ -45,8 +44,7 @@ export class PlatformerResultScene extends Phaser.Scene {
       won && level.bossLevel
         ? { title: 'BOSS DOWN!', color: '#4ade80', sub: level.coop ? 'teamwork makes the dream work' : 'the champion falls' }
         : OUTCOME_COPY[result.raceOutcome];
-    const next = won ? nextSoloLevelIndex(result.levelIndex) : undefined;
-    const toLevels = () => this.scene.start('PlatformerLevelSelect', { tab: level.coop ? 'coop' : 'solo' });
+    const toRealm = () => this.scene.start('Realm');
 
     this.add.text(WIDTH / 2, 96, character.emoji, { fontSize: '52px' }).setOrigin(0.5);
     this.add.text(WIDTH / 2, 148, level.name, { fontSize: '13px', fontFamily: FONT, color: '#6b6180' }).setOrigin(0.5);
@@ -75,7 +73,7 @@ export class PlatformerResultScene extends Phaser.Scene {
         recorded.set(stored, pending);
       }
       void pending.then(
-        (reward) => { if (rewardText.active) this.showReward(rewardText, reward, character.name, won); },
+        (reward) => { if (rewardText.active) this.showReward(rewardText, reward, won); },
         () => { if (rewardText.active) rewardText.setText(''); },
       );
     } else {
@@ -83,40 +81,27 @@ export class PlatformerResultScene extends Phaser.Scene {
     }
 
     const buttons: Phaser.GameObjects.Rectangle[] = [];
-    let y = 560;
-    if (next !== undefined) {
-      buttons.push(this.makeButton(y, `NEXT: ${LEVELS[next].name.toUpperCase()}`, 0x4ade80, '#0b2417', () => {
-        this.registry.set(REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, next);
-        this.scene.start('PlatformerRun');
-      }));
-      y += 68;
-    }
-    buttons.push(this.makeButton(y, 'RETRY', COLORS.accent, '#221a10', () => {
+    buttons.push(this.makeButton(600, 'BACK TO THE REALM', 0x8b5cf6, '#ffffff', toRealm));
+    buttons.push(this.makeButton(668, 'RETRY RIFT', COLORS.accent, '#221a10', () => {
       this.registry.set(REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, result.levelIndex);
       this.scene.start('PlatformerRun');
     }));
-    y += 68;
-    buttons.push(this.makeButton(y, 'LEVELS', 0x38bdf8, '#07202c', toLevels));
-    y += 68;
-    buttons.push(this.makeButton(y, 'MENU', 0x22c55e, '#ffffff', () => this.scene.start('ModeSelect')));
-    attachPadMenu(this, buttons, { onBack: toLevels });
+    attachPadMenu(this, buttons, { onBack: toRealm });
   }
 
-  private showReward(text: Phaser.GameObjects.Text, reward: QuestRunReward, characterName: string, won: boolean): void {
+  private showReward(text: Phaser.GameObjects.Text, reward: QuestRunReward, won: boolean): void {
     const lines: string[] = [];
     if (reward.firstClear) lines.push('⭐ FIRST CLEAR ⭐');
     else if (reward.newBestTime) lines.push(`⏱️ New best time!`);
     else if (won && reward.level.bestTimeSeconds !== null) lines.push(`best time ${reward.level.bestTimeSeconds.toFixed(1)}s`);
     if (reward.techPointsGranted > 0) lines.push(`⚙️ +${reward.techPointsGranted} Tech Point${reward.techPointsGranted > 1 ? 's' : ''}`);
     if (reward.rewardPog) {
-      const effect = reward.rewardPog.activeEffect ? ` · ${describeActive(reward.rewardPog.activeEffect)}` : '';
+      const effect = reward.rewardPog.activeEffect ? ` · ${realmActiveText(reward.rewardPog.activeEffect)}` : '';
       lines.push(`${reward.rewardPog.emoji} New pog: ${reward.rewardPog.name}${effect}`);
     }
-    lines.push(
-      reward.trainingEarned
-        ? `${characterName} · ${masterySummary(reward.mastery)}`
-        : `${characterName} · play 15s+ for training credit`,
-    );
+    if (reward.xp) lines.push(`✦ +${reward.xp} hero XP (banked)`);
+    if (reward.copper) lines.push(`🟠 ${reward.copper} copper ore sent to your realm pack`);
+    if (!won) lines.push('the rift stays open · try again any time');
     text.setText(lines.join('\n')).setColor(reward.firstClear ? '#f9d64b' : '#b7aed0');
     if (reward.firstClear) this.tweens.add({ targets: text, scale: { from: 0.85, to: 1 }, duration: 260, ease: 'Back.Out' });
   }

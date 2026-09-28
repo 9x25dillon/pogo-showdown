@@ -6,7 +6,7 @@
  *
  * Standard mapping (what Chrome/Firefox report for an Xbox pad):
  *   0 A · 1 B · 2 X · 3 Y · 4 LB · 5 RB · 6 LT · 7 RT · 8 View · 9 Menu
- *   12-15 D-pad up/down/left/right · axes 0/1 left stick
+ *   10 L3 · 11 R3 · 12-15 D-pad up/down/left/right · axes 0/1 left stick
  *
  * Browsers hide pads until a button is pressed while the page has focus.
  */
@@ -25,6 +25,7 @@ export interface PadButtons {
   rt: boolean;
   view: boolean;
   menu: boolean;
+  l3: boolean;
   r3: boolean;
 }
 
@@ -39,10 +40,10 @@ export interface PadFrame {
 }
 
 const STICK_DEADZONE = 0.4;
-const KEYS: (keyof PadButtons)[] = ['left', 'right', 'up', 'down', 'a', 'b', 'x', 'y', 'lb', 'rb', 'lt', 'rt', 'view', 'menu', 'r3'];
+const KEYS: (keyof PadButtons)[] = ['left', 'right', 'up', 'down', 'a', 'b', 'x', 'y', 'lb', 'rb', 'lt', 'rt', 'view', 'menu', 'l3', 'r3'];
 
 export function emptyButtons(): PadButtons {
-  return { left: false, right: false, up: false, down: false, a: false, b: false, x: false, y: false, lb: false, rb: false, lt: false, rt: false, view: false, menu: false, r3: false };
+  return { left: false, right: false, up: false, down: false, a: false, b: false, x: false, y: false, lb: false, rb: false, lt: false, rt: false, view: false, menu: false, l3: false, r3: false };
 }
 
 function button(pad: Gamepad, i: number): boolean {
@@ -68,6 +69,7 @@ function toButtons(pad: Gamepad): PadButtons {
     rt: button(pad, 7),
     view: button(pad, 8),
     menu: button(pad, 9),
+    l3: button(pad, 10),
     r3: button(pad, 11),
   };
 }

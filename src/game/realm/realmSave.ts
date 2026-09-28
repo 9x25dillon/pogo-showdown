@@ -3,6 +3,9 @@ import type { ItemId } from './items';
 import type { RelicId } from './realms';
 import type { HomesteadSave } from './homestead';
 import type { ExpeditionProgress } from './expeditions';
+import type { HeroSave } from './RealmHero';
+import type { DuelSpot } from './duels';
+import type { RiftSpot } from './rifts';
 
 /**
  * One saved world. The world itself is regenerated from `seed`; only the
@@ -18,6 +21,10 @@ export interface RealmSave {
   inventory: Partial<Record<ItemId, number>>;
   sword: number;
   pickaxe: number;
+  /** crafted yoyo tier, 0 = none (optional: older saves have none) */
+  yoyo?: number;
+  /** crafted the pogo stick */
+  pogo?: boolean;
   /** boss relics won in the portal realms (optional: saves from before Phase 2 have none) */
   relics?: RelicId[];
   /** beat the Eternal Reaper behind the Forever Gate */
@@ -28,6 +35,14 @@ export interface RealmSave {
   /** Optional so worlds created before homesteads still load. Overworld only. */
   homestead?: HomesteadSave;
   expeditions?: ExpeditionProgress;
+  /** unbanked XP, spent revives and pog charges: must survive portal trips */
+  hero?: HeroSave;
+  /** where each duelist stands, and whether you've seen them (overworld only) */
+  duelSpots?: Record<string, DuelSpot>;
+  /** the Circuit Arena's overworld gate */
+  arenaGate?: { tx: number; ty: number };
+  /** where each Pog Quest rift stands, by LEVELS index */
+  riftSpots?: RiftSpot[];
   /** ms into the day/night cycle */
   clock: number;
   savedAt: string;

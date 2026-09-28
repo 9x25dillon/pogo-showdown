@@ -35,7 +35,7 @@ export async function verifyForeverGate({ execute, evaluate, waitFor, scene }) {
     let gateTiles = 0; for (let dx = 0; dx < 4; dx++) for (let dy = 0; dy < 5; dy++) if (s.tileAt(g.tx + dx, g.ty + dy) === T.GATE) gateTiles++;
     s.player.body.reset((g.tx - 1) * 16, (g.ty + 5) * 16);
     return [gateTiles, window.__solid(T.GATE), s.player.texture.key, Math.round(s.player.body.width), Math.round(s.player.body.height)];`),
-    [20, true, 'realm_hero', 16, 40]);
+    [20, true, 'realm_hero_cleo', 16, 40]);
   await step(0.2);
   const why = await evaluate(`JSON.stringify({ x: ${r}.player.x, y: ${r}.player.y, gate: ${r}.world.foreverGate, ready: ${r}.ready, dead: ${r}.dead, craft: !!${r}.craftPanel?.visible })`);
   assert.deepEqual(await evaluate(`[${r}.promptText.text, ${r}.portalHere()]`), ['the Forever Gate is sealed · 0/4 relics', null], why);

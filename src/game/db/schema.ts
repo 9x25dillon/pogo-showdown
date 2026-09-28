@@ -62,8 +62,31 @@ export interface PlayerProfile {
   trickLabBest?: number;
   /** Pog Quest progress keyed by LevelDef.id - optional so older saves still load */
   quest?: Record<string, QuestLevelProgress>;
+  /** Forever Realm account progress (see realm/progression.ts) - optional so older profiles load */
+  realm?: Partial<RealmMeta>;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface DuelRecord {
+  wins: number;
+  losses: number;
+  /** realm day (clock / cycle) of the last paid win: one payout per duelist per day */
+  lastWinDay?: number;
+}
+
+export interface DashRecord {
+  best: number;
+  /** 0 none · 1 bronze · 2 silver · 3 gold */
+  medal: number;
+}
+
+export interface RealmMeta {
+  /** one-time Tech Point sources already paid out */
+  milestones: string[];
+  duels: Record<string, DuelRecord>;
+  dash: Record<string, DashRecord>;
+  arena: { beaten: string[]; bestScores: Record<string, number> };
 }
 
 export interface QuestLevelProgress {
@@ -71,31 +94,4 @@ export interface QuestLevelProgress {
   clears: number;
   bestTimeSeconds: number | null;
   bestCoins: number;
-}
-
-export interface StandingsRow {
-  /** competitorId: a circuit pro id, or 'me' */
-  id: string;
-  wins: number;
-  losses: number;
-  points: number;
-  streak: number;
-}
-
-export interface MatchLogEntry {
-  id: string;
-  date: string;
-  a: string;
-  b: string;
-  scoreA: number;
-  scoreB: number;
-  winnerId: string;
-  forfeit?: boolean;
-}
-
-export interface SeasonState {
-  id: 'season';
-  /** last ISO date the background circuit was simulated through (inclusive) */
-  lastSimulatedDate: string | null;
-  seasonNumber: number;
 }

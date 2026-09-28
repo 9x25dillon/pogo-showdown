@@ -3,25 +3,29 @@ import { LEVELS, type LevelDef } from '../data/levels';
 import { pogDef, type PogDef } from '../data/pogs';
 import { progressFor, TRAINING_SECONDS, type CharacterProgress } from '../systems/characterMastery';
 import { dbPut } from './LocalDB';
-import { grantQuestClearBonus } from './loadoutRepository';
+import { bankXp, grantMilestone } from '../realm/progression';
+import { loadRealm, saveRealm } from '../realm/realmSave';
 import type { PlatformerResult } from './platformerResult';
 import { grantPog } from './pogRepository';
 import { getProfile } from './repository';
 import type { PlayerProfile, QuestLevelProgress } from './schema';
 
 /**
- * How Pog Quest feeds the wider economy:
- *   - any attempt of TRAINING_SECONDS or longer counts as a training run
- *     for the character (the same rule Pogo Dash uses), which is what
- *     character mastery and the Circuit Advantage read
- *   - the first clear of each level grants +1 Tech Point and that
- *     level's reward pog
- * It never touches career tier, careerBestScore, totalRuns or the
- * Circuit match: those are Pogo Dash score-shaped and stay that way.
+ * Pog Quest levels are rifts in the Forever Realm. A run pays out into it:
+ *   - every clear banks hero XP straight away (a rift is a safe room: no
+ *     unbanked risk) and turns coins into copper ore in your realm pack
+ *   - the first clear of each level is a Tech Point milestone and grants
+ *     that level's reward pog
  */
+export const QUEST_FIRST_CLEAR_XP = 150;
+export const QUEST_XP_PER_LEVEL = 15;
+export const QUEST_REPEAT_XP = 30;
+export const COINS_PER_COPPER = 5;
 export interface QuestRunReward {
   firstClear: boolean;
   newBestTime: boolean;
+  xp: number;
+  copper: number;
   trainingEarned: boolean;
   techPointsGranted: number;
   rewardPog: PogDef | null;
@@ -83,8 +87,16 @@ export async function recordQuestRun(result: PlatformerResult): Promise<QuestRun
 
   let techPointsGranted = 0;
   let rewardPog: PogDef | null = null;
+  const xp = won ? (firstClear ? QUEST_FIRST_CLEAR_XP + result.levelIndex * QUEST_XP_PER_LEVEL : QUEST_REPEAT_XP) : 0;
+  if (xp) await bankXp(characterId, xp);
+  const copper = won ? Math.floor(result.coins / COINS_PER_COPPER) : 0;
+  const realm = copper ? await loadRealm() : undefined;
+  if (realm) {
+    const { id: _id, version: _v, savedAt: _at, ...rest } = realm;
+    await saveRealm({ ...rest, inventory: { ...rest.inventory, copper: (rest.inventory.copper ?? 0) + copper } });
+  }
   if (firstClear) {
-    if (await grantQuestClearBonus()) techPointsGranted += 1;
+    if (await grantMilestone(`quest:${level.id}`)) techPointsGranted += 1;
     const def = level.rewardPogId ? pogDef(level.rewardPogId) : undefined;
     if (def) {
       await grantPog(def.id, `quest:${level.id}`);
@@ -92,5 +104,5 @@ export async function recordQuestRun(result: PlatformerResult): Promise<QuestRun
     }
   }
 
-  return { firstClear, newBestTime, trainingEarned, techPointsGranted, rewardPog, mastery, level: progress };
+  return { firstClear, newBestTime, xp, copper: realm ? copper : 0, trainingEarned, techPointsGranted, rewardPog, mastery, level: progress };
 }

@@ -48,7 +48,7 @@ Signed release APK + AAB were built and the APK verified on a Pixel (clean insta
 ## What's already set for Play
 
 - `applicationId` `com.pogoshowdown.app`, targetSdk 36 (meets the 2026 target-API floor), minSdk 24.
-- Portrait-locked activity, dark splash matching the game background.
+- Landscape activity (`sensorLandscape`, since v0.5.0: the Forever Realm is the whole game and is 960×540; the portrait title screen and Pog Quest rifts pillarbox). Dark splash matching the game background.
 - Adaptive launcher icon (vector) in `res/drawable-v24/ic_launcher_foreground.xml`; background colour
   in `res/values/ic_launcher_background.xml`. Note: the Capacitor template put its robot icon in
   `drawable-v24`, which outranks `drawable/` — edit the v24 file.

@@ -66,7 +66,7 @@ export interface Recipe {
   id: string;
   name: string;
   cost: Partial<Record<ItemId, number>>;
-  gives: { item: ItemId; count: number } | { sword: number } | { pickaxe: number };
+  gives: { item: ItemId; count: number } | { sword: number } | { pickaxe: number } | { yoyo: number } | { pogo: true };
 }
 
 /** alchemy (Chakan) and smithing (Terraria) on one bench */
@@ -82,4 +82,11 @@ export const RECIPES: Recipe[] = [
   { id: 'gills', name: 'Gillweed Draught ×2', cost: { herb: 2, gel: 1 }, gives: { item: 'gills', count: 2 } },
   { id: 'gale', name: 'Gale Draught ×2', cost: { herb: 1, ecto: 1, wood: 1 }, gives: { item: 'gale', count: 2 } },
   { id: 'tonic', name: 'Strength Tonic', cost: { herb: 2, bone: 2 }, gives: { item: 'tonic', count: 1 } },
+  // Pogo Dash's stick: a mount (see RealmScene riding) and the way to Dash Trial gold
+  { id: 'pogo', name: 'Pogo Stick', cost: { wood: 10, copper: 6, gel: 4 }, gives: { pogo: true } },
+  // the Yoyo Trick Lab's four yoyos (see yoyo.ts): each tier lands longer tricks
+  { id: 'yoyo1', name: 'Wooden Yoyo', cost: { wood: 6, gel: 2 }, gives: { yoyo: 1 } },
+  { id: 'yoyo2', name: 'Butterfly Yoyo', cost: { copper: 8, gel: 4 }, gives: { yoyo: 2 } },
+  { id: 'yoyo3', name: 'Ball-Bearing Yoyo', cost: { iron: 10, bone: 3 }, gives: { yoyo: 3 } },
+  { id: 'yoyo4', name: 'Signature Yoyo', cost: { soulstone: 8, feather: 3, pearl: 3 }, gives: { yoyo: 4 } },
 ];
