@@ -130,6 +130,8 @@ export class RealmScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite;
   private ctrl: ControllerState = createControllerState();
   private ready = false;
+  /** saved and leaving for another world or a rift */
+  private handedOff = false;
   private dead = false;
   private deathTimer = 0;
 
@@ -280,8 +282,10 @@ export class RealmScene extends Phaser.Scene {
     this.sys.settings.data = {};
     this.scale.setGameSize(RW, RH);
     this.cameras.main.setSize(RW, RH);
+    this.handedOff = false;
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      void this.save();
+      // travel() and enterRift() already saved: a second, late write could clobber what the next scene saves (rift copper)
+      if (!this.handedOff) void this.save();
       this.scale.setGameSize(WIDTH, HEIGHT);
     });
     // the camera outlives restarts: clear travel()'s fade-out, or every portal trip ends on a black screen
@@ -962,7 +966,7 @@ export class RealmScene extends Phaser.Scene {
       a: K.A, d: K.D, w: K.W, space: K.SPACE, j: K.J, k: K.K, e: K.E, q: K.Q, esc: K.ESC,
       up: K.UP, down: K.DOWN, left: K.LEFT, right: K.RIGHT,
       one: K.ONE, two: K.TWO, three: K.THREE, four: K.FOUR, five: K.FIVE, six: K.SIX,
-      seven: K.SEVEN, eight: K.EIGHT, nine: K.NINE, zero: K.ZERO, s: K.S, tab: K.TAB, h: K.H, n: K.N, i: K.I, x: K.X,
+      seven: K.SEVEN, eight: K.EIGHT, nine: K.NINE, zero: K.ZERO, s: K.S, tab: K.TAB, h: K.H, n: K.N, i: K.I,
     }) as Record<string, Phaser.Input.Keyboard.Key>;
     this.input.mouse?.disableContextMenu();
     this.input.on('pointermove', () => { this.lastMouseMove = this.time.now; });
@@ -1090,6 +1094,7 @@ export class RealmScene extends Phaser.Scene {
     this.ready = false;
     this.menuPause(false);
     await this.save();
+    this.handedOff = true;
     this.registry.set(REGISTRY_KEY_CHARACTER, this.hero.character.id);
     this.registry.set(REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, index);
     this.cameras.main.fadeOut(250, 0, 0, 0);
@@ -1440,7 +1445,7 @@ export class RealmScene extends Phaser.Scene {
       this.trySpawn();
     }
 
-    if (this.pocket) music.play(this.boss ? 'danger' : this.bossDefeated ? 'win' : 'explore');
+    if (this.pocket) music.play(this.boss || this.arena?.bout ? 'danger' : this.bossDefeated ? 'win' : 'explore');
     else music.play(nightFactor(this.clock) > 0.5 && this.depthTiles() < 12 ? 'danger' : 'explore');
     this.updateHud();
     this.autosaveTimer += dt;
@@ -1562,6 +1567,7 @@ export class RealmScene extends Phaser.Scene {
     this.ready = false; // freeze input while we save and swap worlds
     this.hero.refillCharges();
     await this.save();
+    this.handedOff = true;
     this.cameras.main.fadeOut(250, 0, 0, 0);
     this.time.delayedCall(260, () => this.scene.restart(to === 'home' ? {} : { pocket: to }));
   }

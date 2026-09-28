@@ -35,7 +35,7 @@ export async function verifyHomestead({ execute, evaluate, waitFor, scene, key, 
     await key(72, 'h');
     assert.equal(await evaluate(`${r}.homestead.placing`), false);
     await key(69, 'e');
-    await tap(480, 84); // the existing crafting panel must also hit-test after camera scrolling
+    await tap(258, 90); // the crafting panel (torches: first row, left column) must also hit-test after camera scrolling
     assert.deepEqual(await evaluate(`[${r}.count('torch'),${r}.count('wood'),${r}.count('gel')]`), [4,99,19]);
     await key(69, 'e');
     await execute(`${r}.inventory={wood:100,stone:100,copper:20,gel:20,potion:4};`);

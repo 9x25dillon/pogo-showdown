@@ -11,6 +11,7 @@ import type { PogPerks } from '../data/pogs';
  *   level 1-20        +3 max HP and +1.5% damage per level (+57 HP, +28.5% at 20)
  *   mastery tier 0-4  one tier per 5 levels; scales the character perk by 1 + 0.25·tier
  *   style combo       +5% damage per chained hit, cap 30% (+ perks), resets when hit
+ *   crits             ×1.75, only from your build: Jo of Arc and trick-bonus pogs
  *   guard pips        absorb a whole hit; one pip recharges every 20s out of combat
  *   revives           get back up where you fell at half HP; refilled by sleeping
  *   unbanked XP       XP counts once you rest at home or win a realm; dying loses half
@@ -49,7 +50,7 @@ export interface HeroStats {
 
 export function baseStats(): HeroStats {
   return {
-    maxHpBonus: 0, damageMult: 1, moveMult: 1, jumpMult: 1, critChance: 0.05, guardPips: 0,
+    maxHpBonus: 0, damageMult: 1, moveMult: 1, jumpMult: 1, critChance: 0, guardPips: 0,
     guardRechargeMs: BASE_GUARD_RECHARGE_MS, guardKeepsCombo: false, regenMult: 1, lootLuck: 0,
     comboCap: BASE_COMBO_CAP, comboDecayMs: BASE_COMBO_DECAY_MS, revives: 0, invulnMult: 1, trickWindowMult: 1,
   };

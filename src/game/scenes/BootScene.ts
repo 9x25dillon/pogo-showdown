@@ -714,7 +714,7 @@ export class BootScene extends Phaser.Scene {
     });
     // ---- Phase 3: the Chakan-styled hero, the Eternal Reaper, its soul bolts and tidal waves ----
     // one hero per highschooler: the same Chakan silhouette, their color on the hatband, sash and cloak lining
-    for (const c of [{ id: '', color: 0x991b1b }, ...CHARACTERS]) make(c.id ? `realm_hero_${c.id}` : 'realm_hero', 28, 46, (gg) => {
+    for (const c of CHARACTERS) make(`realm_hero_${c.id}`, 28, 46, (gg) => {
       gg.fillStyle(0x1e1b2e, 1).fillRect(0, 9, 28, 3); // hat brim
       gg.fillStyle(0x2a2540, 1).fillRoundedRect(7, 0, 14, 10, 3); // crown
       gg.fillStyle(c.color, 1).fillRect(7, 7, 14, 2); // hatband

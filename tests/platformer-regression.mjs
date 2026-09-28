@@ -104,15 +104,11 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
   assert.equal(await evaluate(`${s}.elapsed < 1`), true);
   await execute(`${s}.pauseRun();`);
   await waitFor('window.__game.scene.isActive("PlatformerPause")');
+  // LEAVE RIFT returns to the Forever Realm
   await execute(`window.__game.scene.getScene('PlatformerPause').children.list.find(o => o.type === 'Rectangle' && o.y === 500).emit('pointerdown');`);
-  await waitFor('window.__game.scene.isActive("ModeSelect")');
+  await waitFor('window.__game.scene.getScene("Realm").ready');
   assert.equal(await evaluate("window.__game.scene.isPaused('PlatformerRun') || window.__game.scene.isActive('PlatformerRun')"), false);
-
-  // Level select gates on the previous solo clear.
-  await start('PlatformerLevelSelect');
-  await waitFor(textExists('PlatformerLevelSelect', 'Tech Park Tangle'));
-  assert.equal(await evaluate(textExists('PlatformerLevelSelect', 'reward: 🚩 Flagpole Pog')), true);
-  assert.equal(await evaluate(textExists('PlatformerLevelSelect', '🔒')), true);
+  assert.deepEqual(await evaluate('[window.__game.scale.width, window.__game.scale.height]'), [960, 540]);
 
   await enter(1);
   assert.deepEqual(await execute(`const s = ${s};
@@ -121,11 +117,12 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
   await execute(`const s = ${s}; s.player.setPosition(s.level.goalX, s.level.goalY);
     s.player.body.updateFromGameObject();`);
   await waitFor('window.__game.scene.isActive("PlatformerResult")');
-  assert.equal(await evaluate(textExists('PlatformerResult', 'NEXT: TECH PARK TANGLE')), true);
+  assert.equal(await evaluate(textExists('PlatformerResult', 'BACK TO THE REALM')), true);
   assert.equal(await evaluate("window.__game.registry.get('lastPlatformerResult').raceOutcome"), 'playerWon');
-  // First clear pays out once: a Tech Point and the level's pog.
+  // First clear pays out once: a Tech Point, the level's pog and banked hero XP.
   await waitFor(textExists('PlatformerResult', 'FIRST CLEAR'));
   assert.equal(await evaluate(textExists('PlatformerResult', 'Sprint Spike')), true);
+  assert.equal(await evaluate(textExists('PlatformerResult', '+165 hero XP (banked)')), true);
   assert.deepEqual(await execute(`const { getProfile } = await import('/src/game/db/repository.ts');
     const { getCollection } = await import('/src/game/db/pogRepository.ts');
     const { isLevelUnlocked, recordQuestRun } = await import('/src/game/db/questRepository.ts');
@@ -198,7 +195,7 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
   await execute(`const s = ${s}; s.damageEnemy(s.enemies.find(e => e.def.id === 'boss'));`);
   await waitFor('window.__game.scene.isActive("PlatformerResult")');
   assert.equal(await evaluate(textExists('PlatformerResult', 'BOSS DOWN')), true);
-  assert.equal(await evaluate(textExists('PlatformerResult', 'NEXT: ROOFTOP RELAY')), true);
+  assert.equal(await evaluate(textExists('PlatformerResult', 'RETRY RIFT')), true);
 
   // Spring pads launch you (running onto one counts), and the launch ignores jump-cut.
   await enter(4);
@@ -245,7 +242,7 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
   await execute(`const s = ${s}; const e = ${sl}; e.bossPhase = 'stunned'; s.damageEnemy(e);`);
   await waitFor('window.__game.scene.isActive("PlatformerResult")');
   assert.equal(await evaluate(textExists('PlatformerResult', 'BOSS DOWN')), true);
-  assert.equal(await evaluate(textExists('PlatformerResult', 'NEXT: MIDNIGHT MANSION')), true);
+  assert.equal(await evaluate(textExists('PlatformerResult', 'BACK TO THE REALM')), true); // the next rift is out in the world, not a NEXT button
 
   // Midnight Mansion's new enemies: chasers charge within range, ghosts are untouchable while faded,
   // droppers flash then bomb a hero underneath.
@@ -298,7 +295,7 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
   await execute(`const s = ${s}; const e = ${cd}; e.health = 1; e.bossPhase = 'perched'; s.damageEnemy(e);`);
   await waitFor('window.__game.scene.isActive("PlatformerResult")');
   assert.equal(await evaluate(textExists('PlatformerResult', 'BOSS DOWN')), true);
-  assert.equal(await evaluate(textExists('PlatformerResult', 'NEXT: SKY GARDEN')), true);
+  assert.equal(await evaluate(textExists('PlatformerResult', 'BACK TO THE REALM')), true); // the next rift is out in the world, not a NEXT button
 
   // Power-up pickups (Sky Garden): each one through a real overlap, then its effect.
   await enter(9);
@@ -363,14 +360,7 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
   await execute(`const s = ${s}; s.damageEnemy(s.enemies.find(e => e.def.id === 'conductor'), 5);`);
   await waitFor('window.__game.scene.isActive("PlatformerResult")');
   assert.equal(await evaluate(textExists('PlatformerResult', 'BOSS DOWN')), true);
-  assert.equal(await evaluate(textExists('PlatformerResult', 'NEXT')), false); // only co-op levels remain: never routes a solo player there
-
-  // Level select tabs: co-op levels live on their own tab.
-  await start('PlatformerLevelSelect');
-  await waitFor(textExists('PlatformerLevelSelect', "Champion's Gauntlet"));
-  assert.equal(await evaluate(textExists('PlatformerLevelSelect', 'Co-op Circuit')), false);
-  await execute(`window.__game.scene.getScene('PlatformerLevelSelect').switchTab();`);
-  await waitFor(textExists('PlatformerLevelSelect', 'Co-op Storm'));
+  assert.equal(await evaluate(textExists('PlatformerResult', 'NEXT')), false); // results never route anywhere but back to the Realm
 
   await enter(12);
   assert.deepEqual(await execute(`const s = ${s}; s.physics.pause(); s.shields = 0;
@@ -409,7 +399,7 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
     s.checkCheckpointsAndGaps();`);
   await waitFor('window.__game.scene.isActive("PlatformerResult")');
   assert.equal(await evaluate("window.__game.registry.get('lastPlatformerResult').raceOutcome"), 'fell');
-  await waitFor(textExists('PlatformerResult', 'training credit'));
+  await waitFor(textExists('PlatformerResult', 'the rift stays open'));
   assert.equal(await execute(`const { getProfile } = await import('/src/game/db/repository.ts');
     const p = await getProfile(); return p.quest.level4.attempts === 1 && p.quest.level4.clears === 0;`), true);
 
@@ -479,21 +469,13 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
   assert.deepEqual(await execute(`const [a, b] = ${s}.heroes; return [b.input.padRight, a.input.padRight, b.padIndex, a.padIndex];`), [true, false, 1, 0]);
   await execute(`window.__pads[1].axes[0] = 0; window.__pads.pop();`);
 
-  // menus: from the main menu, A opens Pog Quest (focused by default); A on the level list starts
-  // the first uncleared solo level; B backs out of the results screen to the level list.
-  await start('ModeSelect');
-  await waitFor(`window.__game.scene.getScene('ModeSelect').children.list.some(o => o.type === 'Rectangle' && o.depth === 60 && o.visible)`);
-  await tapReal(0, 0);
-  await waitFor("window.__game.scene.isActive('PlatformerLevelSelect')");
-  await waitFor(textExists('PlatformerLevelSelect', 'Xbox controller'));
-  await tapReal(0, 0);
-  await waitFor(`window.__game.scene.isActive('PlatformerRun') && ${s}.ready`);
-  assert.equal(await evaluate(`${s}.levelIndex`), 0);
+  // menus: A on the results screen focuses BACK TO THE REALM; B also backs out to the Realm
+  await enter(0);
   await execute(`${s}.endLevel('fell');`);
   await waitFor("window.__game.scene.isActive('PlatformerResult')");
   await tapReal(0, 1);
-  await waitFor("window.__game.scene.isActive('PlatformerLevelSelect')");
+  await waitFor("window.__game.scene.getScene('Realm').ready");
   await execute(`window.__pads = [];`);
   await simulate(0.1);
-  console.log('PASS: Pog Quest rival finishes all 8 races at 60fps, power-ups star/feather/rocket/heart/shield, spike strips, boss rush, level select tabs, springs, Summit Slammer, chaser/ghost/dropper, Storm Conductor hover/bolts/dive/perch/spring stomp, Xbox controller gameplay/pause/menus/co-op pads/rumble, pit respawn, movement/jump, pause/resume/retry/menu, rival stomp, scene restarts, level select gating, gap reach, first-clear rewards, hopper/spiker/turret, freeze/swap/double jump/magnet/ground pound, boss phases/victory, solo progression, co-op controls/touch split/items/camera leash/respawn/lives, coin collection, gap defeat.');
+  console.log('PASS: Pog Quest rival finishes all 8 races at 60fps, power-ups star/feather/rocket/heart/shield, spike strips, boss rush, level select tabs, springs, Summit Slammer, chaser/ghost/dropper, Storm Conductor hover/bolts/dive/perch/spring stomp, Xbox controller gameplay/pause/menus/co-op pads/rumble, pit respawn, movement/jump, pause/resume/retry/leave rift, rival stomp, scene restarts, rift return to the Realm, gap reach, first-clear rewards, hopper/spiker/turret, freeze/swap/double jump/magnet/ground pound, boss phases/victory, solo progression, co-op controls/touch split/items/camera leash/respawn/lives, coin collection, gap defeat.');
 }

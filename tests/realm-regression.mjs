@@ -30,10 +30,19 @@ export async function verifyRealm({ execute, evaluate, waitFor, start, scene }) 
     return [same, differs, a.w, a.h, bottom, spawnClear, soul > 0, soulShallow, copper > 100];`),
     [true, true, 640, 200, true, true, true, 0, true]);
 
+  // These suites predate heroes: play a level-1 Cleo with nothing on the footpeg, so blade and
+  // HP numbers are the Realm's own (hero stats have their own suite, realm-unified-regression).
+  await execute(`const { dbPut } = await import('/src/game/db/LocalDB.ts');
+    const { getProfile } = await import('/src/game/db/repository.ts'); const { getCollection } = await import('/src/game/db/pogRepository.ts');
+    const p = await getProfile(); p.lastCharacterId = 'cleo'; p.characters = { ...p.characters, cleo: { runs: 0, trainingRuns: 0, bestScore: 0, xp: 0 } };
+    await dbPut('profile', p);
+    for (const pog of await getCollection()) if (pog.equipped) await dbPut('pogs', { ...pog, equipped: false });`);
   await execute(`window.__game.registry.set('selectedCharacterId', 'cleo');
-    for (const s of window.__game.scene.getScenes(true)) s.scene.stop(); window.__game.scene.start('Realm', { newWorld: true });`);
+    if (window.__game.scene.isActive('Realm')) window.__game.scene.getScene('Realm').scene.restart({ newWorld: true });
+    else { for (const s of window.__game.scene.getScenes(true)) s.scene.stop(); window.__game.scene.start('Realm', { newWorld: true }); }`);
   await waitFor(`${r}.ready`);
-  assert.deepEqual(await evaluate(`[window.__game.scale.width, window.__game.scale.height, window.__music.cue]`), [960, 540, 'explore']);
+  await execute(`${r}.hero.stats.critChance = 0;`);
+  assert.deepEqual(await evaluate(`[window.__game.scale.width, window.__game.scale.height, window.__music.cue, ${r}.hero.character.id, ${r}.maxHp]`), [960, 540, 'explore', 'cleo', 100]);
   await step(1);
   assert.equal(await evaluate(`${r}.player.body.blocked.down`), true);
 
@@ -140,14 +149,14 @@ export async function verifyRealm({ execute, evaluate, waitFor, start, scene }) 
   assert.deepEqual(await execute(`const s = ${r}; return { seed: s.world.seed, tile: s.tileAt(${before.tx}, ${before.ty}), pick: s.pickaxe, sword: s.sword, potion: s.count('potion') };`),
     { seed: before.seed, tile: 4, pick: before.pick, sword: before.sword, potion: before.potion });
 
-  // pause -> save & quit restores the portrait game for every other mode
+  // pause -> save & quit restores the portrait title screen
   await execute(`${r}.pauseRealm();`);
   await waitFor(`window.__game.scene.isActive('PlatformerPause')`);
   assert.deepEqual(await evaluate(`[window.__game.scene.getScene('PlatformerPause').children.list.filter(o => o.type === 'Text').map(t => t.text).join('|')]`),
     ['PAUSED|RESUME|NEW WORLD|SAVE & QUIT']);
   await execute(`window.__game.scene.getScene('PlatformerPause').children.list.find(o => o.type === 'Rectangle' && o.y === 270 + 73).emit('pointerdown');`);
-  await waitFor(`window.__game.scene.isActive('ModeSelect')`);
-  assert.deepEqual(await evaluate(`[window.__game.scale.width, window.__game.scale.height, window.__game.scene.getScene('ModeSelect').cameras.main.width, window.__music.cue]`),
+  await waitFor(`window.__game.scene.isActive('Title')`);
+  assert.deepEqual(await evaluate(`[window.__game.scale.width, window.__game.scale.height, window.__game.scene.getScene('Title').cameras.main.width, window.__music.cue]`),
     [480, 854, 480, 'menu']);
 
   // soundtrack cues elsewhere: Pog Quest levels explore, bosses danger, results win/loss
