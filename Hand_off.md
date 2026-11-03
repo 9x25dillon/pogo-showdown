@@ -1,4 +1,44 @@
-# Pogo Showdown — session handoff
+# Eternity High (formerly Pogo Showdown): session handoff
+
+Updated November 2, 2026, at v0.6.0.
+
+## Start here
+
+1. This work was built in the worktree `~/pogo-v06` on branch `v0.6-phone`, branched from `master`.
+2. All story, characters and art here are original (see `docs/story.md`).
+3. Tests: run `npx vite --port 5199`, start Chromium with `--remote-debugging-port=9444`, then `POGO_URL=http://localhost:5199 CDP_URL=http://127.0.0.1:9444 node tests/browser-regression.mjs`. `POGO_SUITE=story` or `touch` runs just the new suites. The story and touch suites run last because they spend the profile the others expect to be fresh.
+4. **Next task:** a human plays Story Mode through on a phone. No human has played 0.6 yet.
+
+## What 0.6 added
+
+| Thing | Where |
+|---|---|
+| Story Mode rules and script | `realm/story.ts`, run by `realm/RealmStory.ts`, shown by `realm/RealmDialogue.ts` |
+| Item builds | `realm/gear.ts`, BUILD tab in `realm/RealmHeroMenu.ts`, applied in `RealmHero.recompute()` |
+| Nemeses and the Detention Hall | `realm/nemesis.ts`, `generateDetention` in `realm/pocketGen.ts`, `defeatNemesis` in `RealmScene` |
+| Ultimate weapons | `realm/weapons.ts`, `weaponEffect` and `forgeWeapon` in `RealmScene`, QUEST tab |
+| Art | `scenes/art.ts`: heroes, nemeses, weapons, backdrops, shading |
+| Touch | `pollTouch` polls zones against every finger each frame. `updateHarvestHelp` is the bubble and touch auto-aim |
+| Screen shape | `RW` and `RIFT_W` in `config.ts`. Landscape everywhere: rifts keep their 854 height and get wider |
+
+**Decisions.** The Android package id stays `com.pogoshowdown.app` and the save database stays `pogo-showdown`, so existing installs and saves carry over and the pending F-Droid submission isn't broken. All new save fields are optional, so `version` stays 1. Story Mode lends all four relics in chapter six, because the Eternal Hall assumes them.
+
+**Balance.** A bot using real inputs at level 4 with a Copper Falchion, the Ember Heart and 3 potions beat all eight nemeses in 13 to 20 seconds with no deaths. At level 1 with no potions it mostly loses. Bots swing perfectly, so expect people to take longer.
+
+**Performance on the Pixel 10a (measured live, November 2).** Overworld at about 42 FPS, full screen at 1212x540. JavaScript is about 70% idle and no text re-renders per frame, so the limit is GPU load: hiding either the world or the text gives a steady 60, while the new backdrop, motes and vignette cost only about 3 FPS. The next step is fewer draw calls: batch or atlas the 50-odd Text objects (each has its own texture), or bake the tilemap. v0.5.1 was never measured, so there's no before figure.
+
+**Local build.** `android/keystore.properties` is a gitignored symlink to the one in `~/pogo-showdown/android`, and building needs `ANDROID_HOME=~/Android/Sdk`. To profile on a phone, temporarily set `webContentsDebuggingEnabled: true` in `capacitor.config.ts`; never ship that.
+
+**Open.**
+- The name has had one web search, not a trademark search. The closest match was a book series, *Eternity Senior High*.
+- "Pog" is a trademark risk worth checking before a paid or wide release. So are real names on heroes: Einstein and Frida Kahlo were already swapped for that reason.
+- Story pacing of "about an hour" is an estimate. Nobody has timed it.
+- Save ids `einstein` and `frida` no longer match the names shown. Harmless, and left alone so saves keep working.
+
+---
+
+Older notes from v0.5 follow. Anything above overrides them.
+
 
 Updated September 28, 2026. This replaces the September 22 handoff; earlier detail is in Git history.
 

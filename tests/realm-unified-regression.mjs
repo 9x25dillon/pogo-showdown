@@ -140,6 +140,7 @@ export async function verifyUnified({ execute, evaluate, waitFor, scene, key }) 
     await execute(`${r}.duel.interact(); ${r}.duel.panel.rows[0].action();`);
     assert.match(await bout(0.5), /YOU WIN/);
   }
+  await waitFor(`${r}.duel.schoolyardWins() >= 4`); // each win is written to the profile a moment after the bout
   await faceDuelist('napoleon'); await step(0.2);
   await execute(`${r}.duel.interact();`);
   assert.match(await evaluate(`${r}.duel.stakeView().title + ' wins ' + ${r}.duel.schoolyardWins() + ' open ' + ${r}.duel.panel.open + ' ' + ${r}.duel.panel.rows.map(row => row.label).join('|')`), /NAPOLEON[\s\S]*Stake/);
@@ -269,7 +270,7 @@ export async function verifyUnified({ execute, evaluate, waitFor, scene, key }) 
   await execute(`${r}.rifts.interact(); ${r}.rifts.panel.rows[0].action();`);
   await waitFor(`window.__game.scene.getScene('PlatformerRun')?.ready && window.__game.scene.isActive('PlatformerRun')`);
   assert.deepEqual(await evaluate(`[window.__game.scene.getScene('PlatformerRun').character.id, window.__game.scene.getScene('PlatformerRun').levelIndex, window.__game.scale.width]`),
-    ['khan', 0, 480]);
+    ['khan', 0, 1518]);
   await execute(`const p = window.__game.scene.getScene('PlatformerRun'); p.coins = 12; p.endLevel('playerWon');`);
   await waitFor(`window.__game.scene.isActive('PlatformerResult') && window.__game.scene.getScene('PlatformerResult').children.list.some(o => o.type === 'Text' && o.text.includes('FIRST CLEAR'))`);
   await settle();

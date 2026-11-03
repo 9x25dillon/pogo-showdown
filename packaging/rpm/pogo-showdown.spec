@@ -11,7 +11,7 @@ Requires:       curl
 Recommends:     xdg-utils
 
 %description
-Pogo Showdown is a single open world, the Forever Realm, where history's icons
+Eternity High is a single open world, the Forever Realm, where history's icons
 are highschoolers with a pogo stick. Dig and build Terraria-style, fight
 through four elemental realms to the Forever Gate, duel pog players in the
 Schoolyard, land yoyo tricks in combat, bounce through Dash Trials, climb the

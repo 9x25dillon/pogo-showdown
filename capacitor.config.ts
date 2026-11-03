@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.pogoshowdown.app',
-  appName: 'Pogo Showdown',
+  appName: 'Eternity High',
   webDir: 'dist',
   android: {
     allowMixedContent: false,

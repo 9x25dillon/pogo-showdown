@@ -1,11 +1,15 @@
 import Phaser from 'phaser';
+import { RH, RW } from '../config';
 import type { PadButtons } from '../systems/gamepad';
+import { hint } from '../systems/inputHints';
 
 export interface PanelRow {
   label: string;
   action?: () => void;
   enabled?: boolean;
   color?: string;
+  /** a second button at the end of the row; touch has no X button, so this is how it reaches a secondary action */
+  alt?: { label: string; action: () => void };
 }
 
 export interface PanelView {
@@ -72,30 +76,40 @@ export class RealmPanel {
     this.index = Phaser.Math.Clamp(this.index, 0, Math.max(0, this.rows.length - 1));
     const rowH = view.rowHeight ?? 34;
     const pageSize = Math.max(1, Math.floor(300 / rowH));
-    const panel = this.scene.add.container(480, 270).setDepth(85);
+    // the card grows with the screen, so long rows get the room a wide phone has
+    const cardW = Math.min(RW - 40, 1040);
+    const left = -cardW / 2 + 24;
+    const right = cardW / 2 - 24;
+    const panel = this.scene.add.container(RW / 2, RH / 2).setDepth(85);
     this.panel = panel;
     const text = (x: number, y: number, s: string, size = 14, color = '#e2e8f0') => {
       const t = this.scene.add.text(x, y, s, { fontFamily: FONT, fontSize: `${size}px`, color, lineSpacing: 5 });
       panel.add(t);
       return t;
     };
-    panel.add(this.scene.add.rectangle(0, 0, 960, 540, 0x030712, 0.7).setInteractive());
-    panel.add(this.scene.add.rectangle(0, 0, 760, 500, 0x0e0a1a).setStrokeStyle(2, accent));
-    text(-356, -232, view.title, 22, accentHex).setFontStyle('bold');
-    if (view.subtitle) text(-356, -200, view.subtitle, 12, '#b7aed0').setWordWrapWidth(700);
-    const button = (x: number, y: number, w: number, label: string, action: () => void, on = false) => {
-      const b = this.scene.add.rectangle(x, y, w, 26, on ? accent : 0x241b3a).setStrokeStyle(1, accent).setInteractive({ useHandCursor: true });
+    // a tap outside the card closes it, so a touch screen is never stuck in a menu
+    const shade = this.scene.add.rectangle(0, 0, RW, RH, 0x030712, 0.7).setInteractive();
+    shade.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      if (Math.abs(p.x - RW / 2) > cardW / 2 || Math.abs(p.y - RH / 2) > 250) this.host.onClose();
+    });
+    panel.add(shade);
+    panel.add(this.scene.add.rectangle(0, 0, cardW, 500, 0x0e0a1a).setStrokeStyle(2, accent).setInteractive());
+    panel.add(this.scene.add.rectangle(0, -250 + 3, cardW - 4, 4, accent, 0.8));
+    text(left, -232, view.title, 22, accentHex).setFontStyle('bold');
+    if (view.subtitle) text(left, -200, view.subtitle, 12, '#b7aed0').setWordWrapWidth(cardW - 60);
+    const button = (x: number, y: number, w: number, label: string, action: () => void, on = false, h = 26) => {
+      const b = this.scene.add.rectangle(x, y, w, h, on ? accent : 0x241b3a).setStrokeStyle(1, accent).setInteractive({ useHandCursor: true });
       b.on('pointerdown', action);
       panel.add(b);
       text(x, y, label, 12, '#ffffff').setOrigin(0.5).setFontStyle('bold');
     };
-    button(350, -228, 36, '×', () => this.host.onClose());
+    button(right - 14, -226, 48, '×', () => this.host.onClose(), false, 36);
     if (view.tabs) {
-      const tw = 700 / view.tabs.length;
-      view.tabs.forEach((label, i) => button(-350 + tw * (i + 0.5), -150, tw - 8, label, () => {
+      const tw = (cardW - 60) / view.tabs.length;
+      view.tabs.forEach((label, i) => button(left + 6 + tw * (i + 0.5), -150, tw - 8, label, () => {
         const dir = i - (view.tab ?? 0);
         if (dir !== 0) for (let n = 0; n < Math.abs(dir); n++) this.host.onTab?.(dir > 0 ? 1 : -1);
-      }, i === view.tab));
+      }, i === view.tab, 30));
     }
     const top = view.tabs ? -128 : -170;
     const page = Math.floor(this.index / pageSize);
@@ -104,7 +118,7 @@ export class RealmPanel {
       const idx = page * pageSize + i;
       const y = top + i * rowH + rowH / 2;
       const selected = idx === this.index;
-      const bg = this.scene.add.rectangle(0, y, 720, rowH - 4, selected ? 0x2a2146 : 0x16112a)
+      const bg = this.scene.add.rectangle(0, y, cardW - 40, rowH - 4, selected ? 0x2a2146 : 0x16112a)
         .setStrokeStyle(selected ? 2 : 1, selected ? 0xfacc15 : 0x2e2548).setInteractive({ useHandCursor: true });
       bg.on('pointerdown', () => {
         this.index = idx;
@@ -112,15 +126,22 @@ export class RealmPanel {
         else this.render();
       });
       panel.add(bg);
-      text(-348, y, row.label, 13, row.enabled === false ? '#6b6180' : row.color ?? '#e2e8f0').setOrigin(0, 0.5);
+      const room = cardW - 64 - (row.alt ? 106 : 0);
+      const label = text(left + 8, y, row.label, 13, row.enabled === false ? '#6b6180' : row.color ?? '#e2e8f0').setOrigin(0, 0.5);
+      // a row that doesn't fit wraps to two tight lines instead of running off the card
+      if (label.width > room) label.setFontSize(11).setLineSpacing(0).setWordWrapWidth(room);
+      if (row.alt) {
+        const alt = row.alt;
+        button(right - 50, y, 96, alt.label, () => { this.index = idx; alt.action(); }, false, rowH - 8);
+      }
     });
     if (pages > 1) {
-      button(250, 172, 36, '‹', () => this.page(-1, pageSize));
-      button(340, 172, 36, '›', () => this.page(1, pageSize));
-      text(295, 172, `${page + 1}/${pages}`, 12).setOrigin(0.5);
+      button(right - 100, 172, 44, '‹', () => this.page(-1, pageSize), false, 32);
+      button(right - 10, 172, 44, '›', () => this.page(1, pageSize), false, 32);
+      text(right - 55, 172, `${page + 1}/${pages}`, 12).setOrigin(0.5);
     }
-    if (view.feedback) text(-356, 158, view.feedback, 12, '#fcd68c').setWordWrapWidth(560);
-    text(-356, 214, view.footer ?? '↑ ↓ choose · A / K select · LB RB / ← → tabs · B / Esc close', 11, '#8b80a8');
+    if (view.feedback) text(left, 158, view.feedback, 12, '#fcd68c').setWordWrapWidth(cardW - 200);
+    text(left, 214, view.footer ?? hint('↑ ↓ choose · A / K select · LB RB / ← → tabs · B / Esc close', 'tap a row · tap × or outside to close'), 11, '#8b80a8');
     for (const child of panel.list) (child as Phaser.GameObjects.Rectangle).setScrollFactor(0);
   }
 
@@ -144,6 +165,10 @@ export class RealmPanel {
     if (pressed.a || J(keys.k) || J(keys.space)) {
       const row = this.rows[this.index];
       if (row && row.enabled !== false) row.action?.();
-    } else if (pressed.x || J(keys.j)) this.host.onAlt?.(this.index);
+    } else if (pressed.x || J(keys.j)) {
+      const alt = this.rows[this.index]?.alt;
+      if (alt) alt.action();
+      else this.host.onAlt?.(this.index);
+    }
   }
 }

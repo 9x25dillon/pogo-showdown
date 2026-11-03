@@ -1,3 +1,4 @@
+import { interactKey } from '../systems/inputHints';
 import Phaser from 'phaser';
 import type { DashRecord } from '../db/schema';
 import type { PadButtons } from '../systems/gamepad';
@@ -81,7 +82,7 @@ export class RealmDash {
     const c = this.nearby();
     if (!c) return '';
     const r = this.records[c.id];
-    return `▼ / S / tap · 🏁 ${c.name}${r ? ` · best ${r.best} ${MEDALS[r.medal]}` : ''}`;
+    return `${interactKey()} · 🏁 ${c.name}${r ? ` · best ${r.best} ${MEDALS[r.medal]}` : ''}`;
   }
 
   hud(): string {

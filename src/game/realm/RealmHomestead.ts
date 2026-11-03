@@ -1,4 +1,6 @@
+import { hint } from '../systems/inputHints';
 import Phaser from 'phaser';
+import { RH, RW } from '../config';
 import { ITEM_NAME, type ItemId } from './items';
 import { CHEST_SLOTS, FURNITURE, FURNITURE_KINDS, occupies, placementProblem, restoreHomestead, sheltered, transferStock,
   type Furniture, type FurnitureKind, type HomesteadSave, type Stock, type TileReader } from './homestead';
@@ -113,7 +115,7 @@ export class RealmHomestead {
   prepare(kind: FurnitureKind): void {
     if (!this.host.available() || !this.canAfford(kind)) return;
     this.close(); this.selected = kind;
-    this.host.notify(`Place ${ITEM_NAME[kind]} · aim + click / K / RT · H / LT to cancel`);
+    this.host.notify(`Place ${ITEM_NAME[kind]} · ${hint('aim + click / K / RT · H / LT to cancel', 'tap a spot · ⌂ to cancel')}`);
   }
 
   aim(tx: number, ty: number): void {
@@ -152,7 +154,7 @@ export class RealmHomestead {
     const id = Math.max(0, ...this.data.furniture.map(f => f.id)) + 1;
     this.data.furniture.push({ id, kind, tx, ty, stock: {} });
     this.cancelPlacement(); this.drawFurniture(); this.host.changed(crafted);
-    this.host.notify(`${ITEM_NAME[kind]} built · stand nearby and press S / ▼, or tap the prompt`);
+    this.host.notify(`${ITEM_NAME[kind]} built · ${hint('stand nearby and press S / ▼, or tap the prompt', 'stand nearby and tap the prompt')}`);
     return true;
   }
 
@@ -228,12 +230,12 @@ export class RealmHomestead {
     this.panel?.destroy();
     this.rows = this.makeRows();
     this.index = Math.min(this.index, this.rows.length - 1);
-    const panel = this.scene.add.container(480, 270).setScrollFactor(0).setDepth(85);
+    const panel = this.scene.add.container(RW / 2, RH / 2).setScrollFactor(0).setDepth(85);
     this.panel = panel;
     const addText = (x: number, y: number, text: string, size = 14, color = '#e2e8f0') => {
       const t = this.scene.add.text(x, y, text, { fontFamily: FONT, fontSize: `${size}px`, color, lineSpacing: 7 }); panel.add(t); return t;
     };
-    panel.add(this.scene.add.rectangle(0, 0, 960, 540, 0x030712, 0.65).setInteractive());
+    panel.add(this.scene.add.rectangle(0, 0, RW, RH, 0x030712, 0.65).setInteractive());
     panel.add(this.scene.add.rectangle(0, 0, 720, 480, 0x101c26).setStrokeStyle(2, 0x427c75));
     addText(-332, -216, this.mode === 'build' ? 'HOMESTEAD' : ITEM_NAME[this.target!.kind].toUpperCase(), 24, '#a7f3d0');
     const sub = this.mode === 'build' ? 'Make a place to return to. Select a furnishing, then place it in the world.'

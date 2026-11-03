@@ -54,7 +54,7 @@ export const CHARACTERS: Character[] = [
   },
   {
     id: 'einstein',
-    name: 'Albert E.',
+    name: 'Isaac N.',
     club: 'AP Physics TA',
     color: 0x3b82f6,
     emoji: '\u{1F9E0}',
@@ -89,7 +89,7 @@ export const CHARACTERS: Character[] = [
   },
   {
     id: 'frida',
-    name: 'Frida K.',
+    name: 'Artemisia G.',
     club: 'Art Club President',
     color: 0xec4899,
     emoji: '\u{1F3A8}',

@@ -34,6 +34,8 @@ export interface HeroStats {
   jumpMult: number;
   /** 0-1 */
   critChance: number;
+  /** a crit's multiplier */
+  critMult: number;
   guardPips: number;
   guardRechargeMs: number;
   /** getting hit through a guard keeps your combo (Sun Tzu) */
@@ -50,7 +52,7 @@ export interface HeroStats {
 
 export function baseStats(): HeroStats {
   return {
-    maxHpBonus: 0, damageMult: 1, moveMult: 1, jumpMult: 1, critChance: 0, guardPips: 0,
+    maxHpBonus: 0, damageMult: 1, moveMult: 1, jumpMult: 1, critChance: 0, critMult: CRIT_MULT, guardPips: 0,
     guardRechargeMs: BASE_GUARD_RECHARGE_MS, guardKeepsCombo: false, regenMult: 1, lootLuck: 0,
     comboCap: BASE_COMBO_CAP, comboDecayMs: BASE_COMBO_DECAY_MS, revives: 0, invulnMult: 1, trickWindowMult: 1,
   };

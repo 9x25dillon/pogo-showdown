@@ -1,10 +1,22 @@
-# Pogo Showdown: The Forever Realm
+# Eternity High
 
-History's icons are highschoolers with a pogo stick, and they're stuck in one cursed open world. Dig and build like Terraria, fight Chakan-style through four elemental realms to the Forever Gate, and do everything else there too: duel pog players, land yoyo tricks mid-fight, bounce through Dash Trials, climb the Circuit Arena and step through Pog Quest rifts.
+One school day. It never ends. History's icons are teenagers in it, and the Eternal Reaper signs anyone who asks why into detention, which turns out to be a whole cursed world. Dig and build, fight through four elemental realms to the Forever Gate, duel, land yoyo tricks mid-fight, bounce through Dash Trials on a pogo stick, climb the Circuit Arena and step through quest rifts.
 
-It's a single-player Phaser 4 + TypeScript game. It runs in the browser, on Android (Capacitor), and on Linux from an RPM. Saves stay on the device.
+Formerly Pogo Showdown. It's a single-player Phaser 4 + TypeScript game. It runs in the browser, on Android (Capacitor), and on Linux from an RPM. Saves stay on the device.
 
-![The overworld at dawn, with the hero, hotbar and minimap](docs/screenshots/overworld.png)
+![The title screen: dusk over the school, the clock stopped at three](docs/screenshots/title.png)
+
+## New in 0.6
+
+- **Story Mode:** six chapters through the open world, about an hour, with a line or two for each hero and choices that change your first gift and your ending. Ms. Clio, the school librarian, stands near spawn in every world.
+- **A nemesis for every hero:** eight bosses in the Detention Hall, each with its own moves, shots and lines.
+- **Item builds:** craft components from materials, combine them into items, wear four at once, and complete your hero's ultimate set. Everything breaks back down into what it was made of, at no loss.
+- **An ultimate weapon for every hero:** a three-step quest (beat your nemesis, gather, forge) for a weapon with a power no one else has.
+- **Built for phones:** true full screen at any aspect ratio, sharp scaling, thumbs that all work at once, touch-only hints, and a bubble that explains harvesting as you walk up to things.
+
+| ![A story scene with a choice](docs/screenshots/story.png) | ![The harvest help bubble](docs/screenshots/overworld.png) |
+|---|---|
+| ![The BUILD page](docs/screenshots/build.png) | ![The Detention Hall](docs/screenshots/nemesis.png) |
 
 ## One world, every game
 
@@ -78,7 +90,7 @@ The game's balance lives in pure modules, so tuning happens in one place: `src/g
 
 ## License
 
-Pogo Showdown is free software.
+Eternity High is free software.
 
 - **Code and procedural art:** [GNU GPL v3.0 or later](LICENSE).
 - **Soundtrack** (`public/music/`) by 9x25dillon: [Creative Commons Attribution-ShareAlike 4.0](LICENSE-MUSIC). Track list and credit are in `public/music/LICENSE.txt`.

@@ -1,7 +1,7 @@
 {
   "name": "pogo-showdown",
   "private": true,
-  "version": "0.5.1",
+  "version": "0.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -25,7 +25,7 @@
     "phaser": "^4.2.1"
   },
   "license": "GPL-3.0-or-later",
-  "description": "Open-world pogo action game: dig, build, duel, trick, dash and fight through the Forever Realm",
+  "description": "Eternity High: one endless school day. Dig, build, duel, trick, dash and fight through the Forever Realm",
   "repository": {
     "type": "git",
     "url": "https://github.com/9x25dillon/pogo-showdown.git"

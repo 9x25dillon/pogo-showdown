@@ -1,5 +1,27 @@
+/** The game's public name: change it here and in capacitor.config.ts, strings.xml and index.html. */
+export const APP_NAME = 'Eternity High';
+
+/**
+ * The landscape game (title and Realm) is always 540 tall and as wide as the
+ * screen, so a 20:9 phone fills edge to edge at exactly 2x instead of letterboxing.
+ */
+function landscapeWidth(): number {
+  if (typeof window === 'undefined') return 960;
+  // on a phone the window can still be inset by system bars we're about to hide, so trust the screen
+  const phone = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches && navigator.maxTouchPoints > 0;
+  const w = phone ? Math.max(window.innerWidth, window.screen.width, window.screen.height) : Math.max(window.innerWidth, window.innerHeight);
+  const inner = phone ? Math.min(window.screen.width, window.screen.height) : Math.min(window.innerWidth, window.innerHeight);
+  const long = w;
+  const short = Math.max(1, inner);
+  return Math.round((540 * Math.min(2.4, Math.max(16 / 9, long / short))) / 2) * 2;
+}
+export const RW = landscapeWidth();
+export const RH = 540;
+
 export const WIDTH = 480;
 export const HEIGHT = 854;
+/** a quest rift keeps its 854 height and simply shows more level on a wide screen */
+export const RIFT_W = Math.round((HEIGHT * RW) / RH);
 
 export const LANE_X = [100, 240, 380] as const;
 export const PLAYER_Y = HEIGHT - 180;

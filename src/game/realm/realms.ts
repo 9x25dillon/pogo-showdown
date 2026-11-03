@@ -7,9 +7,9 @@ import type { RealmEnemyId } from './realmEnemies';
  * a home), ends in a boss arena, and its boss drops a relic that
  * permanently changes how you play.
  */
-export type PocketId = 'ember' | 'tide' | 'gale' | 'grave' | 'forever' | 'foundry' | 'arena';
+export type PocketId = 'ember' | 'tide' | 'gale' | 'grave' | 'forever' | 'foundry' | 'arena' | 'detention';
 /** the four relics come from the four elemental realms; the Eternal Hall has none */
-export type RelicId = Exclude<PocketId, 'forever' | 'foundry' | 'arena'>;
+export type RelicId = Exclude<PocketId, 'forever' | 'foundry' | 'arena' | 'detention'>;
 export type BossId = 'tyrant' | 'leviathan' | 'harpy' | 'king' | 'reaper' | 'warden';
 
 export interface PocketDef {
@@ -33,6 +33,11 @@ export interface PocketDef {
 }
 
 export const POCKETS: Record<PocketId, PocketDef> = {
+  // one corridor and one enemy: yours (see nemesis.ts); its boss fields are never read
+  detention: {
+    id: 'detention', name: 'Detention Hall', blurb: 'the room with your name on the door', tier: 1, portalColor: 0xfacc15, sky: 0x120e1c, darkness: 0.3,
+    hazard: 'none', enemies: [], spawnCap: 0, boss: 'reaper', bossName: '', loot: { item: 'copper', count: 0 },
+  },
   // the Circuit colosseum: bouts, not a boss (see arena.ts); its boss fields are never read
   arena: {
     id: 'arena', name: 'Circuit Arena', blurb: 'eleven pros · one ladder · sixty seconds each', tier: 1, portalColor: 0xef4444, sky: 0x1a0b12, darkness: 0.2,

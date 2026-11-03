@@ -6,6 +6,8 @@ import type { ExpeditionProgress } from './expeditions';
 import type { HeroSave } from './RealmHero';
 import type { DuelSpot } from './duels';
 import type { RiftSpot } from './rifts';
+import type { GearState } from './gear';
+import type { StorySave } from './story';
 
 /**
  * One saved world. The world itself is regenerated from `seed`; only the
@@ -43,6 +45,16 @@ export interface RealmSave {
   arenaGate?: { tx: number; ty: number };
   /** where each Pog Quest rift stands, by LEVELS index */
   riftSpots?: RiftSpot[];
+  /** item builds: materials are reusable, so this all lives with the world's inventory */
+  gear?: GearState;
+  /** heroes who have beaten their nemesis */
+  sigils?: string[];
+  /** heroes who have forged their ultimate weapon */
+  forged?: string[];
+  /** present only in a Story Mode world */
+  story?: StorySave;
+  /** how many of each thing you've harvested, so the help bubbles know when to stop */
+  harvested?: Record<string, number>;
   /** ms into the day/night cycle */
   clock: number;
   savedAt: string;

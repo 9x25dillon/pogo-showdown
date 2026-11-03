@@ -1,4 +1,6 @@
+import { hint, interactKey } from '../systems/inputHints';
 import Phaser from 'phaser';
+import { RH, RW } from '../config';
 import { CACHE_LOOT, expeditionProgress, findFoundryEntrance, trapPhase, type ExpeditionProgress } from './expeditions';
 import { FOUNDRY_ROOMS, type FoundryWorld } from './foundryGen';
 import { ITEM_NAME, type ItemId } from './items';
@@ -83,8 +85,8 @@ export class RealmExpedition {
   prompt(): string {
     const target = this.nearby();
     if (!target) return '';
-    return target.kind === 'switch' ? `▼ / S / tap · restore ${this.world.stations[target.index].name} regulator`
-      : `▼ / S / tap · open ${this.world.caches[target.index].name}`;
+    return target.kind === 'switch' ? `${interactKey()} · restore ${this.world.stations[target.index].name} regulator`
+      : `${interactKey()} · open ${this.world.caches[target.index].name}`;
   }
 
   interact(): void {
@@ -122,11 +124,11 @@ export class RealmExpedition {
   objective(): string {
     if (this.host.foundry) return this.completed ? 'Foundry cleared · return through the portal'
       : this.readyForBoss ? 'Find and defeat the Clockwork Warden' : `Foundry · restore regulators ${this.switches.size}/3 · caches ${this.caches.size}/3`;
-    if (!this.progress.discovered) return 'Lost Ruins · a brass arch lies west of spawn · N / R3 journal';
-    if (this.progress.clears) return `Survey Lantern ${this.progress.lanternEnabled ? 'ON' : 'OFF'} · N / R3 journal`;
+    if (!this.progress.discovered) return `Lost Ruins · a brass arch lies west of spawn · ${hint('N / R3', '📖')} journal`;
+    if (this.progress.clears) return `Survey Lantern ${this.progress.lanternEnabled ? 'ON' : 'OFF'} · ${hint('N / R3', '📖')} journal`;
     if (!this.entrance || 'pocket' in this.host.world) return 'Buried Foundry discovered · return to the overworld to explore';
     const dx = (this.entrance.tx + 1.5) * 16 - this.host.player().x;
-    return `Buried Foundry ${dx < 0 ? '←' : '→'} ${Math.round(this.distance(this.entrance.tx + 1, this.entrance.ty) / 16)} m · N / R3 journal`;
+    return `Buried Foundry ${dx < 0 ? '←' : '→'} ${Math.round(this.distance(this.entrance.tx + 1, this.entrance.ty) / 16)} m · ${hint('N / R3', '📖')} journal`;
   }
 
   update(dt: number): void {
@@ -134,7 +136,7 @@ export class RealmExpedition {
     const p = this.host.player();
     if (!this.host.foundry && !('pocket' in this.host.world) && this.entrance && !this.progress.discovered && this.distance(this.entrance.tx + 1, this.entrance.ty) < 200) {
       this.progress.discovered = true;
-      this.host.notify('LOST RUIN DISCOVERED', 'The Buried Foundry · marked on your map · N / R3 opens your expedition journal');
+      this.host.notify('LOST RUIN DISCOVERED', `The Buried Foundry · marked on your map · ${hint('N / R3', '📖')} opens your expedition journal`);
       this.host.save();
     }
     if (this.host.foundry) {
@@ -216,11 +218,11 @@ export class RealmExpedition {
 
   private renderJournal(): void {
     this.panel?.destroy();
-    const panel = this.scene.add.container(480, 270).setDepth(88).setScrollFactor(0); this.panel = panel;
+    const panel = this.scene.add.container(RW / 2, RH / 2).setDepth(88).setScrollFactor(0); this.panel = panel;
     const text = (x: number, y: number, label: string, size = 14, color = '#d2dfe4') => {
       const t = this.scene.add.text(x, y, label, { fontFamily: 'system-ui, sans-serif', fontSize: `${size}px`, color, lineSpacing: 7, wordWrap: { width: 630 } }).setScrollFactor(0); panel.add(t); return t;
     };
-    panel.add(this.scene.add.rectangle(0, 0, 960, 540, 0x030912, 0.75).setScrollFactor(0).setInteractive());
+    panel.add(this.scene.add.rectangle(0, 0, RW, RH, 0x030912, 0.75).setScrollFactor(0).setInteractive());
     panel.add(this.scene.add.rectangle(0, 0, 716, 484, 0x12232d).setStrokeStyle(2, 0xb18c52));
     text(-324, -217, 'LOST RUINS', 25, '#f9d68c');
     text(-324, -181, 'EXPEDITION JOURNAL / 01', 11, '#91adb7');

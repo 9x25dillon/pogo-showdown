@@ -1,3 +1,4 @@
+import { interactKey } from '../systems/inputHints';
 import Phaser from 'phaser';
 import { LEVELS } from '../data/levels';
 import { pogDef } from '../data/pogs';
@@ -84,7 +85,7 @@ export class RealmRifts {
     if (i < 0) return '';
     const state = this.state(i);
     if (state === 'sealed') return `🔒 Rift ${i + 1} is sealed · clear the rifts before it first`;
-    return `▼ / S / tap · step into Rift ${i + 1}: ${LEVELS[i].name}`;
+    return `${interactKey()} · step into Rift ${i + 1}: ${LEVELS[i].name}`;
   }
 
   interact(): void {

@@ -33,7 +33,7 @@ export class PlatformerPauseScene extends Phaser.Scene {
       // erasing a world takes two presses
       const newWorld = this.button(cy - 2, 'NEW WORLD', () => {
         (newWorld.getData('label') as Phaser.GameObjects.Text).setText('AGAIN TO ERASE WORLD');
-        newWorld.once('pointerdown', () => this.leave('Realm', { newWorld: true }));
+        newWorld.once('pointerdown', () => this.leave('Realm', { newWorld: true, story: this.registry.get('storyMode') }));
       });
       buttons.push(newWorld);
       buttons.push(this.button(cy + 73, 'SAVE & QUIT', () => this.leave('Title')));

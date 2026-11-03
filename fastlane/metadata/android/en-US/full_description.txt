@@ -1,4 +1,7 @@
-History's icons are highschoolers with a pogo stick, and they're stuck in one cursed open world: the Forever Realm.
+One school day. It never ends. History's icons are teenagers in it, and anyone who asks why gets signed into detention: the Forever Realm, a whole cursed open world.
+
+<b>Story Mode</b>
+Six chapters through the open world, about an hour, with choices along the way. Every hero has a nemesis of their own, a weapon only they can carry, and an ultimate item build.
 
 <b>Dig, build and fight</b>
 Mine a procedurally generated world, craft swords, pickaxes and alchemy brews, build a homestead with a bed, chests and campfires, and battle through four elemental realms to win the relics that open the Forever Gate.
@@ -13,6 +16,9 @@ Mine a procedurally generated world, craft swords, pickaxes and alchemy brews, b
 <li><b>Circuit Arena:</b> climb a ladder of sixty-second bouts, each with its pro's own rules.</li>
 <li><b>Quest rifts:</b> fifteen platformer levels with bosses, a rival racer and co-op, torn into the overworld.</li>
 </ul>
+
+<b>Builds that never waste a thing</b>
+Craft components, combine them into items and wear four at once. Everything breaks back down into its materials, so you can always try another build.
 
 <b>Risk and reward</b>
 XP only counts once you rest or win a realm; die and you lose half of what you carry. Stakes, Hardcore runs and Showboat bouts trade safety for bigger rewards.
