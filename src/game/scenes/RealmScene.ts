@@ -971,7 +971,22 @@ export class RealmScene extends Phaser.Scene {
     }
 
     if (!this.sys.game.device.os.desktop) this.buildTouchControls();
+    this.groupHudBatches();
     this.updateHud();
+  }
+
+  /**
+   * The GPU draws in depth order, and each switch between a shape and a texture is a new
+   * draw call. The hotbar alone alternated box, label, box, label: twenty switches a frame.
+   * Lift every HUD texture a hair above the HUD shapes at the same depth, so all the boxes
+   * draw in one batch and all the labels in the next. Labels already sat on their boxes.
+   */
+  private groupHudBatches(): void {
+    for (const o of this.children.list as (Phaser.GameObjects.GameObject & Partial<Phaser.GameObjects.Components.Depth & Phaser.GameObjects.Components.ScrollFactor>)[]) {
+      if (o.scrollFactorX !== 0 || o.depth === undefined || o.depth % 1 !== 0) continue;
+      if (o.type === 'Text') o.setDepth!(o.depth + 0.4);
+      else if (o.type === 'Image' || o.type === 'TileSprite') o.setDepth!(o.depth + 0.2);
+    }
   }
 
   /**
@@ -1144,7 +1159,7 @@ export class RealmScene extends Phaser.Scene {
       this.slotBoxes.push(box);
       this.slotTexts.push(this.add.text(x, 30, '', { fontSize: '18px', fontFamily: 'system-ui, sans-serif', align: 'center' }).setOrigin(0.5).setScrollFactor(0).setDepth(60));
     });
-    if (this.ready) this.updateHud(); // buildHud() refreshes once everything exists
+    if (this.ready) { this.groupHudBatches(); this.updateHud(); } // buildHud() refreshes once everything exists
   }
 
   private floatText(x: number, y: number, text: string, color: string): void {

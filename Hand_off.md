@@ -1,6 +1,6 @@
 # Eternity High (formerly Pogo Showdown): session handoff
 
-Updated November 2, 2026, at v0.7.0.
+Updated November 2, 2026, at v0.7.1. Work continues on branch `v0.8`.
 
 ## Start here
 
@@ -38,7 +38,9 @@ All tuning is in `realm/combat.ts`; the scene side is `swing`, `updateAttack`, `
 
 **Balance.** A bot using real inputs at level 4 with a Copper Falchion, the Ember Heart and 3 potions beat all eight nemeses in 13 to 20 seconds with no deaths. At level 1 with no potions it mostly loses. Bots swing perfectly, so expect people to take longer.
 
-**Performance on the Pixel 10a (measured live, November 2).** Overworld at about 42 FPS, full screen at 1212x540. JavaScript is about 70% idle and no text re-renders per frame, so the limit is GPU load: hiding either the world or the text gives a steady 60, while the new backdrop, motes and vignette cost only about 3 FPS. The next step is fewer draw calls: batch or atlas the 50-odd Text objects (each has its own texture), or bake the tilemap. v0.5.1 was never measured, so there's no before figure.
+**Performance on the Pixel 10a.** 60 FPS in the overworld and in the Ember Realm as of 0.7.1 (it was about 45). The cause was draw calls, not text uploads or art: the GPU draws in depth order, and every switch between a shape and a texture starts a new batch. The hotbar alternated box, label, box, label. `groupHudBatches()` in `RealmScene` lifts HUD textures a hair above HUD shapes at the same depth. Keep it that way when adding HUD, and count `drawElements` and `useProgram` per frame before guessing.
+
+To profile on a phone without touching the player's save, add `debug { applicationIdSuffix '.perf' }` to `buildTypes` for a moment and run `assembleDebug`. That gives a separate app with its own storage, and debug builds are inspectable over `adb forward tcp:9555 localabstract:webview_devtools_remote_<pid>`. Uninstall it afterwards.
 
 **Local build.** `android/keystore.properties` is a gitignored symlink to the one in `~/pogo-showdown/android`, and building needs `ANDROID_HOME=~/Android/Sdk`. To profile on a phone, temporarily set `webContentsDebuggingEnabled: true` in `capacitor.config.ts`; never ship that.
 
