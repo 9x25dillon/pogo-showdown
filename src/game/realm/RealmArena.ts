@@ -1,3 +1,4 @@
+import { interactKey } from '../systems/inputHints';
 import Phaser from 'phaser';
 import type { CircuitPro } from '../data/circuitRoster';
 import type { PadButtons } from '../systems/gamepad';
@@ -107,7 +108,7 @@ export class RealmArena {
   }
 
   prompt(): string {
-    return this.nearBoard() ? '▼ / S / tap · the Circuit ladder' : '';
+    return this.nearBoard() ? `${interactKey()} · the Circuit ladder` : '';
   }
 
   interact(): void {

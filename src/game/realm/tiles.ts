@@ -37,6 +37,9 @@ export const T = {
   OBSIDIAN: 27, // the Eternal Hall's throne-room stone
   FOUNDRY_WALL: 28,
   FOUNDRY_GATE: 29,
+  // Detention Hall: the school itself, gone wrong
+  LOCKER: 30,
+  LINOLEUM: 31,
 } as const;
 export type TileId = (typeof T)[keyof typeof T];
 
@@ -58,6 +61,8 @@ export interface TileInfo {
 export const TILE_INFO: Record<number, TileInfo> = {
   [T.FOUNDRY_WALL]: { name: 'Foundry masonry', solid: true, hardness: Infinity, minPick: 99, color: [0x263b46, 0x536b70] },
   [T.FOUNDRY_GATE]: { name: 'Pressure seal', solid: true, hardness: Infinity, minPick: 99, color: [0x59432d, 0xe5b55c] },
+  [T.LOCKER]: { name: 'Lockers', solid: true, hardness: Infinity, minPick: 99, color: [0x1f2a44, 0x4a5f8c] },
+  [T.LINOLEUM]: { name: 'Corridor Floor', solid: true, hardness: Infinity, minPick: 99, color: [0x2b2535, 0x8b7f9e] },
   [T.GRASS]: { name: 'Grass', solid: true, hardness: 260, minPick: 0, drop: 'dirt', color: [0x4a3424, 0x4ade80] },
   [T.DIRT]: { name: 'Dirt', solid: true, hardness: 240, minPick: 0, drop: 'dirt', color: [0x5b3f2a, 0x6f4e35] },
   [T.STONE]: { name: 'Stone', solid: true, hardness: 620, minPick: 0, drop: 'stone', color: [0x4b4f5c, 0x6b7080] },

@@ -1,7 +1,8 @@
 import type { Character } from '../data/characters';
 import { MASTERY_TIERS } from '../data/loadoutData';
 import type { PogActiveEffect, PogDef } from '../data/pogs';
-import { characterById, comboBonus, computeHeroStats, CRIT_MULT, DEATH_XP_LOSS, GUARD_QUIET_MS, levelForXp, masteryTierForLevel, type HeroStats } from './hero';
+import { characterById, comboBonus, computeHeroStats, DEATH_XP_LOSS, GUARD_QUIET_MS, levelForXp, masteryTierForLevel, type HeroStats } from './hero';
+import { applyGear, type GearId } from './gear';
 import { bankXp, type HeroSnapshot } from './progression';
 
 /** hero state that must survive a portal trip (the scene restarts on travel) */
@@ -22,6 +23,8 @@ export interface HeroHost {
   notify: (title: string, sub: string) => void;
   /** max HP or anything derived from stats changed */
   statsChanged: () => void;
+  /** the finished items this hero is wearing */
+  worn: (heroId: string) => readonly GearId[];
 }
 
 export type EffectTimer = 'speed' | 'freeze' | 'plunder' | 'airJump';
@@ -78,6 +81,8 @@ export class RealmHero {
   recompute(): void {
     this.level = levelForXp(this.snap.xp).level;
     this.stats = computeHeroStats(this.snap.characterId, this.level, this.snap.perks);
+    applyGear(this.stats, this.character.id, this.host.worn(this.character.id));
+    this.stats.critChance = Math.min(0.75, this.stats.critChance);
     this.guard = Math.min(this.guard, this.stats.guardPips);
   }
 
@@ -145,9 +150,9 @@ export class RealmHero {
   }
 
   /** final damage for one blow: level/character multiplier, style combo, maybe a crit */
-  strike(base: number): { damage: number; crit: boolean } {
-    const crit = Math.random() < this.stats.critChance;
-    const damage = Math.round(base * this.stats.damageMult * this.comboMult * (crit ? CRIT_MULT : 1));
+  strike(base: number, forceCrit = false): { damage: number; crit: boolean } {
+    const crit = forceCrit || Math.random() < this.stats.critChance;
+    const damage = Math.round(base * this.stats.damageMult * this.comboMult * (crit ? this.stats.critMult : 1));
     return { damage, crit };
   }
 

@@ -3,6 +3,7 @@ import { COLORS } from '../config';
 import { CHARACTERS } from '../data/characters';
 import { TILE_INFO, T } from '../realm/tiles';
 import { TILE } from '../realm/worldGen';
+import { bakeArt, drawClio, HERO_ART, NEMESIS_ART, shadeSprite, WEAPON_ART } from './art';
 
 /**
  * No art assets in the MVP - every texture is drawn procedurally with
@@ -39,6 +40,8 @@ export class BootScene extends Phaser.Scene {
     this.makePowerupTextures();
     this.makeSpikeTileTexture();
     this.makeRealmTextures();
+    bakeArt(this);
+    for (const key of ['realm_slime', 'realm_crawler', 'realm_wraith']) shadeSprite(this, key);
     this.makeProjectileTexture();
     this.makeBossTexture();
     this.makeGoalFlagTexture();
@@ -496,6 +499,24 @@ export class BootScene extends Phaser.Scene {
           for (let i = 0; i < n; i++) ctx.fillRect(ox + Math.floor(rand() * (TILE - size)), Math.floor(rand() * (TILE - size)), size, size);
         };
         switch (id) {
+          case T.LOCKER:
+            // a row of locker doors: frame, vents, handle
+            ctx.fillStyle = hex(base); ctx.fillRect(ox, 0, TILE, TILE);
+            ctx.fillStyle = hex(hi); ctx.fillRect(ox, 0, 1, TILE); ctx.fillRect(ox, 0, TILE, 1);
+            ctx.fillStyle = '#10182c'; ctx.fillRect(ox + 15, 0, 1, TILE); ctx.fillRect(ox, 15, TILE, 1);
+            ctx.fillRect(ox + 4, 3, 8, 1); ctx.fillRect(ox + 4, 5, 8, 1);
+            ctx.fillStyle = '#fbbf24'; ctx.fillRect(ox + 12, 9, 2, 2);
+            break;
+          case T.LINOLEUM: {
+            // corridor floor: big worn checks, the same however they tile
+            const check = (i: number) => (i % 2 === 0);
+            for (let cy = 0; cy < 2; cy++) for (let cx = 0; cx < 2; cx++) {
+              ctx.fillStyle = check(cx + cy) ? hex(hi) : hex(base);
+              ctx.fillRect(ox + cx * 8, cy * 8, 8, 8);
+            }
+            ctx.fillStyle = 'rgba(12,8,22,0.55)'; ctx.fillRect(ox, 0, TILE, TILE);
+            break;
+          }
           case T.FOUNDRY_WALL:
           case T.FOUNDRY_GATE:
             ctx.fillStyle = hex(base); ctx.fillRect(ox, 0, TILE, TILE);
@@ -624,6 +645,8 @@ export class BootScene extends Phaser.Scene {
       draw(gg);
       gg.generateTexture(key, w, h);
       gg.destroy();
+      // white npc parts are tinted later, and shots need to read as light
+      if (!key.startsWith('fx_') && !key.startsWith('npc_body') && !key.startsWith('npc_head')) shadeSprite(this, key);
     };
     make('realm_imp', 28, 30, (gg) => {
       gg.fillStyle(0xea580c, 1).fillCircle(14, 16, 10);
@@ -713,20 +736,17 @@ export class BootScene extends Phaser.Scene {
       gg.fillStyle(0xd4d4d8, 1).fillRect(4, 20, 4, 50);
     });
     // ---- Phase 3: the Chakan-styled hero, the Eternal Reaper, its soul bolts and tidal waves ----
-    // one hero per highschooler: the same Chakan silhouette, their color on the hatband, sash and cloak lining
-    for (const c of CHARACTERS) make(`realm_hero_${c.id}`, 28, 46, (gg) => {
-      gg.fillStyle(0x1e1b2e, 1).fillRect(0, 9, 28, 3); // hat brim
-      gg.fillStyle(0x2a2540, 1).fillRoundedRect(7, 0, 14, 10, 3); // crown
-      gg.fillStyle(c.color, 1).fillRect(7, 7, 14, 2); // hatband
-      gg.fillStyle(0xe7e5e4, 1).fillRoundedRect(8, 12, 12, 11, 4); // skull
-      gg.fillStyle(0x0c0a09, 1).fillCircle(11, 16, 2).fillCircle(17, 16, 2).fillRect(12, 20, 4, 1);
-      gg.fillStyle(0x6b7280, 1).lineStyle(2, 0x9ca3af, 1).lineBetween(2, 20, 11, 30).lineBetween(26, 20, 17, 30); // crossed blades on the back
-      gg.fillStyle(0x1f1b2d, 1).fillTriangle(4, 44, 14, 22, 24, 44); // cloak
-      gg.fillStyle(c.color, 0.35).fillTriangle(8, 44, 14, 30, 20, 44); // lining
-      gg.fillStyle(0x2e2a42, 1).fillRect(9, 23, 10, 16);
-      gg.fillStyle(c.color, 1).fillRect(9, 31, 10, 2); // sash
-      gg.fillStyle(0x0c0a09, 1).fillRect(9, 39, 4, 7).fillRect(15, 39, 4, 7);
-    });
+    // one drawing per hero (see art.ts), and everything only one of them can own
+    for (const c of CHARACTERS) {
+      make(`realm_hero_${c.id}`, 28, 46, HERO_ART[c.id]);
+      make(`weapon_${c.id}`, 16, 34, WEAPON_ART[c.id]);
+      const n = NEMESIS_ART[c.id];
+      make(`boss_nem_${c.id}`, n.w, n.h, n.draw);
+    }
+    make('npc_clio', 28, 46, drawClio);
+    // these get drawn large on the title and in dialogue: keep the pixels square
+    for (const c of CHARACTERS) this.textures.get(`realm_hero_${c.id}`).setFilter(Phaser.Textures.FilterMode.NEAREST);
+    this.textures.get('npc_clio').setFilter(Phaser.Textures.FilterMode.NEAREST);
     make('boss_reaper', 96, 110, (gg) => {
       gg.fillStyle(0x0c0a14, 0.95).fillTriangle(10, 108, 48, 20, 86, 108); // robe
       gg.fillStyle(0x1e1b2e, 1).fillTriangle(22, 108, 48, 36, 74, 108);

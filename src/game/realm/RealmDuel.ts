@@ -1,4 +1,6 @@
+import { interactKey } from '../systems/inputHints';
 import Phaser from 'phaser';
+import { RH, RW } from '../config';
 import { RARITY_LABEL } from '../data/pogs';
 import { dbDelete } from '../db/LocalDB';
 import { grantPog } from '../db/pogRepository';
@@ -123,7 +125,7 @@ export class RealmDuel {
     if (!d) return '';
     const rec = this.records[d.id];
     const record = rec ? ` · ${rec.wins}-${rec.losses}` : '';
-    return `▼ / S / tap · duel ${d.emoji} ${d.name}, ${d.epithet} · skill ${d.skill}${record}`;
+    return `${interactKey()} · duel ${d.emoji} ${d.name}, ${d.epithet} · skill ${d.skill}${record}`;
   }
 
   proIds(): string[] {
@@ -214,9 +216,9 @@ export class RealmDuel {
 
   private buildOverlay(): void {
     const b = this.bout!;
-    const c = this.scene.add.container(480, 270).setDepth(86);
+    const c = this.scene.add.container(RW / 2, RH / 2).setDepth(86);
     this.overlay = c;
-    const bg = this.scene.add.rectangle(0, 0, 960, 540, 0x030712, 0.8).setInteractive();
+    const bg = this.scene.add.rectangle(0, 0, RW, RH, 0x030712, 0.8).setInteractive();
     bg.on('pointerdown', () => { this.tapQueued = true; });
     c.add(bg);
     c.add(this.scene.add.rectangle(0, 0, 560, 300, 0x0e0a1a).setStrokeStyle(2, b.foe.color));

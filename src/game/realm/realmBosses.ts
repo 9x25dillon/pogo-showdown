@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import type { RealmEnemyId } from './realmEnemies';
 import type { BossId } from './realms';
+import { isNemesis, nemesisHitScale, updateNemesis } from './nemesis';
 import { TILE } from './worldGen';
 
 /**
@@ -86,7 +87,7 @@ export interface BossState {
 
 export function createBoss(def: BossDef, sprite: Phaser.Physics.Arcade.Sprite): BossState {
   const first: Record<BossId, string> = { tyrant: 'walk', leviathan: 'circle', harpy: 'hover', king: 'stalk', reaper: 'drift', warden: 'patrol' };
-  return { def, sprite, hp: def.hp, phase: first[def.id], timer: 2000, data: { summons: 0, fire: 900, stage: 1, waves: 2500 } };
+  return { def, sprite, hp: def.hp, phase: first[def.id] ?? 'rest', timer: 2000, data: { summons: 0, fire: 900, stage: 1, waves: 2500 } };
 }
 
 export const enraged = (b: BossState) => b.hp <= b.def.hp / 2;
@@ -115,6 +116,7 @@ function aimAt(b: BossState, ctx: BossCtx, speed: number, spread = 0): { vx: num
 }
 
 export function updateBoss(b: BossState, ctx: BossCtx, dt: number): void {
+  if (isNemesis(b)) { updateNemesis(b, ctx, dt); return; }
   b.timer -= dt;
   const { player, arena } = ctx;
   const toward = player.x < b.sprite.x ? -1 : 1;
@@ -408,6 +410,11 @@ function updateReaper(b: BossState, ctx: BossCtx, dt: number, toward: number, cl
  * turns aside blows to his front unless he's reeling from a dash.
  */
 export function hitBoss(b: BossState, damage: number, fromX: number): number {
+  if (isNemesis(b)) {
+    const scale = nemesisHitScale(b);
+    if (scale === 0) return 0;
+    damage = Math.round(damage * scale);
+  }
   if (b.def.id === 'warden') {
     if (b.phase !== 'recover') return 0;
     damage = Math.round(damage * 1.5);

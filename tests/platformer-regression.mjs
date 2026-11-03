@@ -86,6 +86,7 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
   // Rival stomps stun without consuming lives; synchronize manually placed bodies.
   assert.deepEqual(await execute(`const s = ${s}; s.physics.pause();
     const lives = s.lives;
+    s.rivalStunTimer = 0; s.heroes[0].stunTimer = 0; // they may have bumped already, in real time
     s.rival.setPosition(200, 600); s.rival.body.updateFromGameObject();
     s.player.setPosition(200, s.rival.body.top); s.player.body.updateFromGameObject();
     s.player.setVelocityY(100); s.rival.setVelocityY(0);
@@ -371,7 +372,7 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
     s.input.keyboard.emit('keyup', { key: 'ArrowRight' });
     b.input.pendingItem = false;
     // Split touch: the right half of the screen drives P2.
-    s.children.list.find(o => o.type === 'Rectangle' && o.x === 280 && o.y === ${854 - 58}).emit('pointerdown');
+    s.children.list.find(o => o.type === 'Rectangle' && o.x === 799 && o.y === ${854 - 58}).emit('pointerdown');
     const touchSplit = b.input.touchLeft && !a.input.touchLeft;
     const lives = s.lives; s.takeDamage(b, 1);
     // P2 has their own item charges and speed boost.
@@ -386,7 +387,7 @@ export async function verifyPlatformer({ execute, evaluate, waitFor, start, scen
   // The camera leash keeps both players on screen.
   assert.equal(await execute(`const s = ${s}; const [a, b] = s.heroes; const cam = s.cameras.main;
     a.sprite.setX(cam.scrollX + 100); b.sprite.setX(cam.scrollX + 2000); s.updateCoopCamera();
-    return b.sprite.x <= cam.scrollX + 480 - 24 && s.cameraTarget.x < b.sprite.x;`), true);
+    return b.sprite.x <= cam.scrollX + 1518 - 24 && s.cameraTarget.x < b.sprite.x;`), true);
   assert.deepEqual(await execute(`const s = ${s}; const [a, b] = s.heroes; const before = s.coins;
     const coin = s.coinSprites[0]; s.collectCoin(coin); s.collectCoin(coin);
     // A fallen player respawns beside their partner, not back at their own last ledge.

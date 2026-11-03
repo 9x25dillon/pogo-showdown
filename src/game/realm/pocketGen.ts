@@ -32,6 +32,7 @@ export function generatePocket(pocket: PocketId, seed: number): PocketWorld {
   if (pocket === 'foundry') return generateFoundry(seed);
   if (pocket === 'arena') return generateArena(seed);
   if (pocket === 'forever') return generateForever(seed);
+  if (pocket === 'detention') return generateDetention(seed);
   const w = POCKET_W;
   const h = POCKET_H;
   const tiles = new Uint8Array(w * h);
@@ -117,6 +118,28 @@ export function generatePocket(pocket: PocketId, seed: number): PocketWorld {
   for (let dx = 3; dx <= 6; dx++) { surface[dx] = surface[5]; set(dx, surface[5], T.SHRINE); }
 
   return { seed, w, h, tiles, surface, spawn: entrance, pocket, entrance, arena: { x0: arenaX0, x1: w - 2, floorY: arenaFloor }, waterTop };
+}
+
+/** A short school corridor, then the room your nemesis is waiting in. Nothing here can be dug or built. */
+function generateDetention(seed: number): PocketWorld {
+  const w = 72;
+  const h = POCKET_H;
+  const tiles = new Uint8Array(w * h);
+  const surface = new Int16Array(w);
+  const floor = 48;
+  const x0 = 24;
+  for (let x = 0; x < w; x++) {
+    const ceil = x >= x0 ? floor - 22 : floor - 11;
+    surface[x] = floor;
+    for (let y = 0; y < h; y++) {
+      if (y < ceil) tiles[y * w + x] = T.LOCKER;
+      else if (y >= floor) tiles[y * w + x] = T.LINOLEUM;
+    }
+  }
+  for (const wx of [0, 1, w - 2, w - 1]) for (let y = 0; y < h; y++) tiles[y * w + wx] = T.SHRINE;
+  for (let dx = 0; dx < 2; dx++) for (let dy = 1; dy <= 3; dy++) tiles[(floor - dy) * w + 3 + dx] = T.PORTAL;
+  const entrance = { tx: 7, ty: floor - 1 };
+  return { seed, w, h, tiles, surface, spawn: entrance, pocket: 'detention', entrance, arena: { x0, x1: w - 2, floorY: floor } };
 }
 
 export const FOREVER_W = 260;

@@ -157,7 +157,7 @@ export async function verifyRealm({ execute, evaluate, waitFor, start, scene }) 
   await execute(`window.__game.scene.getScene('PlatformerPause').children.list.find(o => o.type === 'Rectangle' && o.y === 270 + 73).emit('pointerdown');`);
   await waitFor(`window.__game.scene.isActive('Title')`);
   assert.deepEqual(await evaluate(`[window.__game.scale.width, window.__game.scale.height, window.__game.scene.getScene('Title').cameras.main.width, window.__music.cue]`),
-    [480, 854, 480, 'menu']);
+    [960, 540, 960, 'menu']);
 
   // soundtrack cues elsewhere: Pog Quest levels explore, bosses danger, results win/loss
   await execute(`window.__game.registry.set('platformerLevelIndex', 0);`);

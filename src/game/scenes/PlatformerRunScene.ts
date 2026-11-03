@@ -6,7 +6,7 @@ import {
   REGISTRY_KEY_CHARACTER,
   REGISTRY_KEY_LAST_PLATFORMER_RESULT,
   REGISTRY_KEY_PLATFORMER_LEVEL_INDEX,
-  WIDTH,
+  RIFT_W,
 } from '../config';
 import {
   AIR_JUMP_VELOCITY_SCALE,
@@ -237,6 +237,7 @@ export class PlatformerRunScene extends Phaser.Scene {
   private coopMode = false;
   /** co-op camera follows this point, kept at the heroes' midpoint */
   private cameraTarget?: Phaser.GameObjects.Zone;
+  private riftLayers: { sprite: Phaser.GameObjects.TileSprite; rate: number }[] = [];
 
   /** absent for boss levels - see LevelDef.bossLevel */
   private rival?: Phaser.Physics.Arcade.Sprite;
@@ -280,6 +281,8 @@ export class PlatformerRunScene extends Phaser.Scene {
   }
 
   create(): void {
+    this.scale.setGameSize(RIFT_W, HEIGHT);
+    this.cameras.main.setSize(RIFT_W, HEIGHT);
     const charId = this.registry.get(REGISTRY_KEY_CHARACTER) as string | undefined;
     this.character = CHARACTERS.find((c) => c.id === charId) ?? CHARACTERS[0];
     this.levelIndex = Phaser.Math.Clamp(Number(this.registry.get(REGISTRY_KEY_PLATFORMER_LEVEL_INDEX) ?? 0), 0, LEVELS.length - 1);
@@ -355,7 +358,19 @@ export class PlatformerRunScene extends Phaser.Scene {
 
   // ---------------- level construction ----------------
 
+  /** the school behind every rift, so a level isn't standing in a black void */
+  private buildRiftBackdrop(): void {
+    this.riftLayers = [];
+    this.cameras.main.setBackgroundColor(0x1a0f33);
+    this.add.tileSprite(0, 40, RIFT_W, 300, 'bg_stars').setOrigin(0).setScrollFactor(0).setDepth(-5).setAlpha(0.8);
+    for (const [key, rate, tint, y] of [['bg_far', 0.12, 0x3a2358, 230], ['bg_school', 0.28, 0x281a42, 300]] as const) {
+      const sprite = this.add.tileSprite(0, y, RIFT_W, 512, key).setOrigin(0).setScrollFactor(0).setDepth(-4).setTint(tint);
+      this.riftLayers.push({ sprite, rate });
+    }
+  }
+
   private buildLevel(): void {
+    this.buildRiftBackdrop();
     // extra headroom below the visible area so bodies aren't clamped before
     // the manual gap-death check (GAP_DEATH_Y) gets a chance to fire
     this.physics.world.setBounds(0, 0, this.level.widthPx, HEIGHT + 200);
@@ -609,25 +624,25 @@ export class PlatformerRunScene extends Phaser.Scene {
     this.coinsText = this.add.text(16, 16, '🪙 0', style).setScrollFactor(0).setDepth(30);
     this.livesText = this.add.text(16, 40, `♥ ${this.lives}`, style).setScrollFactor(0).setDepth(30);
     this.powerupText = this.add.text(16, 64, '', { ...style, fontSize: '13px' }).setScrollFactor(0).setDepth(30);
-    this.timeText = this.add.text(WIDTH - 16, 16, '0.0s', style).setOrigin(1, 0).setScrollFactor(0).setDepth(30);
+    this.timeText = this.add.text(RIFT_W - 16, 16, '0.0s', style).setOrigin(1, 0).setScrollFactor(0).setDepth(30);
     this.comboText = this.add
-      .text(WIDTH / 2, 16, '', { fontSize: '15px', fontFamily: 'system-ui, sans-serif', color: '#f9d64b', fontStyle: 'bold' })
+      .text(RIFT_W / 2, 16, '', { fontSize: '15px', fontFamily: 'system-ui, sans-serif', color: '#f9d64b', fontStyle: 'bold' })
       .setOrigin(0.5, 0)
       .setScrollFactor(0)
       .setDepth(30);
     this.rivalPositionText = this.add
-      .text(WIDTH / 2, 40, '', { fontSize: '13px', fontFamily: 'system-ui, sans-serif', color: '#94a3b8' })
+      .text(RIFT_W / 2, 40, '', { fontSize: '13px', fontFamily: 'system-ui, sans-serif', color: '#94a3b8' })
       .setOrigin(0.5, 0)
       .setScrollFactor(0)
       .setDepth(30);
     this.loadingText = this.add
-      .text(WIDTH / 2, HEIGHT / 2, 'loading loadout…', { fontSize: '14px', fontFamily: 'system-ui, sans-serif', color: '#b7aed0' })
+      .text(RIFT_W / 2, HEIGHT / 2, 'loading loadout…', { fontSize: '14px', fontFamily: 'system-ui, sans-serif', color: '#b7aed0' })
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(40);
-    const pauseButton = this.add.rectangle(WIDTH - 42, 70, 64, 40, 0x362a52)
+    const pauseButton = this.add.rectangle(RIFT_W - 42, 70, 64, 40, 0x362a52)
       .setScrollFactor(0).setDepth(30).setInteractive({ useHandCursor: true });
-    this.add.text(WIDTH - 42, 70, 'PAUSE', { ...style, fontSize: '12px' })
+    this.add.text(RIFT_W - 42, 70, 'PAUSE', { ...style, fontSize: '12px' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(31);
     pauseButton.on('pointerdown', () => this.pauseRun());
   }
@@ -663,9 +678,9 @@ export class PlatformerRunScene extends Phaser.Scene {
 
   private buildControls(): void {
     if (this.coopMode) {
-      this.buildTouchCluster(this.heroes[0], 0, 240);
-      if (this.heroes[1]) this.buildTouchCluster(this.heroes[1], 240, 240);
-      this.add.rectangle(WIDTH / 2, HEIGHT - 72, 2, 136, 0xffffff, 0.12).setScrollFactor(0).setDepth(30);
+      this.buildTouchCluster(this.heroes[0], 0, RIFT_W / 2);
+      if (this.heroes[1]) this.buildTouchCluster(this.heroes[1], RIFT_W / 2, RIFT_W / 2);
+      this.add.rectangle(RIFT_W / 2, HEIGHT - 72, 2, 136, 0xffffff, 0.12).setScrollFactor(0).setDepth(30);
     } else {
       this.buildSoloTouchControls(this.heroes[0]);
     }
@@ -687,11 +702,11 @@ export class PlatformerRunScene extends Phaser.Scene {
     this.holdZone(leftZone, (d) => { hero.input.touchLeft = d; });
     this.holdZone(rightZone, (d) => { hero.input.touchRight = d; });
 
-    const jumpBtn = this.add.circle(WIDTH - 70, HEIGHT - 74, 55, COLORS.accent, 0.32).setScrollFactor(0).setDepth(30).setInteractive();
-    this.add.text(WIDTH - 70, HEIGHT - 74, 'JUMP', { fontSize: '13px', fontFamily: 'system-ui, sans-serif', fontStyle: 'bold', color: '#ffffff' }).setOrigin(0.5).setScrollFactor(0).setDepth(31);
+    const jumpBtn = this.add.circle(RIFT_W - 70, HEIGHT - 74, 55, COLORS.accent, 0.32).setScrollFactor(0).setDepth(30).setInteractive();
+    this.add.text(RIFT_W - 70, HEIGHT - 74, 'JUMP', { fontSize: '13px', fontFamily: 'system-ui, sans-serif', fontStyle: 'bold', color: '#ffffff' }).setOrigin(0.5).setScrollFactor(0).setDepth(31);
     this.bindJump(jumpBtn, hero);
 
-    this.buildItemButtons(hero, WIDTH - 70, HEIGHT - 150, 38, WIDTH - 140, HEIGHT - 176, 0x38bdf8);
+    this.buildItemButtons(hero, RIFT_W - 70, HEIGHT - 150, 38, RIFT_W - 140, HEIGHT - 176, 0x38bdf8);
   }
 
   /**
@@ -937,6 +952,7 @@ export class PlatformerRunScene extends Phaser.Scene {
   // ---------------- update loop ----------------
 
   update(time: number, deltaMs: number): void {
+    for (const l of this.riftLayers) l.sprite.tilePositionX = this.cameras.main.scrollX * l.rate;
     if (this.gameOver || !this.ready) return;
     if (this.applyGamepads(time)) return;
     const dt = Math.min(deltaMs, 50);
@@ -1070,7 +1086,7 @@ export class PlatformerRunScene extends Phaser.Scene {
     if (!this.cameraTarget || this.heroes.length < 2) return;
     const cam = this.cameras.main;
     const minX = cam.scrollX + COOP_VIEW_MARGIN_PX;
-    const maxX = cam.scrollX + WIDTH - COOP_VIEW_MARGIN_PX;
+    const maxX = cam.scrollX + RIFT_W - COOP_VIEW_MARGIN_PX;
     for (const hero of this.heroes) {
       const body = hero.sprite.body as Phaser.Physics.Arcade.Body;
       if (hero.sprite.x < minX) {

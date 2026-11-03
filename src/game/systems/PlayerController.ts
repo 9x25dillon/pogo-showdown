@@ -30,6 +30,8 @@ export interface ControllerOptions {
   moveAccel: number;
   /** multiplies jump velocity (Rocket Spring power-up); default 1 */
   jumpScale?: number;
+  /** quicker turns and stops on the ground, looser in the air */
+  responsive?: boolean;
 }
 
 export function updateController(
@@ -47,7 +49,9 @@ export function updateController(
   const target = input.left && !input.right ? -opts.moveSpeed : input.right && !input.left ? opts.moveSpeed : 0;
   const vx = body.velocity.x;
   const diff = target - vx;
-  const maxDelta = opts.moveAccel * (dtMs / 1000);
+  const turning = target !== 0 && vx !== 0 && Math.sign(target) !== Math.sign(vx);
+  const feel = !opts.responsive ? 1 : !grounded ? 0.75 : turning ? 1.5 : target === 0 ? 1.3 : 1;
+  const maxDelta = opts.moveAccel * feel * (dtMs / 1000);
   body.setVelocityX(Math.abs(diff) <= maxDelta ? target : vx + Math.sign(diff) * maxDelta);
 
   if (state.jumpBufferMs > 0 && state.coyoteMs > 0) {

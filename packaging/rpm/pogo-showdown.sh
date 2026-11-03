@@ -1,5 +1,5 @@
 #!/bin/sh
-# Pogo Showdown launcher: serves the installed game on localhost and opens it in your browser.
+# Eternity High launcher: serves the installed game on localhost and opens it in your browser.
 # The port is fixed on purpose: browser saves (IndexedDB) belong to one origin, so a new port
 # every launch would look like a new player. Override with POGO_PORT if 47219 is taken.
 PORT="${POGO_PORT:-47219}"
@@ -17,5 +17,5 @@ fi
 if command -v xdg-open >/dev/null 2>&1; then
   xdg-open "$URL" >/dev/null 2>&1 &
 else
-  echo "Pogo Showdown is running at $URL"
+  echo "Eternity High is running at $URL"
 fi

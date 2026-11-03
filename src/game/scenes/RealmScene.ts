@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { COLORS, HEIGHT, REGISTRY_KEY_CHARACTER, REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, WIDTH } from '../config';
+import { COLORS, HEIGHT, REGISTRY_KEY_CHARACTER, REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, WIDTH, RW, RH } from '../config';
 import { PHYS } from '../data/platformerConfig';
 import { applyHeroGravity, createControllerState, updateController, type ControllerState } from '../systems/PlayerController';
 import { mergePads, readPads, rumble, type PadFrame } from '../systems/gamepad';
@@ -30,6 +30,19 @@ import { BOSS_XP, ORE_XP, killXp } from '../realm/hero';
 import { RealmHero, realmActiveText } from '../realm/RealmHero';
 import { grantMilestone, loadHeroSnapshot, type HeroSnapshot } from '../realm/progression';
 import type { PanelRow } from '../realm/RealmPanel';
+import { emptyGear, equippedFor, type GearState } from '../realm/gear';
+import { WEAPONS, nemesisSpoils, weaponStage, type UltimateWeapon } from '../realm/weapons';
+import { nemesisBossDef, nemesisFor } from '../realm/nemesis';
+import { RealmDialogue } from '../realm/RealmDialogue';
+import { RealmStory } from '../realm/RealmStory';
+import { endingLines, newStory, type Speaker } from '../realm/story';
+import { TAB_QUEST } from '../realm/RealmHeroMenu';
+import { hint, interactKey, isTouch } from '../systems/inputHints';
+import {
+  ATTACK_BUFFER_MS, ATTACK_COOLDOWN_MS, BACKSTAB_DAMAGE, BOSS_DAMAGE_SCALE, BOSS_POISE_PER_HP, BOSS_STAGGER_MS, CHARGE_COMMIT_MS, DODGE_MS, DODGE_SPEED,
+  EXHAUSTED_LOCK_SCALE, GUARD_MOVE_SCALE, HEAVY, HEAVY_COST, LIGHT_COST, PARRY_BOSS_POISE, PARRY_STAGGER_MS, PERFECT_BONUS, POISE, POISE_REGEN_DELAY_MS,
+  RECOVER_MS, RIPOSTE_DAMAGE, RealmCombat, STAGGER_DAMAGE, STAGGER_MS, STAMINA_MAX, STRIKE_MS, STRIKE_RANGE_PX, STRIKE_SPEED, WINDUP_MS, type SwingDef,
+} from '../realm/combat';
 
 /** a hotbar entry: a fixed item/tool slot, or one equipped pog's active ability */
 type Slot = HotbarSlot | 'yoyo' | 'pogo' | `pog:${string}`;
@@ -48,8 +61,7 @@ type Slot = HotbarSlot | 'yoyo' | 'pogo' | `pog:${string}`;
  *   mouse       aim · left hold use · right click sword · wheel hotbar
  *   touch       ◀ ▶ JUMP ⚔ buttons · tap the world to use the tool there
  */
-export const RW = 960;
-export const RH = 540;
+export { RW, RH };
 const REACH_PX = TILE * 5.5;
 const MOVE_SPEED = 175;
 /** realm jumps are a bit shorter than Pog Quest's: ~5 tiles */
@@ -69,8 +81,6 @@ const WIND_ACCEL = 1500;
 const HIT_INVULN_MS = 700;
 const REGEN_DELAY_MS = 4000;
 const REGEN_PER_S = 2;
-const SWING_COOLDOWN_MS = 320;
-const SWING_RANGE = 40;
 const PLACE_REPEAT_MS = 140;
 export const CYCLE_MS = 6 * 60_000;
 const AUTOSAVE_MS = 30_000;
@@ -79,8 +89,20 @@ const DESPAWN_PX = 1400;
 const RESPAWN_MS = 3500;
 /** the hotbar lives between the HP column (to x 236) and the sword label/buttons (from x ~795) */
 const HOTBAR_X0 = 244;
-const HOTBAR_X1 = 790;
+const HOTBAR_X1 = RW - 176;
 const HOTBAR_CX = (HOTBAR_X0 + HOTBAR_X1) / 2;
+/** the help bubble: a few short showings over the whole game, then it's gone for good */
+const HELP_SHOWINGS = 3;
+const HELP_SHOW_MS = 4000;
+/** the most lights drawn at once; the nearest win */
+const MAX_LIGHTS = 28;
+const HARVESTABLE: Record<number, { kind: string; label: string }> = {
+  [T.TRUNK]: { kind: 'tree', label: '🪵 Tree: wood for everything' },
+  [T.HERB]: { kind: 'herb', label: '🌸 Nightbloom: potions and brews' },
+  [T.COPPER]: { kind: 'copper', label: '🟠 Copper: pickaxes and blades' },
+  [T.IRON]: { kind: 'iron', label: '⚪ Iron: better pickaxes and blades' },
+  [T.SOULSTONE]: { kind: 'soulstone', label: '🔴 Soulstone: the strongest gear' },
+};
 
 interface RealmEnemy {
   sprite: Phaser.Physics.Arcade.Sprite;
@@ -88,7 +110,21 @@ interface RealmEnemy {
   hp: number;
   timer: number;
   colliders: Phaser.Physics.Arcade.Collider[];
+  /** its attack: wind up, strike, recover. Only the strike hurts */
+  phase: 'none' | 'windup' | 'strike' | 'recover';
+  phaseTimer: number;
+  cooldown: number;
+  dir: number;
+  struck: boolean;
+  poise: number;
+  poiseTimer: number;
+  stagger: number;
+  /** reeling from a parry: the next blow is a riposte */
+  riposte: boolean;
 }
+
+/** what's hitting you: lets a parry answer it */
+interface BlowSource { enemy?: RealmEnemy; boss?: BossState; hazard?: Hazard }
 
 interface Hazard {
   sprite: Phaser.Physics.Arcade.Sprite;
@@ -168,6 +204,38 @@ export class RealmScene extends Phaser.Scene {
   private minimapBox = { x: 0, y: 0, w: 0, h: 0 };
   private minimapTimer = 0;
 
+  private gear: GearState = emptyGear();
+  private sigils: string[] = [];
+  private forged: string[] = [];
+  private harvested: Record<string, number> = {};
+  private story?: RealmStory;
+  private dialogue?: RealmDialogue;
+  /** this new world is a Story Mode world */
+  private startStory = false;
+  private expeditionStory = false;
+  private combat = new RealmCombat();
+  private staminaBar!: Phaser.GameObjects.Rectangle;
+  private guardFx?: Phaser.GameObjects.Image;
+  /** a brief hold or slowdown of the whole world */
+  private timeWarp = { ms: 0, scale: 1 };
+  /** the bubble's current showing */
+  private bubbleKey = '';
+  private bubbleUntil = 0;
+  private wasLeft = false;
+  private wasRight = false;
+  private wasGuard = false;
+  private swingCount = 0;
+  private hitCount = 0;
+  private burstCooldown = 0;
+  /** what the help bubble is pointing at, and what a touch USE will mine */
+  private harvestTile: { tx: number; ty: number } | null = null;
+  private harvestTimer = 0;
+  private bubble?: Phaser.GameObjects.Text;
+  private bubbleTail?: Phaser.GameObjects.Triangle;
+  private bubbleMark?: Phaser.GameObjects.Rectangle;
+  private backdrop: { sprite: Phaser.GameObjects.TileSprite; rate: number; day: number; night: number }[] = [];
+  private stars?: Phaser.GameObjects.TileSprite;
+  private motes: { o: Phaser.GameObjects.Image; vx: number; vy: number; phase: number }[] = [];
   private hero!: RealmHero;
   private heroMenu?: RealmHeroMenu;
   private duel?: RealmDuel;
@@ -227,15 +295,19 @@ export class RealmScene extends Phaser.Scene {
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
   private lastMouseMove = -1e9;
   private pointerUse = false;
-  private touch = { left: false, right: false, jump: false, attack: false };
+  private touch = { left: false, right: false, jump: false, attack: false, use: false, guard: false };
   private touchJumpPressed = false;
+  private touchUsePressed = false;
+  /** the finger that is aiming the tool on the world, so another thumb can't steal it */
+  private usePointerId = -1;
+  private touchZones: { x: number; y: number; r: number; held: boolean; face: Phaser.GameObjects.Arc; set: (down: boolean) => void }[] = [];
+  private useIcon?: Phaser.GameObjects.Text;
   private touchAttackPressed = false;
 
   // visuals
   private aimRect!: Phaser.GameObjects.Rectangle;
   private swordSprite!: Phaser.GameObjects.Image;
   private darkness!: Phaser.GameObjects.RenderTexture;
-  private lightBrush!: Phaser.GameObjects.Image;
   /** redrawn each frame with the sky-lit area, then used as one eraser on the darkness */
   private skyLight!: Phaser.GameObjects.Graphics;
   private lightSources: { x: number; y: number; r: number }[] = [];
@@ -280,7 +352,7 @@ export class RealmScene extends Phaser.Scene {
   private rand: () => number = Math.random;
   private pocketSeed?: number;
 
-  create(data: { newWorld?: boolean; pocket?: PocketId; seed?: number } = {}): void {
+  create(data: { newWorld?: boolean; story?: boolean; pocket?: PocketId; seed?: number } = {}): void {
     // Phaser hands a scene its previous start data again when started with none;
     // "new world" must apply once, or the next visit would wipe the save again
     this.sys.settings.data = {};
@@ -296,6 +368,7 @@ export class RealmScene extends Phaser.Scene {
     this.cameras.main.resetFX();
     this.cameras.main.setFollowOffset(0, 0);
     this.resetState();
+    this.startStory = !!data.newWorld && !!data.story;
     this.pocket = data.pocket;
     this.pocketSeed = data.seed;
     this.cameras.main.setBackgroundColor(this.pocket ? POCKETS[this.pocket].sky : COLORS.bg);
@@ -312,6 +385,36 @@ export class RealmScene extends Phaser.Scene {
   }
 
   private resetState(): void {
+    this.gear = emptyGear();
+    this.sigils = [];
+    this.forged = [];
+    this.harvested = {};
+    this.story = undefined;
+    this.dialogue = undefined;
+    this.startStory = false;
+    this.expeditionStory = false;
+    this.combat = new RealmCombat();
+    this.guardFx = undefined;
+    this.timeWarp = { ms: 0, scale: 1 };
+    this.physics.world.timeScale = 1;
+    this.bubbleKey = '';
+    this.bubbleUntil = 0;
+    this.wasLeft = false;
+    this.wasRight = false;
+    this.wasGuard = false;
+    this.swingCount = 0;
+    this.hitCount = 0;
+    this.burstCooldown = 0;
+    this.harvestTile = null;
+    this.harvestTimer = 0;
+    this.bubble = undefined;
+    this.bubbleTail = undefined;
+    this.bubbleMark = undefined;
+    this.backdrop = [];
+    this.stars = undefined;
+    this.motes = [];
+    this.touchZones = [];
+    this.usePointerId = -1;
     this.physics.resume();
     this.ready = false;
     this.dead = false;
@@ -361,7 +464,7 @@ export class RealmScene extends Phaser.Scene {
     this.swingTimer = 0;
     this.ctrl = createControllerState();
     this.pointerUse = false;
-    this.touch = { left: false, right: false, jump: false, attack: false };
+    this.touch = { left: false, right: false, jump: false, attack: false, use: false, guard: false };
     this.touchJumpPressed = false;
     this.touchAttackPressed = false;
     this.slotBoxes = [];
@@ -421,6 +524,10 @@ export class RealmScene extends Phaser.Scene {
       this.relics = new Set(save.relics ?? []);
       this.champion = !!save.champion;
       this.stats = { ...emptyStats(), ...save.stats };
+      this.gear = { ...emptyGear(), ...save.gear };
+      this.sigils = save.sigils ?? [];
+      this.forged = save.forged ?? [];
+      this.harvested = save.harvested ?? {};
     }
     if (!this.pocket) this.openGateIfWorthy();
     this.hero = new RealmHero({
@@ -431,6 +538,7 @@ export class RealmScene extends Phaser.Scene {
       healFull: () => { this.hp = this.maxHp; this.floatText(this.player.x, this.player.y - 50, 'FULL HEAL', '#4ade80'); },
       float: (text, color) => this.floatText(this.player.x, this.player.y - 56, text, color),
       notify: (title, sub) => this.banner(title, sub),
+      worn: (id) => equippedFor(this.gear, id),
       statsChanged: () => { this.hp = Math.min(this.hp, this.maxHp); this.player?.setTexture(`realm_hero_${this.hero.character.id}`); this.rebuildHotbar(); },
     }, snap, save?.hero);
 
@@ -483,7 +591,7 @@ export class RealmScene extends Phaser.Scene {
         },
         pause: (open) => {
           this.pointerUse = false; this.mining = null;
-          this.touch = { left: false, right: false, jump: false, attack: false };
+          this.touch = { left: false, right: false, jump: false, attack: false, use: false, guard: false };
           this.touchJumpPressed = false; this.touchAttackPressed = false;
           if (open) { this.physics.pause(); this.aimRect?.setVisible(false); }
           else this.physics.resume();
@@ -504,7 +612,7 @@ export class RealmScene extends Phaser.Scene {
       available: () => this.ready && !this.dead && !this.ending && !this.craftPanel?.visible && !this.homestead?.open && !this.heroMenu?.open && !this.duel?.open,
       pause: (open) => {
         this.pointerUse = false; this.mining = null;
-        this.touch = { left: false, right: false, jump: false, attack: false };
+        this.touch = { left: false, right: false, jump: false, attack: false, use: false, guard: false };
         this.touchJumpPressed = false; this.touchAttackPressed = false;
         this.homestead?.cancelPlacement();
         if (open) { this.physics.pause(); this.aimRect?.setVisible(false); } else this.physics.resume();
@@ -523,7 +631,7 @@ export class RealmScene extends Phaser.Scene {
     // background wall behind everything below the original surface, so dug-out
     // tunnels and caves read as dark rock rather than open sky
     const wall = this.add.graphics().setDepth(-1);
-    const wallColor: Record<string, number> = { overworld: 0x1b1226, ember: 0x1c0a07, tide: 0x071a2c, gale: 0x000000, grave: 0x0b0810, forever: 0x0c0714, foundry: 0x10212b };
+    const wallColor: Record<string, number> = { overworld: 0x1b1226, ember: 0x1c0a07, tide: 0x071a2c, gale: 0x000000, grave: 0x0b0810, forever: 0x0c0714, foundry: 0x10212b, detention: 0x1a1528, arena: 0x0c0714 };
     wall.fillStyle(wallColor[this.pocket ?? 'overworld'], this.pocket === 'gale' ? 0 : 1); // the Gale Realm is open sky
     const pts: Phaser.Math.Vector2[] = [];
     for (let x = 0; x < w; x++) {
@@ -532,13 +640,12 @@ export class RealmScene extends Phaser.Scene {
     }
     pts.push(new Phaser.Math.Vector2(w * TILE, h * TILE), new Phaser.Math.Vector2(0, h * TILE));
     wall.fillPoints(pts, true);
+    this.buildBackdrop();
 
     this.aimRect = this.add.rectangle(0, 0, TILE, TILE).setOrigin(0).setStrokeStyle(2, 0xffffff, 0.9).setDepth(20).setVisible(false);
     this.swordSprite = this.add.image(0, 0, 'realm_sword').setOrigin(0.5, 0.95).setDepth(11).setVisible(false);
 
     this.darkness = this.add.renderTexture(0, 0, RW, RH).setOrigin(0).setScrollFactor(0).setDepth(50);
-    // off the display list: only ever drawn into the darkness texture as an eraser
-    this.lightBrush = new Phaser.GameObjects.Image(this, 0, 0, 'lightBrush').setOrigin(0.5);
     this.skyLight = new Phaser.GameObjects.Graphics(this);
 
     this.heroMenu = new RealmHeroMenu(this, {
@@ -548,6 +655,16 @@ export class RealmScene extends Phaser.Scene {
       reloaded: (switched) => { if (switched) this.duel?.refreshRoster(); this.updateHud(); void this.save(); },
       records: () => this.records(),
       gear: () => this.gearRows(),
+      builds: () => this.gear,
+      pack: () => this.inventory,
+      buildChanged: () => { this.hp = Math.min(this.hp, this.maxHp); this.updateHud(); void this.save(); },
+      sigils: () => this.sigils,
+      forged: () => this.forged,
+      forge: () => this.forgeWeapon(),
+      detentionBlocked: () => (this.pocket ? 'only from the overworld'
+        : this.enemies.some((e) => Phaser.Math.Distance.Between(e.sprite.x, e.sprite.y, this.player.x, this.player.y) < 160) ? 'enemies nearby' : null),
+      enterDetention: () => { this.heroMenu?.close(); void this.travel('detention'); },
+      storyLine: () => this.story?.objective() ?? '',
     });
 
     this.yoyo = new RealmYoyo(this, {
@@ -628,6 +745,30 @@ export class RealmScene extends Phaser.Scene {
     }
 
     this.buildPortalLabels();
+    this.dialogue = new RealmDialogue(this, {
+      pause: (open) => this.menuPause(open),
+      speaker: (who) => this.speaker(who),
+      answered: (ask, id) => this.story?.answer(ask, id),
+    });
+    this.story = new RealmStory(this, {
+      world: this.world,
+      player: () => this.player,
+      progress: () => ({
+        heroId: this.hero.character.id, wood: this.count('wood'), sword: this.sword, pickaxe: this.pickaxe, relics: this.relics.size,
+        sigil: this.sigils.includes(this.hero.character.id), forged: this.forged.includes(this.hero.character.id), champion: this.champion,
+      }),
+      calm: () => this.ready && !this.dead && !this.boss && !this.ending && !this.anyMenuOpen(),
+      play: (lines, done) => this.dialogue?.play(lines, done),
+      notify: (title, sub) => this.banner(title, sub),
+      save: () => { void this.save(); },
+      lendRelics: () => this.lendRelics(),
+      gift: (ask, id) => {
+        if (ask !== 'bell') return;
+        const part = id === 'fight' ? 'whetstone' : id === 'run' ? 'swiftboots' : 'lens';
+        this.gear.components[part] = (this.gear.components[part] ?? 0) + 1;
+      },
+    }, save?.story ?? (this.startStory ? newStory() : undefined));
+    this.registry.set('storyMode', !!this.story.data);
     this.buildHud();
     this.buildMinimap(save);
     this.buildInput();
@@ -723,10 +864,13 @@ export class RealmScene extends Phaser.Scene {
         for (let dx = -3; dx <= 3; dx++) if (this.tileAt(tx + dx, top + dy) === T.LEAVES) this.setTile(tx + dx, top + dy, T.AIR);
       }
       this.addItem('wood', (bottom - top + 1) * 2, at);
+      this.harvested.tree = (this.harvested.tree ?? 0) + 1;
       return;
     }
     this.setTile(tx, ty, T.AIR);
     this.stats.mined += 1;
+    this.spark(at.x, at.y + TILE / 2, info.color[1], 4);
+    if (HARVESTABLE[id]) this.harvested[HARVESTABLE[id].kind] = (this.harvested[HARVESTABLE[id].kind] ?? 0) + 1;
     const ore = info.drop ? ORE_XP[info.drop] : undefined;
     if (info.drop) this.addItem(info.drop, ore ? this.hero.lootRoll(1) : 1, at);
     if (ore) this.hero.gainXp(ore);
@@ -737,7 +881,7 @@ export class RealmScene extends Phaser.Scene {
 
   /** place a block/torch; returns whether it happened */
   private placeTile(tx: number, ty: number, item: ItemId): boolean {
-    if (this.pocket === 'foundry' || this.pocket === 'arena') return false;
+    if (this.pocket === 'foundry' || this.pocket === 'arena' || this.pocket === 'detention') return false;
     if (this.homestead?.protects(tx, ty)) return false;
     const id = PLACES[item];
     if (id === undefined || this.count(item) <= 0 || this.tileAt(tx, ty) !== T.AIR) return false;
@@ -763,12 +907,14 @@ export class RealmScene extends Phaser.Scene {
     hud(this.add.rectangle(16, 14, 220, 16, 0x1c1430).setOrigin(0).setStrokeStyle(1, 0x7f1d1d));
     this.hpBar = hud(this.add.rectangle(17, 15, 218, 14, 0xdc2626).setOrigin(0));
     this.hpText = hud(this.add.text(126, 22, '', { fontSize: '11px', fontFamily: font, fontStyle: 'bold', color: '#ffffff' }).setOrigin(0.5));
-    this.heroText = hud(this.add.text(16, 33, '', { fontSize: '11px', fontFamily: font, fontStyle: 'bold', color: '#fde68a', lineSpacing: 1 }));
-    this.infoText = hud(this.add.text(16, 66, '', { fontSize: '12px', fontFamily: font, color: '#e9d5ff' }));
-    this.swordText = hud(this.add.text(RW - 16, 10, '', { fontSize: '13px', fontFamily: font, fontStyle: 'bold', color: '#fca5a5' }).setOrigin(1, 0));
+    hud(this.add.rectangle(16, 31, 220, 7, 0x10231c).setOrigin(0).setStrokeStyle(1, 0x14532d));
+    this.staminaBar = hud(this.add.rectangle(17, 32, 218, 5, 0x4ade80).setOrigin(0));
+    this.heroText = hud(this.add.text(16, 40, '', { fontSize: '11px', fontFamily: font, fontStyle: 'bold', color: '#fde68a', lineSpacing: 1 }));
+    this.infoText = hud(this.add.text(16, 70, '', { fontSize: '12px', fontFamily: font, color: '#e9d5ff' }));
+    this.swordText = hud(this.add.text(RW - 64, 58, '', { fontSize: '13px', fontFamily: font, fontStyle: 'bold', color: '#fca5a5' }).setOrigin(1, 0));
 
-    this.relicText = hud(this.add.text(16, 84, '', { fontSize: '13px', fontFamily: font, color: '#ffffff' }));
-    this.buffText = hud(this.add.text(16, 104, '', { fontSize: '12px', fontFamily: font, color: '#a7f3d0' }));
+    this.relicText = hud(this.add.text(16, 88, '', { fontSize: '13px', fontFamily: font, color: '#ffffff' }));
+    this.buffText = hud(this.add.text(16, 107, '', { fontSize: '12px', fontFamily: font, color: '#a7f3d0' }));
     this.breathBack = hud(this.add.rectangle(16, 124, 120, 8, 0x0c1a2e).setOrigin(0).setStrokeStyle(1, 0x38bdf8).setVisible(false));
     this.breathBar = hud(this.add.rectangle(17, 125, 118, 6, 0x38bdf8).setOrigin(0).setVisible(false));
 
@@ -776,18 +922,26 @@ export class RealmScene extends Phaser.Scene {
     this.comboText = hud(this.add.text(HOTBAR_CX, 82, '', { fontSize: '15px', fontFamily: font, fontStyle: 'bold', color: '#f472b6', stroke: '#0b0714', strokeThickness: 3 }).setOrigin(0.5, 0));
     this.rebuildHotbar();
 
-    const btn = (y: number, label: string, onTap: () => void) => {
-      const b = hud(this.add.rectangle(RW - 52, y, 80, 26, 0x362a52).setInteractive({ useHandCursor: true }));
-      hud(this.add.text(RW - 52, y, label, { fontSize: '11px', fontFamily: font, fontStyle: 'bold', color: '#ffffff' }).setOrigin(0.5));
+    // a single column of real thumb targets down the right edge; the minimap sits beside it
+    const btn = (y: number, label: string, name: string, onTap: () => void) => {
+      const b = hud(this.add.rectangle(RW - 30, y, 48, 38, 0x241a3c, 0.92).setStrokeStyle(1, 0x5b4a86).setInteractive({ useHandCursor: true }));
+      hud(this.add.text(RW - 30, y - 5, label, { fontSize: '15px', fontFamily: font, color: '#ffffff' }).setOrigin(0.5));
+      hud(this.add.text(RW - 30, y + 12, name, { fontSize: '8px', fontFamily: font, fontStyle: 'bold', color: '#c4b5fd' }).setOrigin(0.5));
       b.on('pointerdown', onTap);
     };
-    btn(44, 'PAUSE', () => this.pauseRealm());
-    btn(76, 'CRAFT', () => this.toggleCraft());
-    if (this.homestead) btn(108, 'HOME · H', () => this.toggleHome());
-    btn(this.homestead ? 140 : 76 + 32, 'JOURNAL', () => this.expedition?.toggleJournal());
-    btn(this.homestead ? 172 : 140, 'HERO · I', () => this.toggleHeroMenu());
+    let by = 26;
+    const next = () => { const y = by; by += 43; return y; };
+    btn(next(), '⏸', 'PAUSE', () => this.pauseRealm());
+    btn(next(), '⚒', 'CRAFT', () => this.toggleCraft());
+    if (this.homestead) btn(next(), '⌂', 'HOME', () => this.toggleHome());
+    btn(next(), '📖', 'JOURNAL', () => this.expedition?.toggleJournal());
+    btn(next(), '🧍', 'HERO', () => this.toggleHeroMenu());
     this.homeText = hud(this.add.text(16, 143, '', { fontSize: '12px', fontFamily: font, color: '#a7f3d0' }));
-    this.expeditionText = hud(this.add.text(16, 166, '', { fontSize: '11px', fontFamily: font, color: '#f9d68c', wordWrap: { width: 510 } }));
+    this.expeditionText = hud(this.add.text(16, 166, '', { fontSize: '12px', fontFamily: font, color: '#f9d68c', wordWrap: { width: 510 }, padding: { x: 5, y: 3 } }));
+    // Story Mode's objective is a button: it opens the QUEST page
+    this.expeditionText.setInteractive({ useHandCursor: true }).on('pointerdown', () => {
+      if (this.story?.active && !this.heroMenu?.open && !this.anyMenuOpen()) this.heroMenu?.toggle(TAB_QUEST);
+    });
 
     this.promptText = hud(this.add.text(RW / 2, RH - 60, '', {
       fontSize: '14px', fontFamily: font, fontStyle: 'bold', color: '#ffffff', backgroundColor: '#0b0714cc', padding: { x: 8, y: 4 },
@@ -798,6 +952,7 @@ export class RealmScene extends Phaser.Scene {
       if (portal) void this.travel(portal);
       else if (this.duel?.prompt() || this.dashTrials?.prompt() || this.arena?.prompt() || this.rifts?.prompt()) this.interactActivity();
       else if (this.expedition?.prompt()) this.expedition.interact();
+      else if (!this.homestead?.nearby() && this.story?.prompt()) this.story.interact();
       else if (!this.homestead?.placing) this.homestead?.interact();
     });
     this.bossBack = hud(this.add.rectangle(RW / 2, 112, 404, 14, 0x1c1430).setStrokeStyle(1, 0xe11d48).setVisible(false));
@@ -808,27 +963,36 @@ export class RealmScene extends Phaser.Scene {
     }).setOrigin(0.5).setAlpha(0).setDepth(65));
     for (let i = 0; i < 14; i++) this.windStreaks.push(hud(this.add.rectangle(0, 0, 60, 2, 0xffffff, 0.5).setVisible(false)));
 
-    const hint = hud(this.add.text(RW / 2, RH - 12,
-      'A/D move · W jump · J sword · K/click use · E craft · H home · I hero · S interact    🎮 A jump · X sword · RT use · RS aim · Y craft · LT home · L3 hero · ▼ interact',
-      { fontSize: '11px', fontFamily: font, color: '#b7aed0' }).setOrigin(0.5, 1));
-    this.tweens.add({ targets: hint, alpha: 0, delay: 25_000, duration: 1500 });
+    if (this.sys.game.device.os.desktop) {
+      const hint = hud(this.add.text(RW / 2, RH - 12,
+        'A/D move · W jump · J sword · K/click use · E craft · H home · I hero · S interact    🎮 A jump · X sword · RT use · RS aim · Y craft · LT home · L3 hero · ▼ interact',
+        { fontSize: '11px', fontFamily: font, color: '#b7aed0' }).setOrigin(0.5, 1));
+      this.tweens.add({ targets: hint, alpha: 0, delay: 25_000, duration: 1500 });
+    }
 
     if (!this.sys.game.device.os.desktop) this.buildTouchControls();
     this.updateHud();
   }
 
+  /**
+   * The thumbs. Zones are polled against every finger each frame instead of waiting for
+   * per-button events, so holding a direction can never swallow jump or attack, and a thumb
+   * can slide from ◀ to ▶ without lifting. See pollTouch().
+   */
   private buildTouchControls(): void {
-    const zone = (x: number, y: number, label: string, set: (down: boolean) => void) => {
-      const r = this.add.circle(x, y, 38, 0xffffff, 0.14).setScrollFactor(0).setDepth(60).setInteractive();
-      this.add.text(x, y, label, { fontSize: '20px', color: '#ffffff' }).setOrigin(0.5).setScrollFactor(0).setDepth(61);
-      r.on('pointerdown', () => set(true));
-      r.on('pointerup', () => set(false));
-      r.on('pointerout', () => set(false));
+    const zone = (x: number, y: number, r: number, label: string, set: (down: boolean) => void) => {
+      // interactive with no listener: taps here must not also count as taps on the world
+      const face = this.add.circle(x, y, r - 6, 0xffffff, 0.13).setStrokeStyle(2, 0xffffff, 0.28).setScrollFactor(0).setDepth(60).setInteractive();
+      const text = this.add.text(x, y, label, { fontSize: '24px', color: '#ffffff' }).setOrigin(0.5).setScrollFactor(0).setDepth(61);
+      this.touchZones.push({ x, y, r, held: false, face, set });
+      return text;
     };
-    zone(60, RH - 60, '◀', (d) => { this.touch.left = d; });
-    zone(150, RH - 60, '▶', (d) => { this.touch.right = d; });
-    zone(RW - 150, RH - 60, '⚔', (d) => { if (d && !this.touch.attack) this.touchAttackPressed = true; this.touch.attack = d; });
-    zone(RW - 60, RH - 60, '⤒', (d) => { if (d && !this.touch.jump) this.touchJumpPressed = true; this.touch.jump = d; });
+    zone(58, RH - 62, 56, '◀', (d) => { this.touch.left = d; });
+    zone(166, RH - 62, 56, '▶', (d) => { this.touch.right = d; });
+    zone(RW - 58, RH - 62, 56, '⤒', (d) => { if (d && !this.touch.jump) this.touchJumpPressed = true; this.touch.jump = d; });
+    zone(RW - 166, RH - 62, 56, '⚔', (d) => { if (d && !this.touch.attack) this.touchAttackPressed = true; this.touch.attack = d; });
+    this.useIcon = zone(RW - 112, RH - 158, 46, '⛏', (d) => { if (d && !this.touch.use) this.touchUsePressed = true; this.touch.use = d; });
+    zone(RW - 274, RH - 62, 52, '🛡', (d) => { this.touch.guard = d; });
     // the trick pad: only while the yoyo is in hand
     const trick = (x: number, y: number, label: string, dir: TrickInput) => {
       const r = this.add.circle(x, y, 22, 0x5eead4, 0.22).setScrollFactor(0).setDepth(60).setInteractive();
@@ -842,6 +1006,19 @@ export class RealmScene extends Phaser.Scene {
     trick(RW - 94, RH - 160, '→', 'right');
   }
 
+  private pollTouch(): void {
+    if (!this.touchZones.length) return;
+    const down = this.input.manager.pointers.filter((p) => p.isDown);
+    for (const z of this.touchZones) {
+      const held = down.some((p) => Math.hypot(p.x - z.x, p.y - z.y) <= z.r);
+      if (held !== z.held) {
+        z.held = held;
+        z.face.setFillStyle(0xffffff, held ? 0.34 : 0.13);
+      }
+      z.set(held);
+    }
+  }
+
   private banner(title: string, sub = ''): void {
     this.bannerText.setFontSize(26).setText(sub ? `${title}\n${sub}` : title).setAlpha(1);
     this.tweens.killTweensOf(this.bannerText);
@@ -849,7 +1026,13 @@ export class RealmScene extends Phaser.Scene {
   }
 
   private updateHud(): void {
-    this.expeditionText?.setText(this.arena?.hud() || this.dashTrials?.hud() || (this.pocket === 'arena' ? '' : this.expedition?.objective() ?? ''));
+    const storyLine = this.arena?.hud() || this.dashTrials?.hud() ? '' : this.story?.objective() ?? '';
+    this.expeditionText?.setText(storyLine || this.arena?.hud() || this.dashTrials?.hud() || (this.pocket === 'arena' || this.pocket === 'detention' ? '' : this.expedition?.objective() ?? ''));
+    // restyling re-uploads the text's texture, so only when it really changes
+    if (!!storyLine !== this.expeditionStory) {
+      this.expeditionStory = !!storyLine;
+      this.expeditionText?.setBackgroundColor(storyLine ? '#2a103dd9' : '#00000000').setColor(storyLine ? '#fde68a' : '#f9d68c');
+    }
     this.arenaMapMark?.setVisible(!!this.minimapDot?.visible);
     if (this.rifts) {
       const next = this.rifts.nextRift();
@@ -866,8 +1049,10 @@ export class RealmScene extends Phaser.Scene {
     const dx = home ? (home.tx + 1.5) * TILE - this.player.x : 0;
     const dy = home ? (home.ty + 1) * TILE - this.player.y : 0;
     const distance = Math.round(Math.hypot(dx, dy) / TILE);
-    this.homeText?.setText(this.homestead ? `${home ? distance < 4 ? '⌂ Home' : `⌂ Home ${Math.abs(dy) > Math.abs(dx) ? dy < 0 ? '↑' : '↓' : dx < 0 ? '←' : '→'} ${distance} m` : 'H / LT · build a homestead'}${this.homestead.warmth() ? ' · Warmth +' : ''}` : '');
+    this.homeText?.setText(this.homestead ? `${home ? distance < 4 ? '⌂ Home' : `⌂ Home ${Math.abs(dy) > Math.abs(dx) ? dy < 0 ? '↑' : '↓' : dx < 0 ? '←' : '→'} ${distance} m` : hint('H / LT · build a homestead', '⌂ build a homestead')}${this.homestead.warmth() ? ' · Warmth +' : ''}` : '');
     this.hpBar.width = 218 * Math.max(0, this.hp) / this.maxHp;
+    this.staminaBar.width = 218 * (this.combat.stamina / STAMINA_MAX);
+    this.staminaBar.setFillStyle(this.combat.stun > 0 ? 0xef4444 : this.combat.stamina < 25 ? 0xfacc15 : 0x4ade80);
     this.hpText.setText(`HP ${Math.ceil(Math.max(0, this.hp))} / ${this.maxHp}`);
     this.relicText.setText(POCKET_ORDER.map((id) => (this.relics.has(id) ? RELICS[id].icon : '◌')).join(' '));
     const t = this.hero.timers;
@@ -896,13 +1081,19 @@ export class RealmScene extends Phaser.Scene {
       const depth = this.depthTiles();
       this.infoText.setText(`${night ? '🌙 Night' : '☀ Day'} · ${depth > 0 ? `${depth} m deep` : 'surface'} · 🧪 ${this.count('potion')}`);
     }
-    this.swordText.setText(`⚔ ${SWORDS[this.sword].name} (${Math.round(this.swordDamage() * this.hero.stats.damageMult)})`);
+    this.swordText.setText(`⚔ ${this.weapon?.name ?? SWORDS[this.sword].name} (${Math.round(this.swordDamage() * this.hero.stats.damageMult)})`);
     this.slots.forEach((slot, i) => {
       const selected = i === this.slot;
       this.slotBoxes[i]?.setStrokeStyle(selected ? 3 : 2, selected ? 0xfacc15 : 0x362a52);
-      this.slotTexts[i]?.setText(this.slotIcon(slot)).setFontSize(slot === 'pickaxe' ? 20 : 13);
+      const t = this.slotTexts[i];
+      if (t) {
+        const size = slot === 'pickaxe' ? '20px' : '13px';
+        if (t.style.fontSize !== size) t.setFontSize(size);
+        t.setText(this.slotIcon(slot));
+      }
     });
     this.slotLabel.setText(this.slotName(this.slots[this.slot]));
+    if (this.useIcon) { const cur = this.slots[this.slot]; this.useIcon.setText(cur === 'pickaxe' ? '⛏' : cur === 'yoyo' ? '🪀' : cur === 'pogo' ? '🦘' : cur.startsWith('pog:') ? '⚡' : ITEM_ICON[cur as ItemId] ?? 'USE'); }
     const yoyoInHand = this.slots[this.slot] === 'yoyo';
     for (const o of this.trickPad) (o as Phaser.GameObjects.Arc).setVisible(yoyoInHand);
   }
@@ -971,7 +1162,7 @@ export class RealmScene extends Phaser.Scene {
       a: K.A, d: K.D, w: K.W, space: K.SPACE, j: K.J, k: K.K, e: K.E, q: K.Q, esc: K.ESC,
       up: K.UP, down: K.DOWN, left: K.LEFT, right: K.RIGHT,
       one: K.ONE, two: K.TWO, three: K.THREE, four: K.FOUR, five: K.FIVE, six: K.SIX,
-      seven: K.SEVEN, eight: K.EIGHT, nine: K.NINE, zero: K.ZERO, s: K.S, tab: K.TAB, h: K.H, n: K.N, i: K.I,
+      seven: K.SEVEN, eight: K.EIGHT, nine: K.NINE, zero: K.ZERO, s: K.S, tab: K.TAB, h: K.H, n: K.N, i: K.I, l: K.L, shift: K.SHIFT,
     }) as Record<string, Phaser.Input.Keyboard.Key>;
     this.input.mouse?.disableContextMenu();
     this.input.on('pointermove', () => { this.lastMouseMove = this.time.now; });
@@ -980,12 +1171,14 @@ export class RealmScene extends Phaser.Scene {
         if (this.endingReady) void this.travel('home');
         return;
       }
-      if (over.length > 0 || this.craftPanel?.visible || this.homestead?.open || this.expedition?.open || this.heroMenu?.open || this.duel?.open || this.dead || !this.ready) return;
+      if (over.length > 0 || this.dialogue?.open || this.craftPanel?.visible || this.homestead?.open || this.expedition?.open || this.heroMenu?.open || this.duel?.open || this.dead || !this.ready) return;
       this.lastMouseMove = this.time.now;
-      if (pointer.rightButtonDown()) this.swing();
-      else this.pointerUse = true;
+      if (pointer.rightButtonDown()) this.attackPress();
+      else { this.pointerUse = true; this.usePointerId = pointer.id; }
     });
-    this.input.on('pointerup', () => { this.pointerUse = false; });
+    this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.id === this.usePointerId) { this.pointerUse = false; this.usePointerId = -1; }
+    });
     this.input.on('wheel', (_p: unknown, _o: unknown, _dx: number, dy: number) => this.cycleSlot(dy > 0 ? 1 : -1));
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.input.off('pointermove');
@@ -1010,7 +1203,7 @@ export class RealmScene extends Phaser.Scene {
   private menuPause(open: boolean): void {
     this.pointerUse = false;
     this.mining = null;
-    this.touch = { left: false, right: false, jump: false, attack: false };
+    this.touch = { left: false, right: false, jump: false, attack: false, use: false, guard: false };
     this.touchJumpPressed = false;
     this.touchAttackPressed = false;
     if (open) { this.physics.pause(); this.aimRect?.setVisible(false); } else this.physics.resume();
@@ -1175,7 +1368,7 @@ export class RealmScene extends Phaser.Scene {
   private pauseRealm(): void {
     if (!this.ready || !this.scene.isActive()) return;
     this.pointerUse = false;
-    this.touch = { left: false, right: false, jump: false, attack: false };
+    this.touch = { left: false, right: false, jump: false, attack: false, use: false, guard: false };
     void this.save();
     this.scene.launch('PlatformerPause', { target: 'Realm' });
     this.scene.pause();
@@ -1207,7 +1400,10 @@ export class RealmScene extends Phaser.Scene {
     const panel = this.add.container(RW / 2, RH / 2).setScrollFactor(0).setDepth(80);
     panel.add(this.add.rectangle(0, 0, 900, 480, 0x0b0714, 0.96).setStrokeStyle(2, 0x7c3aed));
     panel.add(this.add.text(0, -218, 'ALCHEMY & SMITHING', { fontSize: '18px', fontFamily: font, fontStyle: 'bold', color: '#c4b5fd' }).setOrigin(0.5));
-    panel.add(this.add.text(0, 224, 'click / A to craft · ↑ ↓ choose · E / Y / B to close', { fontSize: '11px', fontFamily: font, color: '#6b6180' }).setOrigin(0.5));
+    panel.add(this.add.text(0, 224, hint('click / A to craft · ↑ ↓ choose · E / Y / B to close', 'tap a recipe to craft · tap × to close'), { fontSize: '11px', fontFamily: font, color: '#8b80a8' }).setOrigin(0.5));
+    const close = this.add.rectangle(420, -216, 48, 36, 0x241b3a).setStrokeStyle(1, 0x7c3aed).setInteractive({ useHandCursor: true });
+    close.on('pointerdown', () => this.toggleCraft());
+    panel.add([close, this.add.text(420, -216, '×', { fontSize: '18px', fontFamily: font, fontStyle: 'bold', color: '#ffffff' }).setOrigin(0.5)]);
     const perColumn = Math.ceil(RECIPES.length / 2);
     RECIPES.forEach((recipe, i) => {
       const x = i < perColumn ? -222 : 222;
@@ -1281,6 +1477,10 @@ export class RealmScene extends Phaser.Scene {
     const k = this.keys;
     const J = Phaser.Input.Keyboard.JustDown;
 
+    if (this.dialogue?.open) {
+      this.dialogue.updateInput(pad.pressed, k);
+      return;
+    }
     if (this.ending) {
       if (this.endingReady && (pad.pressed.a || J(k.space) || J(k.k) || J(k.j))) void this.travel('home');
       return;
@@ -1346,7 +1546,7 @@ export class RealmScene extends Phaser.Scene {
     if (pad.pressed.lb) this.cycleSlot(-1);
     if (pad.pressed.rb) this.cycleSlot(1);
     (['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'zero'] as const).forEach((key, i) => { if (J(k[key]) && i < this.slots.length) this.slot = i; });
-    if (pad.pressed.b || J(k.q)) this.drinkPotion();
+    if (J(k.q)) this.drinkPotion();
 
     // yoyo in hand: the arrow keys and right-stick flicks are trick inputs, not movement or aim
     const yoyoInHand = this.slots[this.slot] === 'yoyo';
@@ -1354,14 +1554,17 @@ export class RealmScene extends Phaser.Scene {
     const downPressed = pad.pressed.down || J(k.s) || (!yoyoInHand && J(k.down));
 
     // movement
-    const left = k.a.isDown || (!yoyoInHand && k.left.isDown) || pad.held.left || this.touch.left;
-    const right = k.d.isDown || (!yoyoInHand && k.right.isDown) || pad.held.right || this.touch.right;
+    this.pollTouch();
+    let left = k.a.isDown || (!yoyoInHand && k.left.isDown) || pad.held.left || this.touch.left;
+    let right = k.d.isDown || (!yoyoInHand && k.right.isDown) || pad.held.right || this.touch.right;
     let jumpPressed = pad.pressed.a || J(k.w) || J(k.space) || this.touchJumpPressed;
     const jumpHeld = pad.held.a || k.w.isDown || k.space.isDown || this.touch.jump;
     this.touchJumpPressed = false;
     const body = this.player.body as Phaser.Physics.Arcade.Body;
     const grounded = body.blocked.down || body.touching.down;
     const inWater = this.isWaterAt(this.player.x, this.player.y - 18);
+    this.updateDefence(dt, { left, right, grounded, inWater, guardHeld: !!(pad.held.b || k.l.isDown || this.touch.guard), dodgeKey: J(k.shift) });
+    if (!this.combat.ready) { left = false; right = false; jumpPressed = false; }
 
     // portals: stand in one and press down
     const portal = this.portalHere();
@@ -1369,13 +1572,15 @@ export class RealmScene extends Phaser.Scene {
     const duelPrompt = !portal && !sealed ? this.duel?.prompt() || this.dashTrials?.prompt() || this.arena?.prompt() || this.rifts?.prompt() : '';
     const furniture = !portal && !sealed && !duelPrompt ? this.homestead?.nearby() : undefined;
     const expeditionPrompt = this.expedition?.prompt();
-    this.promptText.setVisible(!!portal || sealed || !!duelPrompt || !!furniture || !!this.homestead?.placing || !!expeditionPrompt).setText(
-      portal ? `▼ ${portal === 'home' ? 'return to the Overworld' : portal === 'forever' ? 'pass through the Forever Gate' : `enter the ${POCKETS[portal].name}`}`
+    const storyPrompt = !portal && !sealed && !duelPrompt && !furniture && !expeditionPrompt ? this.story?.prompt() : '';
+    this.promptText.setVisible(!!portal || sealed || !!duelPrompt || !!furniture || !!this.homestead?.placing || !!expeditionPrompt || !!storyPrompt).setText(
+      portal ? `${isTouch() ? 'Tap here · ' : '▼ '}${portal === 'home' ? 'return to the Overworld' : portal === 'forever' ? 'pass through the Forever Gate' : `enter the ${POCKETS[portal].name}`}`
       : sealed ? `the Forever Gate is sealed · ${this.relics.size}/${POCKET_ORDER.length} relics`
       : this.homestead?.placing ? this.homestead.placementHint()
       : duelPrompt ? duelPrompt
       : expeditionPrompt ? expeditionPrompt
-      : furniture ? `▼ / S / tap · ${ITEM_NAME[furniture.kind]}` : '',
+      : furniture ? `${interactKey()} · ${ITEM_NAME[furniture.kind]}`
+      : storyPrompt || '',
     );
     if (portal && downPressed) {
       void this.travel(portal);
@@ -1386,6 +1591,7 @@ export class RealmScene extends Phaser.Scene {
       this.homestead?.interact(); return;
     }
     if (expeditionPrompt && downPressed) { this.expedition?.interact(); return; }
+    if (storyPrompt && downPressed) { this.story?.interact(); return; }
 
     // Gale Plume (always) and a double-jump pog (while it lasts): extra jumps in the air
     if (grounded || inWater) this.airJumpsUsed = 0;
@@ -1399,10 +1605,13 @@ export class RealmScene extends Phaser.Scene {
     const swimSpeed = inWater && !this.relics.has('tide') ? 0.7 : 1;
     if (this.riding && inWater) this.dismount();
     if (jumpPressed) this.lastJumpPressAt = this.time.now;
-    const speed = MOVE_SPEED * swimSpeed * this.hero.stats.moveMult * (this.hero.timers.speed > 0 ? 1.6 : 1) * (this.riding ? 1.35 : 1);
+    const speed = MOVE_SPEED * swimSpeed * this.hero.stats.moveMult * (this.hero.timers.speed > 0 ? 1.6 : 1) * (this.riding ? 1.35 : 1)
+      * (this.combat.guarding ? GUARD_MOVE_SCALE : this.combat.charge > 0 ? 0.55 : 1);
     updateController(body, { left, right, jumpPressed: jumpPressed && !inWater && !this.riding, jumpHeld }, this.ctrl,
-      { moveSpeed: speed, moveAccel: PHYS.moveAccel * (speed / MOVE_SPEED), jumpScale: JUMP_SCALE * this.hero.stats.jumpMult }, dt);
+      { moveSpeed: speed, moveAccel: PHYS.moveAccel * (speed / MOVE_SPEED), jumpScale: JUMP_SCALE * this.hero.stats.jumpMult, responsive: true }, dt);
     applyHeroGravity(body);
+    // the top of a held jump hangs a moment, so a jump can be steered
+    if (jumpHeld && !grounded && Math.abs(body.velocity.y) < 75) body.setGravityY(PHYS.gravityY * 0.6);
     this.updatePound(body, grounded);
     if (this.riding) this.pogoBounce(body, grounded, jumpHeld);
     if (this.dash.ms > 0) { this.dash.ms -= dt; body.setVelocityX(this.dash.vx); body.setVelocityY(Math.min(body.velocity.y, 0)); }
@@ -1416,13 +1625,15 @@ export class RealmScene extends Phaser.Scene {
 
     // sword
     this.swingTimer = Math.max(0, this.swingTimer - dt);
-    if (pad.pressed.x || J(k.j) || this.touchAttackPressed) this.swing();
+    if (pad.pressed.x || J(k.j) || this.touchAttackPressed) this.attackPress();
     this.touchAttackPressed = false;
+    this.updateAttack(dt, !!(pad.held.x || k.j.isDown || this.touch.attack));
 
     // aim & tool use
     this.aim = this.computeAim(pads, k);
-    const using = pad.held.rt || k.k.isDown || this.pointerUse;
-    this.useTool(using, pad.pressed.rt || J(k.k), dt);
+    const using = pad.held.rt || k.k.isDown || this.pointerUse || this.touch.use;
+    this.useTool(using, pad.pressed.rt || J(k.k) || this.touchUsePressed, dt);
+    this.touchUsePressed = false;
     this.drawAim();
 
     // regen
@@ -1434,6 +1645,11 @@ export class RealmScene extends Phaser.Scene {
     this.updateProjectiles();
     for (const b of BREW_IDS) if ((this.buffs[b] ?? 0) > 0) this.buffs[b] = Math.max(0, this.buffs[b]! - dt);
 
+    this.updateHarvestHelp(dt);
+    this.combat.tick(dt);
+    this.updateTimeWarp(dt);
+    this.story?.update(dt);
+    this.burstCooldown = Math.max(0, this.burstCooldown - dt);
     this.updateMinimap(dt);
     this.updateEnemies(dt);
     this.updateHazards();
@@ -1444,6 +1660,7 @@ export class RealmScene extends Phaser.Scene {
     this.arena?.update(dt);
     this.rifts?.update();
     this.drawPogo();
+    this.updateBackdrop(dt);
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0) {
       this.spawnTimer = SPAWN_EVERY_MS;
@@ -1561,7 +1778,7 @@ export class RealmScene extends Phaser.Scene {
 
   /** which realm's hazard applies here: the realm itself, or in the Eternal Hall the segment you're in */
   private hazardHere(): RelicId | undefined {
-    if (!this.pocket || this.pocket === 'foundry' || this.pocket === 'arena') return undefined;
+    if (!this.pocket || this.pocket === 'foundry' || this.pocket === 'arena' || this.pocket === 'detention') return undefined;
     if (this.pocket !== 'forever') return this.pocket;
     const tx = Math.floor(this.player.x / TILE);
     return FOREVER_SEGMENTS.find((s) => tx >= s.x0 && tx < s.x1)?.like;
@@ -1599,13 +1816,16 @@ export class RealmScene extends Phaser.Scene {
     let ax: number;
     let ay: number;
     const stick = pads.find((p) => Math.hypot(p.sticks.rx, p.sticks.ry) > 0.35)?.sticks;
-    const pointer = this.input.activePointer;
+    // the finger on the world, never whichever thumb happened to move last
+    const pointer = this.input.manager.pointers.find((p) => p.id === this.usePointerId) ?? this.input.activePointer;
+    const desktop = this.sys.game.device.os.desktop;
     if (stick) {
       ax = cx + stick.rx * REACH_PX;
       ay = cy + stick.ry * REACH_PX;
-    } else if (this.pointerUse || this.time.now - this.lastMouseMove < 2500) {
-      ax = pointer.worldX;
-      ay = pointer.worldY;
+    } else if (this.pointerUse || (desktop && this.time.now - this.lastMouseMove < 2500)) {
+      const at = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+      ax = at.x;
+      ay = at.y;
     } else {
       const padFrames = mergePads(pads).held;
       const arrows = this.slots[this.slot] !== 'yoyo';
@@ -1622,7 +1842,11 @@ export class RealmScene extends Phaser.Scene {
         ay = cy;
         // pickaxe: chest height, else foot height, else the ground just in front of you
         const tx = Math.floor(ax / TILE);
-        if (this.slots[this.slot] === 'pickaxe') {
+        // on touch there's no aiming a finger and moving at once: USE goes for what's worth having
+        if (!desktop && this.harvestTile && this.slots[this.slot] === 'pickaxe') {
+          ax = (this.harvestTile.tx + 0.5) * TILE;
+          ay = (this.harvestTile.ty + 0.5) * TILE;
+        } else if (this.slots[this.slot] === 'pickaxe') {
           for (const y of [cy, this.player.y - 6, this.player.y + 8]) {
             ay = y;
             if (this.tileAt(tx, Math.floor(y / TILE)) !== T.AIR) break;
@@ -1731,32 +1955,449 @@ export class RealmScene extends Phaser.Scene {
 
   /** blade tier, plus the Ember Heart's fire and a Strength Tonic */
   private swordDamage(): number {
-    const base = SWORDS[this.sword].damage + (this.relics.has('ember') ? 4 : 0);
+    const base = (this.weapon?.damage ?? SWORDS[this.sword].damage) + (this.relics.has('ember') ? 4 : 0);
     return Math.round(base * ((this.buffs.tonic ?? 0) > 0 ? 1.5 : 1));
   }
 
   // ---------------- combat ----------------
 
-  private swing(): void {
+  /** attack pressed: swing now, or hold the press for the moment this swing ends */
+  private attackPress(): void {
+    if (this.dead || !this.ready || !this.combat.ready) return;
+    if (this.combat.guarding) this.combat.lowerGuard();
+    if (this.swingTimer > 0) { this.combat.buffer = ATTACK_BUFFER_MS; return; }
+    this.swing();
+  }
+
+  /** keeps the chain moving, and turns a held button into a charged blow */
+  private updateAttack(dt: number, held: boolean): void {
+    const c = this.combat;
+    if (c.buffer > 0 && this.swingTimer <= 0 && c.ready && !c.guarding) { c.buffer = 0; this.swing(); }
+    if (held && c.ready && !c.guarding && this.swingTimer <= 0 && !this.riding) {
+      c.held += dt;
+      if (c.held >= CHARGE_COMMIT_MS && c.stamina > 0) {
+        const before = c.charged;
+        c.charge += dt;
+        const pulse = c.charged ? (Math.floor(this.time.now / 90) % 2 ? 0xfde047 : 0xffffff) : 0xfed7aa;
+        this.player.setTint(pulse);
+        if (!before && c.charged) { this.spark(this.player.x, this.player.y - 24, 0xfde047, 10); this.floatText(this.player.x, this.player.y - 58, 'READY', '#fde047'); }
+      }
+      return;
+    }
+    if (!held) {
+      if (c.charge > 0) {
+        this.player.clearTint();
+        if (c.charged && this.swingTimer <= 0) this.swing(HEAVY);
+      }
+      c.charge = 0;
+      c.held = 0;
+    }
+  }
+
+  /** one blow: a step in the light chain, or the charged heavy when `def` is given */
+  private swing(def?: SwingDef): void {
     if (this.swingTimer > 0 || this.dead || !this.ready) return;
-    this.swingTimer = SWING_COOLDOWN_MS;
+    const c = this.combat;
+    const heavy = !!def;
+    const blow = def ?? c.nextSwing();
+    this.swingTimer = blow.lock * (c.exhausted ? EXHAUSTED_LOCK_SCALE : 1);
+    c.spend(heavy ? HEAVY_COST : LIGHT_COST);
+    this.softLock(blow.range);
     const dir = this.facing;
-    const hx = this.player.x + dir * 22;
-    const hy = this.player.y - 22;
-    this.swordSprite.setPosition(this.player.x + dir * 6, this.player.y - 20).setFlipX(dir < 0).setVisible(true).setAngle(dir * -100);
+    const body = this.player.body as Phaser.Physics.Arcade.Body;
+    if (body.blocked.down && !this.riding) this.dash = { vx: dir * blow.lunge, ms: 90 };
+
+    // what you see is what you hit: the blade and its arc reach exactly as far as the blow does
+    const weapon = this.weapon;
+    this.swordSprite.setTexture(weapon ? `weapon_${weapon.heroId}` : 'realm_sword');
+    this.tweens.killTweensOf(this.swordSprite);
+    this.swordSprite.setPosition(this.player.x + dir * 6, this.player.y - 20).setFlipX(dir < 0).setVisible(true)
+      .setAngle(dir * blow.from).setScale((blow.range - 6) / 32);
     this.tweens.add({
       targets: this.swordSprite,
-      angle: dir * 70,
-      duration: 160,
+      angle: dir * blow.to,
+      duration: Math.min(190, blow.lock * 0.6),
       onComplete: () => this.swordSprite.setVisible(false),
     });
-    const { damage, crit } = this.hero.strike(this.swordDamage());
-    const inReach = (b: Phaser.Physics.Arcade.Body) => Math.hypot(b.center.x - hx, b.center.y - hy) <= SWING_RANGE + Math.max(b.width, b.height) / 2;
+    const scale = blow.range / 42;
+    const slash = this.add.image(this.player.x + dir * (blow.range - 10 * scale), this.player.y - 24, 'fx_slash').setDepth(11).setFlipX(dir < 0)
+      .setTint(weapon ? this.hero.character.color : heavy ? 0xfde047 : 0xfff4d6).setAlpha(0.9).setScale(scale * 0.9);
+    this.tweens.add({ targets: slash, scale, alpha: 0, duration: 180, onComplete: () => slash.destroy() });
+    this.swingCount++;
+
+    const passive = weapon?.passive;
+    const guardBonus = passive === 'fullGuardBonus' && this.hero.stats.guardPips > 0 && this.hero.guard >= this.hero.stats.guardPips ? 1.3 : 1;
+    const perfect = c.perfectBonus > 0 ? PERFECT_BONUS : 1;
+    const { damage, crit } = this.hero.strike(this.swordDamage() * blow.damage * guardBonus * perfect, passive === 'thirdCrit' && (this.hitCount + 1) % 3 === 0);
+    // one box, mirrored by the facing: from just behind the hero to the blade's tip
+    const inReach = (b: Phaser.Physics.Arcade.Body) => {
+      const ahead = (b.center.x - this.player.x) * dir;
+      return ahead >= -18 - b.width / 2 && ahead <= blow.range + b.width / 2 && Math.abs(b.center.y - (this.player.y - 22)) <= 40 + b.height / 2;
+    };
     let landed = false;
-    for (const e of [...this.enemies]) if (inReach(e.sprite.body as Phaser.Physics.Arcade.Body)) { this.hurtEnemy(e, damage, dir, crit); landed = true; }
+    for (const e of [...this.enemies]) {
+      if (!inReach(e.sprite.body as Phaser.Physics.Arcade.Body)) continue;
+      const scaled = this.openingScale(e.sprite, e.stagger > 0, e.riposte);
+      if (e.riposte) e.riposte = false;
+      this.hurtEnemy(e, Math.round(damage * scaled), dir, crit || scaled >= RIPOSTE_DAMAGE, blow.poise);
+      landed = true;
+    }
     const boss = this.boss;
-    if (boss && inReach(boss.sprite.body as Phaser.Physics.Arcade.Body) && this.damageBoss(damage, crit) > 0) landed = true;
-    if (landed) this.hero.hitLanded();
+    if (boss && inReach(boss.sprite.body as Phaser.Physics.Arcade.Body)) {
+      const scaled = this.openingScale(boss.sprite, (boss.data.stagger ?? 0) > 0, false);
+      if (this.damageBoss(Math.round(damage * scaled), crit) > 0) { landed = true; this.breakBossPoise(boss, blow.poise); }
+    }
+    if (landed) {
+      this.hero.hitLanded();
+      this.hitCount++;
+      c.perfectBonus = 0;
+      this.warpTime(blow.stop, 8);
+      this.cameras.main.shake(heavy ? 110 : 50, heavy ? 0.007 : crit ? 0.004 : 0.0015);
+    }
+    if (passive) this.weaponEffect(passive, damage, crit, landed);
+  }
+
+  /** with no direction held, the blow turns to meet the nearest thing in reach (the soft lock-on) */
+  private softLock(range: number): void {
+    const held = this.touch.left || this.touch.right || this.keys?.a.isDown || this.keys?.d.isDown || mergePads(readPads(this.time.now)).held.left || mergePads(readPads(this.time.now)).held.right;
+    if (held) return;
+    let best = Infinity;
+    let dir = 0;
+    const consider = (s: Phaser.Physics.Arcade.Sprite) => {
+      const dx = s.x - this.player.x;
+      const d = Math.abs(dx) - (s.body as Phaser.Physics.Arcade.Body).width / 2;
+      if (d <= range + 16 && Math.abs(s.y - this.player.y) < 70 && d < best) { best = d; dir = dx < 0 ? -1 : 1; }
+    };
+    for (const e of this.enemies) consider(e.sprite);
+    if (this.boss) consider(this.boss.sprite);
+    if (dir) { this.facing = dir as 1 | -1; this.player.setFlipX(dir < 0); }
+  }
+
+  /** what the moment is worth: a riposte, a staggered target, or one that's looking the other way */
+  private openingScale(s: Phaser.Physics.Arcade.Sprite, staggered: boolean, riposte: boolean): number {
+    if (riposte) { this.floatText(s.x, s.y - 74, 'RIPOSTE', '#fde047'); return RIPOSTE_DAMAGE; }
+    if (staggered) return STAGGER_DAMAGE;
+    const looking = s.flipX ? -1 : 1;
+    if (Math.sign(this.player.x - s.x) === -looking) { this.floatText(s.x, s.y - 74, 'BACKSTAB', '#fca5a5'); return BACKSTAB_DAMAGE; }
+    return 1;
+  }
+
+  /** the whole world holds (a hit landing) or slows (a perfect dodge) for a moment */
+  private warpTime(ms: number, scale: number): void {
+    if (ms <= 0) return;
+    this.timeWarp = { ms, scale };
+    this.physics.world.timeScale = scale;
+  }
+
+  private updateTimeWarp(dt: number): void {
+    if (this.timeWarp.ms <= 0) return;
+    this.timeWarp.ms -= dt;
+    if (this.timeWarp.ms <= 0) this.physics.world.timeScale = 1;
+  }
+
+  /** dodge and guard: read the inputs, then draw the guard */
+  private updateDefence(dt: number, s: { left: boolean; right: boolean; grounded: boolean; inWater: boolean; guardHeld: boolean; dodgeKey: boolean }): void {
+    const c = this.combat;
+    const now = this.time.now;
+    if (s.grounded) c.airDodged = false;
+    let tap = false;
+    let dir: 1 | -1 = this.facing;
+    if (s.left && !this.wasLeft) { dir = -1; tap = c.tapped(-1, now); }
+    if (s.right && !this.wasRight) { dir = 1; tap = c.tapped(1, now) || tap; }
+    this.wasLeft = s.left;
+    this.wasRight = s.right;
+    if (s.dodgeKey) { tap = true; dir = s.left ? -1 : s.right ? 1 : this.facing; }
+    if (tap && !s.inWater && !this.riding && c.canDodge(s.grounded)) this.dodge(dir, s.grounded);
+
+    if (s.guardHeld && !this.wasGuard && c.ready && !this.riding && this.dash.ms <= 0) c.raiseGuard();
+    if (!s.guardHeld && c.guarding) c.lowerGuard();
+    this.wasGuard = s.guardHeld;
+    if (c.guarding && this.swingTimer > 0 && this.swingTimer > 200) c.lowerGuard();
+
+    if (!this.guardFx) this.guardFx = this.add.image(0, 0, 'fx_slash').setDepth(11);
+    this.guardFx.setVisible(c.guarding).setFlipX(this.facing < 0);
+    if (c.guarding) {
+      this.guardFx.setPosition(this.player.x + this.facing * 4, this.player.y - 24).setScale(0.75, 0.9)
+        .setTint(c.parryTimer > 0 ? 0xfde047 : 0x93c5fd).setAlpha(c.parryTimer > 0 ? 1 : 0.6);
+    }
+    void dt;
+  }
+
+  /** a quick roll: you can't be hit, and it cuts short a swing's recovery */
+  private dodge(dir: 1 | -1, grounded: boolean): void {
+    const c = this.combat;
+    c.dodged(grounded);
+    this.facing = dir;
+    this.swingTimer = 0;
+    this.player.clearTint();
+    this.dash = { vx: dir * DODGE_SPEED, ms: DODGE_MS };
+    this.invuln = Math.max(this.invuln, 270);
+    const texture = this.player.texture.key;
+    for (let i = 0; i < 3; i++) {
+      this.time.delayedCall(i * 55, () => {
+        if (!this.player?.active) return;
+        const ghost = this.add.image(this.player.x, this.player.y, texture).setOrigin(0.5, 1).setDepth(9).setFlipX(dir < 0).setAlpha(0.45).setTint(this.hero.character.color);
+        this.tweens.add({ targets: ghost, alpha: 0, duration: 220, onComplete: () => ghost.destroy() });
+      });
+    }
+  }
+
+  /** take poise off an enemy; when it's gone, it reels */
+  private staggerEnemy(e: RealmEnemy, ms: number, riposte = false): void {
+    e.stagger = ms;
+    e.riposte = riposte;
+    e.phase = 'none';
+    e.poise = POISE[e.def.id] ?? 20;
+    e.sprite.setTint(riposte ? 0xfde047 : 0xfca5a5);
+    (e.sprite.body as Phaser.Physics.Arcade.Body).setVelocityX(0);
+    this.floatText(e.sprite.x, e.sprite.y - 60, riposte ? 'OPEN!' : 'STAGGER', '#fde047');
+  }
+
+  private breakBossPoise(b: BossState, amount: number): void {
+    const max = b.def.hp * BOSS_POISE_PER_HP;
+    b.data.poise = (b.data.poise ?? max) - amount;
+    b.data.poiseTimer = POISE_REGEN_DELAY_MS;
+    if (b.data.poise > 0 || b.hp <= 0) return;
+    b.data.poise = max;
+    b.data.stagger = BOSS_STAGGER_MS;
+    this.floatText(b.sprite.x, b.sprite.y - 90, 'STAGGER', '#fde047');
+    this.warpTime(120, 4);
+    this.spark(b.sprite.x, b.sprite.y - 30, 0xfde047, 14);
+  }
+
+  /** a parried shot goes back the way it came, harder */
+  private reflect(h: Hazard): void {
+    const damage = h.damage * 2.5;
+    const texture = h.sprite.texture.key;
+    this.removeHazard(h);
+    this.fireBolt(texture, damage, 2, 560);
+  }
+
+  /** the hero's ultimate weapon, if they've forged it */
+  private get weapon(): UltimateWeapon | undefined {
+    const id = this.hero?.character.id;
+    return id && this.forged.includes(id) ? WEAPONS[id] : undefined;
+  }
+
+  /** what makes each ultimate weapon that hero's own (see weapons.ts) */
+  private weaponEffect(passive: UltimateWeapon['passive'], damage: number, crit: boolean, landed: boolean): void {
+    switch (passive) {
+      case 'comboBurst':
+        if (landed && this.hero.combo >= 5 && this.burstCooldown <= 0) { this.burstCooldown = 700; this.shockwave(damage * 0.4, 0x22c55e, false); }
+        break;
+      case 'everyFourthQuake':
+        if (this.swingCount % 4 === 0) this.shockwave(damage * 0.8, 0xd9432f);
+        break;
+      case 'critFlame':
+        if (crit) this.fireBolt('fx_flame', damage, 2, 620);
+        break;
+      case 'lightBolt':
+        this.fireBolt('fx_bolt', damage * 0.35, 1, 680);
+        break;
+      case 'lifeSteal':
+        if (landed) { this.hp = Math.min(this.maxHp, this.hp + 3); this.floatText(this.player.x, this.player.y - 56, '+3', '#f472b6'); }
+        break;
+      // thirdCrit and fullGuardBonus change the strike itself; doubleLoot pays out in killEnemy
+      default:
+    }
+  }
+
+  /** a shot straight ahead; already a finished number, so it doesn't roll combos again */
+  private fireBolt(texture: string, damage: number, pierce: number, speed: number): void {
+    const dir = this.facing;
+    const sprite = this.physics.add.sprite(this.player.x + dir * 16, this.player.y - 24, texture).setDepth(12).setFlipX(dir < 0);
+    (sprite.body as Phaser.Physics.Arcade.Body).setAllowGravity(false).setVelocity(dir * speed, 0);
+    const p: Projectile = { sprite, damage: Math.round(damage), pierce, hit: new Set() };
+    this.projectiles.push(p);
+    this.time.delayedCall(800, () => this.removeProjectile(p));
+  }
+
+  /** forge step of the weapon quest: spends the materials and it's in hand at once */
+  private forgeWeapon(): boolean {
+    const id = this.hero.character.id;
+    if (weaponStage(id, this.sigils, this.forged, this.inventory) !== 'forge') return false;
+    const w = WEAPONS[id];
+    for (const [m, n] of Object.entries(w.materials)) this.inventory[m as ItemId] = this.count(m as ItemId) - (n ?? 0);
+    this.forged.push(id);
+    this.stats.crafted += 1;
+    this.banner(`🔥 ${w.name.toUpperCase()}`, w.power);
+    this.spark(this.player.x, this.player.y - 24, this.hero.character.color, 18);
+    this.updateHud();
+    void this.save();
+    return true;
+  }
+
+  /** Story Mode, chapter six: Ms. Clio opens the trophy case, and the gate follows the relics */
+  private lendRelics(): void {
+    for (const id of POCKET_ORDER) this.relics.add(id);
+    this.hp = this.maxHp;
+    if (this.pocket) return;
+    this.openGateIfWorthy();
+    const gate = this.world.foreverGate;
+    if (gate) for (let dx = 0; dx < GATE_W; dx++) for (let dy = 0; dy < GATE_H; dy++) {
+      if (this.tileAt(gate.tx + dx, gate.ty + dy) === T.ETERNAL) this.layer.putTileAt(T.ETERNAL, gate.tx + dx, gate.ty + dy);
+    }
+    for (const o of this.portalLabels) o.destroy();
+    this.portalLabels = [];
+    this.buildPortalLabels();
+  }
+
+  private speaker(who: Speaker): { name: string; face?: string; color: number } {
+    const c = this.hero.character;
+    switch (who) {
+      case 'clio': return { name: 'Ms. Clio', face: 'npc_clio', color: 0xc4b5fd };
+      case 'hero': return { name: c.name, face: `realm_hero_${c.id}`, color: c.color };
+      case 'nemesis': return { name: nemesisFor(c.id).name, face: `boss_nem_${c.id}`, color: 0xfca5a5 };
+      case 'reaper': return { name: 'The Eternal Reaper', face: 'boss_reaper', color: 0xfde68a };
+      default: return { name: '', color: 0x8b80a8 };
+    }
+  }
+
+  private anyMenuOpen(): boolean {
+    return !!(this.dialogue?.open || this.craftPanel?.visible || this.homestead?.open || this.expedition?.open || this.heroMenu?.open
+      || this.duel?.open || this.dashTrials?.open || this.arena?.open || this.rifts?.open);
+  }
+
+  // ---------------- help and looks ----------------
+
+  /** the nearest thing worth harvesting, and a small bubble saying exactly how */
+  private updateHarvestHelp(dt: number): void {
+    this.harvestTimer -= dt;
+    if (this.harvestTimer > 0) return;
+    this.harvestTimer = 180;
+    const px = this.player.x;
+    const py = this.player.y - 20;
+    const r = Math.ceil(REACH_PX / TILE);
+    const cx = Math.floor(px / TILE);
+    const cy = Math.floor(py / TILE);
+    let best: { tx: number; ty: number; id: number; d: number } | null = null;
+    for (let ty = cy - r; ty <= cy + r; ty++) for (let tx = cx - r; tx <= cx + r; tx++) {
+      const id = this.tileAt(tx, ty);
+      if (!HARVESTABLE[id] || this.homestead?.protects(tx, ty, true)) continue;
+      const d = Math.hypot((tx + 0.5) * TILE - px, (ty + 0.5) * TILE - py);
+      if (d <= REACH_PX && (!best || d < best.d)) best = { tx, ty, id, d };
+    }
+    const info = best ? TILE_INFO[best.id] : undefined;
+    this.harvestTile = best && info && info.minPick <= this.pickaxe ? { tx: best.tx, ty: best.ty } : null;
+    const weak = !!(best && info && info.minPick > this.pickaxe);
+    const kind = best ? HARVESTABLE[best.id] : undefined;
+    // a few short showings in the whole game: each thing is explained once, for a few seconds
+    const key = kind ? `help:${weak ? 'weak:' : ''}${kind.kind}` : '';
+    const now = this.time.now;
+    const live = !!key && this.bubbleKey === key && now < this.bubbleUntil;
+    let show = live;
+    if (!live && key && !this.harvested[key] && now >= this.bubbleUntil) {
+      const shown = Object.keys(this.harvested).filter((k) => k.startsWith('help:') && !k.startsWith('help:weak:')).length;
+      if (weak || shown < HELP_SHOWINGS) {
+        this.harvested[key] = 1;
+        this.bubbleKey = key;
+        this.bubbleUntil = now + HELP_SHOW_MS;
+        show = true;
+      }
+    }
+    if (!this.bubble) {
+      this.bubble = this.add.text(0, 0, '', { fontSize: '12px', fontFamily: 'system-ui, sans-serif', fontStyle: 'bold', color: '#1c0d30', backgroundColor: '#fef3c7', padding: { x: 7, y: 4 }, align: 'center' })
+        .setOrigin(0.5, 1).setDepth(44).setVisible(false).setInteractive({ useHandCursor: true });
+      // tapping the bubble does the first step for you
+      this.bubble.on('pointerdown', () => { this.slot = Math.max(0, this.slots.indexOf('pickaxe')); });
+      this.bubbleTail = this.add.triangle(0, 0, 0, 0, 12, 0, 6, 7, 0xfef3c7).setOrigin(0.5, 0).setDepth(44).setVisible(false);
+      this.bubbleMark = this.add.rectangle(0, 0, TILE, TILE).setOrigin(0).setStrokeStyle(2, 0xfef3c7, 0.9).setDepth(19).setVisible(false);
+      this.tweens.add({ targets: this.bubbleMark, alpha: 0.35, duration: 500, yoyo: true, repeat: -1 });
+    }
+    this.bubble.setVisible(show);
+    this.bubbleTail!.setVisible(show);
+    this.bubbleMark!.setVisible(show);
+    if (!show || !best || !kind) return;
+    const holding = this.slots[this.slot] === 'pickaxe';
+    const how = weak ? `needs a ${PICKAXES[info!.minPick].name} · ⚒ CRAFT`
+      : !holding ? hint('pick ⛏ on the hotbar', 'tap here to pick ⛏')
+      : hint('hold K, or hold click on it', 'hold the ⛏ button');
+    const x = (best.tx + 0.5) * TILE;
+    const y = best.ty * TILE - 10;
+    this.bubble.setText(`${kind.label}\n${how}`).setPosition(x, y);
+    this.bubbleTail!.setPosition(x - 6, y);
+    this.bubbleMark!.setPosition(best.tx * TILE, best.ty * TILE);
+  }
+
+  /** a few fading points of light */
+  private spark(x: number, y: number, color: number, n: number): void {
+    for (let i = 0; i < n; i++) {
+      const s = this.add.image(x, y, 'fx_spark').setTint(color).setDepth(13).setBlendMode(Phaser.BlendModes.ADD);
+      const a = Math.random() * Math.PI * 2;
+      const d = 12 + Math.random() * 26;
+      this.tweens.add({ targets: s, x: x + Math.cos(a) * d, y: y + Math.sin(a) * d, alpha: 0, scale: 0.3, duration: 240 + Math.random() * 200, onComplete: () => s.destroy() });
+    }
+  }
+
+  /** what's behind the world: hills and the school in the overworld, tinted hills in a realm, a corridor in detention */
+  private buildBackdrop(): void {
+    const { w, h } = this.world;
+    this.add.image(0, 0, 'skyfade').setOrigin(0).setDisplaySize(RW, RH).setScrollFactor(0).setDepth(-4);
+    this.add.image(0, 0, 'vignette').setOrigin(0).setDisplaySize(RW, RH).setScrollFactor(0).setDepth(49);
+    if (this.pocket === 'detention') {
+      const g = this.add.graphics().setDepth(-1);
+      g.fillStyle(0x221a33, 1).fillRect(0, 0, w * TILE, h * TILE);
+      const floor = this.pocketWorld!.arena.floorY * TILE;
+      g.fillStyle(0x2f2542, 1).fillRect(0, floor - 60, w * TILE, 60);
+      g.fillStyle(0xfacc15, 0.5).fillRect(0, floor - 62, w * TILE, 2);
+      const a = this.pocketWorld!.arena;
+      const cx = ((a.x0 + a.x1) / 2) * TILE;
+      g.fillStyle(0x4b3621, 1).fillRect(cx - 214, floor - 244, 428, 134);
+      g.fillStyle(0x16321f, 1).fillRect(cx - 206, floor - 236, 412, 118);
+      this.add.text(cx, floor - 177, Array(5).fill('I will not question the timetable.').join('\n'), { fontSize: '16px', fontFamily: 'Georgia, serif', color: '#e7f0e0', align: 'center', lineSpacing: 2 })
+        .setOrigin(0.5).setAlpha(0.8).setDepth(-0.8);
+    } else if (this.pocket !== 'foundry' && this.pocket !== 'arena') {
+      const sky = this.pocket ? POCKETS[this.pocket].sky : 0;
+      const tint = (mix: number) => lerpColor(sky, 0xffffff, mix);
+      const layer = (key: string, rate: number, depth: number, day: number, night: number) => {
+        const sprite = this.add.tileSprite(0, 0, RW, 512, key).setOrigin(0).setScrollFactor(0).setDepth(depth);
+        this.backdrop.push({ sprite, rate, day, night });
+      };
+      if (!this.pocket) {
+        this.stars = this.add.tileSprite(0, 0, RW, 300, 'bg_stars').setOrigin(0).setScrollFactor(0).setDepth(-3.5).setAlpha(0);
+        layer('bg_far', 0.15, -3, 0x6a7fa8, 0x171330);
+        layer('bg_school', 0.32, -2, 0x46557f, 0x0f0c20);
+      } else {
+        layer('bg_far', 0.15, -3, tint(0.1), tint(0.1));
+        layer('bg_far', 0.3, -2, tint(0.04), tint(0.04));
+      }
+    }
+    // a little life in the air: fireflies at home, embers, bubbles, snow-white motes elsewhere
+    const moteColor: Partial<Record<PocketId, number>> = { ember: 0xfb923c, tide: 0xbae6fd, gale: 0xffffff, grave: 0xa78bfa, forever: 0xfde68a, foundry: 0xfbbf24, detention: 0xfef3c7 };
+    const rising = this.pocket === 'ember' || this.pocket === 'tide' || this.pocket === 'forever';
+    for (let i = 0; i < 16; i++) {
+      const o = this.add.image(Math.random() * RW, Math.random() * RH, 'fx_spark').setScrollFactor(0).setDepth(40)
+        .setTint(this.pocket ? moteColor[this.pocket] ?? 0xffffff : 0xd9f99d).setBlendMode(Phaser.BlendModes.ADD).setScale(0.4 + Math.random() * 0.5).setAlpha(0.5);
+      this.motes.push({ o, vx: (Math.random() - 0.5) * 16, vy: (rising ? -1 : 0.35) * (6 + Math.random() * 14), phase: Math.random() * 6 });
+    }
+  }
+
+  private updateBackdrop(dt: number): void {
+    const cam = this.cameras.main;
+    const anchor = this.world.surface[this.world.spawn.tx] * TILE - cam.scrollY;
+    const night = this.pocket ? 0 : nightFactor(this.clock);
+    for (const b of this.backdrop) {
+      b.sprite.tilePositionX = cam.scrollX * b.rate;
+      b.sprite.y = RH / 2 + (anchor - RH / 2) * b.rate - 300;
+      b.sprite.setTint(lerpColor(b.day, b.night, night));
+    }
+    if (this.stars) {
+      this.stars.tilePositionX = cam.scrollX * 0.04;
+      this.stars.setAlpha(night);
+    }
+    const secs = dt / 1000;
+    // fireflies only come out at night, and only where the sky is
+    const fade = this.pocket ? 0.55 : night * 0.8;
+    for (const m of this.motes) {
+      m.phase += secs;
+      m.o.x += (m.vx + Math.sin(m.phase * 1.3) * 10) * secs;
+      m.o.y += m.vy * secs;
+      if (m.o.y < -8) m.o.y = RH + 8;
+      if (m.o.y > RH + 8) m.o.y = -8;
+      if (m.o.x < -8) m.o.x = RW + 8;
+      if (m.o.x > RW + 8) m.o.x = -8;
+      m.o.setAlpha(fade * (0.4 + 0.6 * Math.abs(Math.sin(m.phase))));
+    }
   }
 
   /** any blow on the boss (sword, pog, shockwave): armor, numbers, flash, defeat */
@@ -1768,6 +2409,7 @@ export class RealmScene extends Phaser.Scene {
       this.floatText(boss.sprite.x, boss.sprite.y - 60, 'BLOCKED', '#94a3b8');
     } else {
       this.floatText(boss.sprite.x, boss.sprite.y - 60, crit ? `${dealt}!` : `${dealt}`, crit ? '#fde047' : '#fca5a5');
+      this.spark(boss.sprite.x, boss.sprite.y - 20, crit ? 0xfde047 : 0xfca5a5, crit ? 8 : 4);
       boss.sprite.setTint(0xff5c5c);
       this.time.delayedCall(90, () => { if (boss.sprite.active) boss.sprite.clearTint(); });
       if (boss.hp <= 0) this.defeatBoss();
@@ -1775,14 +2417,20 @@ export class RealmScene extends Phaser.Scene {
     return dealt;
   }
 
-  private hurtEnemy(e: RealmEnemy, damage: number, dir: number, crit = false): void {
+  private hurtEnemy(e: RealmEnemy, damage: number, dir: number, crit = false, poise = 8): void {
     e.hp -= damage;
     const body = e.sprite.body as Phaser.Physics.Arcade.Body;
-    body.setVelocity(dir * 230, -200);
-    e.timer = Math.max(e.timer, 350); // stagger
+    e.poise -= poise;
+    e.poiseTimer = POISE_REGEN_DELAY_MS;
+    // poise holds through a blow: the small get knocked about, the big only when it breaks
+    const sturdy = (POISE[e.def.id] ?? 20) >= 24;
+    if (e.poise <= 0 || (e.phase === 'none' && !sturdy)) body.setVelocity(dir * 230, -200);
+    if (e.hp > 0 && e.poise <= 0) this.staggerEnemy(e, STAGGER_MS);
+    if (!sturdy) e.timer = Math.max(e.timer, 350); // flinch
     e.sprite.setTint(0xff5c5c); // hit flash
     this.time.delayedCall(90, () => { if (e.sprite.active) e.sprite.clearTint(); });
     this.floatText(e.sprite.x, e.sprite.y - 24, crit ? `${damage}!` : `${damage}`, crit ? '#fde047' : '#fca5a5');
+    this.spark(e.sprite.x, e.sprite.y - 10, crit ? 0xfde047 : 0xfca5a5, crit ? 6 : 3);
     if (e.hp <= 0) this.killEnemy(e);
   }
 
@@ -1790,7 +2438,8 @@ export class RealmScene extends Phaser.Scene {
     this.enemies = this.enemies.filter((x) => x !== e);
     this.stats.slain += 1;
     for (const c of e.colliders) c.destroy();
-    const drops = this.hero.lootRoll(1 + Math.floor(Math.random() * e.def.dropMax));
+    const drops = this.hero.lootRoll(1 + Math.floor(Math.random() * e.def.dropMax)) * (this.weapon?.passive === 'doubleLoot' ? 2 : 1);
+    this.spark(e.sprite.x, e.sprite.y - 14, 0xfff4d6, 10);
     this.addItem(e.def.drop, drops, { x: e.sprite.x, y: e.sprite.y - 30 });
     this.arena?.onKill(e.def);
     const xp = this.hero.gainXp(killXp(e.def.hp, e.def.damage), true);
@@ -1799,8 +2448,48 @@ export class RealmScene extends Phaser.Scene {
     this.tweens.add({ targets: e.sprite, alpha: 0, scaleY: 0.2, duration: 200, onComplete: () => e.sprite.destroy() });
   }
 
-  private hurtPlayer(damage: number, fromX: number): void {
-    if (this.invuln > 0 || this.dead) return;
+  /** the blow never lands: the attacker reels, a shot goes back, and you get stamina for it */
+  private parry(src: BlowSource): void {
+    const c = this.combat;
+    c.parried();
+    this.invuln = 300;
+    this.floatText(this.player.x, this.player.y - 60, 'PARRY', '#fde047');
+    this.spark(this.player.x + this.facing * 18, this.player.y - 26, 0xfde047, 14);
+    this.cameras.main.flash(90, 253, 224, 71);
+    this.warpTime(140, 8);
+    for (const p of readPads(this.time.now)) rumble(p.index, 120, 0.7);
+    if (src.enemy) this.staggerEnemy(src.enemy, PARRY_STAGGER_MS, true);
+    if (src.boss) this.breakBossPoise(src.boss, src.boss.def.hp * BOSS_POISE_PER_HP * PARRY_BOSS_POISE);
+    if (src.hazard) this.reflect(src.hazard);
+  }
+
+  /** every blow comes through here. No `src` means the world (lava, traps): those can't be parried or blocked */
+  private hurtPlayer(damage: number, fromX: number, src?: BlowSource): void {
+    if (this.dead) return;
+    if (this.invuln > 0) {
+      if (src && this.combat.perfectDodge()) {
+        this.floatText(this.player.x, this.player.y - 60, 'PERFECT DODGE', '#67e8f9');
+        this.warpTime(320, 3);
+        this.spark(this.player.x, this.player.y - 24, 0x67e8f9, 10);
+      }
+      return;
+    }
+    const c = this.combat;
+    const facingIt = Math.abs(fromX - this.player.x) < 10 || Math.sign(fromX - this.player.x) === this.facing;
+    if (src && c.guarding && facingIt) {
+      if (c.parryTimer > 0) { this.parry(src); return; }
+      const { taken, broke } = c.blocked(damage);
+      this.invuln = 260;
+      this.spark(this.player.x + this.facing * 16, this.player.y - 26, 0x93c5fd, broke ? 12 : 5);
+      (this.player.body as Phaser.Physics.Arcade.Body).setVelocityX((this.player.x < fromX ? -1 : 1) * (broke ? 240 : 120));
+      this.hp -= taken;
+      this.sinceHit = 0;
+      this.floatText(this.player.x, this.player.y - 54, broke ? 'GUARD BROKEN' : 'BLOCK', broke ? '#ef4444' : '#93c5fd');
+      if (this.hp <= 0) this.die();
+      return;
+    }
+    c.interrupted();
+    this.player.clearTint();
     if (this.hero.absorb()) {
       this.invuln = HIT_INVULN_MS * this.hero.stats.invulnMult;
       (this.player.body as Phaser.Physics.Arcade.Body).setVelocity((this.player.x < fromX ? -1 : 1) * 140, -120);
@@ -1923,18 +2612,20 @@ export class RealmScene extends Phaser.Scene {
     } else body.setVelocity(0, Math.max(body.velocity.y, 700));
   }
 
-  private shockwave(base: number): void {
+  private shockwave(base: number, color = 0xfde68a, shake = true): void {
     const { x, y } = this.player;
     const damage = this.hero.strike(base).damage;
-    const ring = this.add.ellipse(x, y - 4, 40, 14, 0xfde68a, 0.7).setDepth(12);
+    const ring = this.add.ellipse(x, y - 4, 40, 14, color, 0.7).setDepth(12);
     this.tweens.add({ targets: ring, scaleX: 5.5, scaleY: 2.5, alpha: 0, duration: 320, onComplete: () => ring.destroy() });
-    this.cameras.main.shake(180, 0.008);
-    for (const pad of readPads(this.time.now)) rumble(pad.index, 200, 0.8);
+    if (shake) {
+      this.cameras.main.shake(180, 0.008);
+      for (const pad of readPads(this.time.now)) rumble(pad.index, 200, 0.8);
+    }
     const inRange = (b: Phaser.Physics.Arcade.Body) => Math.abs(b.center.x - x) < 110 + b.width / 2 && Math.abs(b.center.y - (y - 20)) < 60 + b.height / 2;
     let landed = false;
     for (const e of [...this.enemies]) if (inRange(e.sprite.body as Phaser.Physics.Arcade.Body)) { this.hurtEnemy(e, damage, e.sprite.x < x ? -1 : 1); landed = true; }
     if (this.boss && inRange(this.boss.sprite.body as Phaser.Physics.Arcade.Body) && this.damageBoss(damage) > 0) landed = true;
-    if (landed) this.hero.hitLanded();
+    if (landed && shake) this.hero.hitLanded();
   }
 
   /** a freeze pog stops every creature, boss and missile where it is */
@@ -1979,7 +2670,15 @@ export class RealmScene extends Phaser.Scene {
     if (!this.boss && !this.bossDefeated && this.player.x > (pw.arena.x0 + 3) * TILE) this.startBossFight();
     const b = this.boss;
     if (!b) return;
-    if (!this.hero.frozen) updateBoss(b, this.bossCtx(), dt);
+    if ((b.data.poiseTimer ?? 0) > 0) { b.data.poiseTimer -= dt; if (b.data.poiseTimer <= 0) b.data.poise = b.def.hp * BOSS_POISE_PER_HP; }
+    if ((b.data.stagger ?? 0) > 0) {
+      // reeling: nothing but the blows it's about to take
+      b.data.stagger -= dt;
+      (b.sprite.body as Phaser.Physics.Arcade.Body).setVelocityX(0);
+      if (b.def.flies) (b.sprite.body as Phaser.Physics.Arcade.Body).setVelocityY(0);
+      b.sprite.setTint(Math.floor(this.time.now / 100) % 2 ? 0xfde047 : 0xffffff);
+      if (b.data.stagger <= 0) b.sprite.clearTint();
+    } else if (!this.hero.frozen) updateBoss(b, this.bossCtx(), dt);
     const bd = b.sprite.body as Phaser.Physics.Arcade.Body;
     // keep flyers inside the arena box
     b.sprite.x = Phaser.Math.Clamp(b.sprite.x, (pw.arena.x0 + 1) * TILE, (pw.arena.x1 - 1) * TILE);
@@ -1989,9 +2688,10 @@ export class RealmScene extends Phaser.Scene {
 
   private startBossFight(): void {
     const pw = this.pocketWorld!;
-    const def = BOSSES[POCKETS[pw.pocket].boss];
+    const nemesis = pw.pocket === 'detention' ? nemesisFor(this.hero.character.id) : undefined;
+    const def = nemesis ? nemesisBossDef(nemesis.heroId, this.hero.level) : BOSSES[POCKETS[pw.pocket].boss];
     const cx = ((pw.arena.x0 + pw.arena.x1) / 2 + 8) * TILE;
-    const y = def.flies ? (pw.arena.floorY - (def.id === 'leviathan' ? 5 : 12)) * TILE : pw.arena.floorY * TILE;
+    const y = def.flies ? (pw.arena.floorY - (def.id === 'leviathan' ? 5 : nemesis ? 7 : 12)) * TILE : pw.arena.floorY * TILE;
     const sprite = this.physics.add.sprite(cx, y, def.texture).setOrigin(0.5, def.flies ? 0.5 : 1).setDepth(9);
     const body = sprite.body as Phaser.Physics.Arcade.Body;
     if (def.id === 'warden') body.setSize(54, 58).setOffset(9, 18);
@@ -2003,13 +2703,13 @@ export class RealmScene extends Phaser.Scene {
     this.physics.add.overlap(this.player, sprite, () => {
       const b = this.boss;
       if (!b || b.sprite !== sprite) return;
-      const harmless = b.phase === 'reel' || b.phase === 'tired' || b.phase === 'recover' || this.hero.frozen;
+      const harmless = b.phase === 'reel' || b.phase === 'tired' || b.phase === 'recover' || b.phase === 'rest' || this.hero.frozen;
       if (this.tryStomp(sprite)) return;
-      if (!harmless) this.hurtPlayer(def.contactDamage, sprite.x);
+      if (!harmless && !(b.data.stagger > 0)) this.hurtPlayer(def.contactDamage * BOSS_DAMAGE_SCALE, sprite.x, { boss: b });
     });
     this.boss = createBoss(def, sprite);
     // flying bosses fight from above: look higher so they stay clear of the HUD
-    if (def.flies) this.cameras.main.setFollowOffset(0, 90);
+    if (def.flies && !nemesis) this.cameras.main.setFollowOffset(0, 90);
     // close the arena behind you
     this.gateTiles = [];
     for (let ty = pw.arena.floorY - 1; ty > pw.arena.floorY - 16 && ty > 0; ty--) {
@@ -2019,7 +2719,8 @@ export class RealmScene extends Phaser.Scene {
         this.setTile(tx, ty, T.SHRINE);
       }
     }
-    this.banner(def.name.toUpperCase(), POCKETS[pw.pocket].name);
+    if (nemesis) this.banner(def.name.toUpperCase(), nemesis.taunt);
+    else this.banner(def.name.toUpperCase(), POCKETS[pw.pocket].name);
     this.cameras.main.shake(250, 0.006);
   }
 
@@ -2043,8 +2744,43 @@ export class RealmScene extends Phaser.Scene {
     this.tweens.add({ targets: b.sprite, alpha: 0, scale: 1.4, duration: 700, onComplete: () => b.sprite.destroy() });
   }
 
+  /** a way home, in the middle of the arena */
+  private openWayHome(): void {
+    const pw = this.pocketWorld!;
+    const tx = Math.floor((pw.arena.x0 + pw.arena.x1) / 2);
+    for (let dx = 0; dx < 2; dx++) for (let dy = 1; dy <= 3; dy++) this.setTile(tx + dx, pw.arena.floorY - dy, T.PORTAL);
+  }
+
+  /** the first win gives the sigil and the rare half of the weapon; a rematch is just XP */
+  private defeatNemesis(): void {
+    const id = this.hero.character.id;
+    const n = nemesisFor(id);
+    const at = { x: this.boss!.sprite.x, y: this.boss!.sprite.y - 40 };
+    this.spark(at.x, at.y, this.hero.character.color, 24);
+    this.endBossFight(true);
+    this.bossDefeated = true;
+    this.stats.bosses += 1;
+    for (const e of [...this.enemies]) this.killEnemy(e);
+    this.hero.gainXp(this.sigils.includes(id) ? 120 : 400);
+    void this.hero.bank().then(() => this.save());
+    if (!this.sigils.includes(id)) {
+      this.sigils.push(id);
+      for (const [m, count] of Object.entries(nemesisSpoils(id))) this.addItem(m as ItemId, count ?? 0, at);
+      void grantMilestone(`boss:${n.id}`).then((paid) => {
+        if (paid) this.time.delayedCall(5200, () => this.banner('+1 TECH POINT', `first victory over ${n.name}`));
+      });
+    }
+    this.banner(`${n.name.toUpperCase()} FALLS`, n.defeat);
+    this.bannerText.setFontSize(20);
+    this.openWayHome();
+    this.hp = this.maxHp;
+    for (const p of readPads(this.time.now)) rumble(p.index, 400, 0.8);
+    void this.save();
+  }
+
   private defeatBoss(): void {
     const pw = this.pocketWorld!;
+    if (pw.pocket === 'detention') { this.defeatNemesis(); return; }
     const def = POCKETS[pw.pocket];
     const at = { x: this.boss!.sprite.x, y: this.boss!.sprite.y - 40 };
     this.endBossFight(true);
@@ -2065,7 +2801,10 @@ export class RealmScene extends Phaser.Scene {
     } else if (pw.pocket === 'forever') {
       this.champion = true;
       if (this.sword < 4) this.sword = 4;
-      this.time.delayedCall(1800, () => this.showEnding());
+      this.time.delayedCall(1800, () => {
+        if (this.story?.data) this.story.runFinale(() => this.showEnding());
+        else this.showEnding();
+      });
     } else if (pw.pocket !== 'arena') {
       const firstTime = !this.relics.has(pw.pocket);
       this.relics.add(pw.pocket);
@@ -2075,9 +2814,7 @@ export class RealmScene extends Phaser.Scene {
         this.time.delayedCall(3600, () => this.banner('THE FOREVER GATE STIRS…', 'all four relics are yours'));
       }
     }
-    // a way home, in the middle of the arena
-    const tx = Math.floor((pw.arena.x0 + pw.arena.x1) / 2);
-    for (let dx = 0; dx < 2; dx++) for (let dy = 1; dy <= 3; dy++) this.setTile(tx + dx, pw.arena.floorY - dy, T.PORTAL);
+    this.openWayHome();
     this.hp = this.maxHp;
     for (const p of readPads(this.time.now)) rumble(p.index, 400, 0.8);
     void this.save();
@@ -2092,9 +2829,10 @@ export class RealmScene extends Phaser.Scene {
     sprite.setFlipX(spec.vx < 0);
     const h: Hazard = { sprite, damage: spec.damage, colliders: [] };
     h.colliders.push(this.physics.add.overlap(this.player, sprite, () => {
-      if (this.invuln > 0 || this.dead || this.hero.frozen) return;
-      this.hurtPlayer(h.damage, sprite.x);
-      this.removeHazard(h);
+      if (this.dead || this.hero.frozen) return;
+      const through = this.invuln > 0;
+      this.hurtPlayer(h.damage * BOSS_DAMAGE_SCALE, sprite.x, { hazard: h });
+      if (!through) this.removeHazard(h);
     }));
     if (spec.solidStops) h.colliders.push(this.physics.add.collider(sprite, this.layer, () => this.removeHazard(h)));
     this.hazards.push(h);
@@ -2150,13 +2888,20 @@ export class RealmScene extends Phaser.Scene {
 
   private spawnEnemy(def: RealmEnemyDef, x: number, y: number): RealmEnemy {
     const floats = def.ai === 'fly' || def.ai === 'swim';
-    const sprite = this.physics.add.sprite(x, y, def.texture).setOrigin(0.5, floats ? 0.5 : 1).setDepth(9);
+    const sprite = this.physics.add.sprite(x, y, def.texture).setOrigin(0.5, floats ? 0.5 : 1).setDepth(9).setFlipX(x > this.player.x);
     const body = sprite.body as Phaser.Physics.Arcade.Body;
-    const e: RealmEnemy = { sprite, def, hp: def.hp, timer: 600 + Math.random() * 600, colliders: [] };
+    const e: RealmEnemy = { sprite, def, hp: def.hp, timer: 600 + Math.random() * 600, colliders: [], phase: 'none', phaseTimer: 0, cooldown: 500, dir: 1, struck: false, poise: POISE[def.id] ?? 20, poiseTimer: 0, stagger: 0, riposte: false };
     if (floats) body.setAllowGravity(false);
     else body.setGravityY(PHYS.gravityY);
     if (!def.phasing) e.colliders.push(this.physics.add.collider(sprite, this.layer));
-    e.colliders.push(this.physics.add.overlap(this.player, sprite, () => { if (!this.hero.frozen && !this.tryStomp(sprite, e)) this.hurtPlayer(def.damage, sprite.x); }));
+    e.colliders.push(this.physics.add.overlap(this.player, sprite, () => {
+      if (this.hero.frozen || this.tryStomp(sprite, e)) return;
+      // bumping into something is nothing: only its strike hurts, and only once
+      if (e.phase !== 'strike' || e.struck) return;
+      const through = this.invuln > 0;
+      this.hurtPlayer(def.damage, sprite.x, { enemy: e });
+      if (!through) e.struck = true;
+    }));
     this.enemies.push(e);
     return e;
   }
@@ -2179,6 +2924,7 @@ export class RealmScene extends Phaser.Scene {
       }
       const dir = dx < 0 ? -1 : 1;
       e.timer -= dt;
+      if (this.updateEnemyAttack(e, body, dt, dx, dy, dir)) continue;
       e.sprite.setFlipX(dir < 0);
       const grounded = body.blocked.down || body.touching.down;
       switch (e.def.ai) {
@@ -2220,6 +2966,64 @@ export class RealmScene extends Phaser.Scene {
       }
       if (e.sprite.y > this.world.h * TILE + 50) this.despawn(e);
     }
+  }
+
+  /** a monster's attack: close, warn, strike, recover. Returns true while it's busy with that */
+  private updateEnemyAttack(e: RealmEnemy, body: Phaser.Physics.Arcade.Body, dt: number, dx: number, dy: number, dir: number): boolean {
+    if (e.poiseTimer > 0) { e.poiseTimer -= dt; if (e.poiseTimer <= 0) e.poise = POISE[e.def.id] ?? 20; }
+    const floats = e.def.ai === 'fly' || e.def.ai === 'swim';
+    if (e.stagger > 0) {
+      e.stagger -= dt;
+      body.setVelocityX(0);
+      if (floats) body.setVelocityY(0);
+      e.sprite.setAngle(Math.sin(e.stagger / 60) * 7);
+      if (e.stagger <= 0) { e.riposte = false; e.sprite.setAngle(0); e.sprite.clearTint(); e.cooldown = ATTACK_COOLDOWN_MS; }
+      return true;
+    }
+    if (e.phase === 'none') {
+      e.cooldown -= dt;
+      const near = floats ? Math.hypot(dx, dy) < STRIKE_RANGE_PX + 20 : Math.abs(dx) < STRIKE_RANGE_PX && Math.abs(dy) < 56;
+      // a flinch doesn't stop it starting a swing: only broken poise does
+      if (!near || e.cooldown > 0) return false;
+      e.phase = 'windup';
+      e.phaseTimer = WINDUP_MS;
+      if (!this.harvested['tip:combat']) {
+        // the first time anything swings at you, once ever
+        this.harvested['tip:combat'] = 1;
+        this.banner('IT FLASHES BEFORE IT STRIKES', hint('double-tap a direction or Shift to dodge · L / B to guard, tap to parry', 'double-tap ◀ ▶ to dodge · tap 🛡 to parry, hold to block · hold ⚔ for a heavy blow'));
+        this.bannerText.setFontSize(18);
+      }
+      e.dir = dir;
+      e.sprite.setFlipX(dir < 0);
+    }
+    e.phaseTimer -= dt;
+    switch (e.phase) {
+      case 'windup':
+        // it draws back, glowing: that's your cue
+        body.setVelocityX(-e.dir * 12);
+        if (floats) body.setVelocityY(0);
+        e.sprite.setTint(Math.floor(this.time.now / 70) % 2 ? 0xffa94d : 0xffffff);
+        if (e.phaseTimer <= 0) {
+          e.phase = 'strike';
+          e.phaseTimer = STRIKE_MS;
+          e.struck = false;
+          e.sprite.clearTint();
+          const lunge = Math.max(260, e.def.speed * STRIKE_SPEED);
+          const d = Math.hypot(dx, dy) || 1;
+          if (floats) body.setVelocity((dx / d) * lunge, (dy / d) * lunge);
+          else { body.setVelocityX(e.dir * lunge); if (e.def.ai === 'hop') body.setVelocityY(-210); }
+        }
+        break;
+      case 'strike':
+        if (e.phaseTimer <= 0) { e.phase = 'recover'; e.phaseTimer = RECOVER_MS; body.setVelocityX(0); if (floats) body.setVelocityY(0); }
+        break;
+      case 'recover':
+        body.setVelocityX(body.velocity.x * 0.8);
+        if (floats) body.setVelocity(0, 0);
+        if (e.phaseTimer <= 0) { e.phase = 'none'; e.cooldown = ATTACK_COOLDOWN_MS + Math.random() * 500; }
+        break;
+    }
+    return true;
   }
 
   // ---------------- lighting ----------------
@@ -2273,6 +3077,12 @@ export class RealmScene extends Phaser.Scene {
           else if (id === T.LAVA || id === T.PORTAL) this.lightSources.push({ x: tx * TILE + 8, y: ty * TILE + 8, r: TILE_INFO[id].light! });
         }
       }
+      if (this.lightSources.length > MAX_LIGHTS) {
+        const px = this.player.x;
+        const py = this.player.y;
+        this.lightSources.sort((a, b) => Math.hypot(a.x - px, a.y - py) - Math.hypot(b.x - px, b.y - py));
+        this.lightSources.length = MAX_LIGHTS;
+      }
     }
     const rt = this.darkness;
     rt.clear();
@@ -2296,9 +3106,9 @@ export class RealmScene extends Phaser.Scene {
       }
       rt.erase(g);
     }
+    // a stamp keeps its own position and size; rt.erase(object) only keeps the object, so every light would land on the last one
     const erase = (x: number, y: number, r: number) => {
-      this.lightBrush.setPosition(x - cam.worldView.x, y - cam.worldView.y).setScale((r * 2) / 256);
-      rt.erase(this.lightBrush);
+      rt.stamp('lightBrush', undefined, x - cam.worldView.x, y - cam.worldView.y, { scale: (r * 2) / 256, blendMode: Phaser.BlendModes.ERASE });
     };
     if (!this.dead) erase(this.player.x, this.player.y - 20, 150);
     for (const l of this.lightSources) erase(l.x, l.y, l.r);
@@ -2319,8 +3129,9 @@ export class RealmScene extends Phaser.Scene {
     const minutes = Math.floor((s.playMs % 3_600_000) / 60_000);
     const lines: [string, number, string][] = [
       ['THE ETERNAL REAPER IS UNMADE', 28, '#fde68a'],
-      ['Four relics. One gate. The curse of forever, broken — for now.', 15, '#e9d5ff'],
-      ['The Forever Realm endures, and so do you.', 15, '#e9d5ff'],
+      ...(this.story?.data
+        ? endingLines(this.hero.character.id, this.story.data.choices.ending).map((line): [string, number, string] => [line, 15, '#e9d5ff'])
+        : [['Four relics. One gate. The curse of forever, broken, for now.', 15, '#e9d5ff'], ['The Forever Realm endures, and so do you.', 15, '#e9d5ff']] as [string, number, string][]),
       ['', 10, '#ffffff'],
       [`⛏ ${s.mined} mined   🧱 ${s.placed} placed   ⚒ ${s.crafted} crafted`, 14, '#ffffff'],
       [`⚔ ${s.slain} slain   👑 ${s.bosses} bosses   ✝ ${s.deaths} deaths   ⏳ ${hours}h ${minutes}m`, 14, '#ffffff'],
@@ -2361,7 +3172,7 @@ export class RealmScene extends Phaser.Scene {
 
     const dw = 220;
     const dh = Math.round((dw * h) / w);
-    const box = { x: RW - 16 - dw, y: 100, w: dw, h: dh };
+    const box = { x: RW - 64 - dw, y: 78, w: dw, h: dh };
     this.minimapBox = box;
     const frame = this.add.rectangle(box.x - 2, box.y - 2, dw + 4, dh + 4, 0x000000, 0.6).setOrigin(0).setStrokeStyle(1, 0x7c3aed)
       .setScrollFactor(0).setDepth(58);
@@ -2483,6 +3294,7 @@ export class RealmScene extends Phaser.Scene {
       await saveRealm({
         ...rest, inventory: this.inventory, sword: this.sword, pickaxe: this.pickaxe, yoyo: this.yoyoTier, pogo: this.hasPogo, relics: [...this.relics],
         champion: this.champion, stats: this.stats, expeditions: this.expedition?.progress, hero: this.hero?.save(),
+        gear: this.gear, sigils: this.sigils, forged: this.forged, harvested: this.harvested, story: this.story?.data,
       });
       return;
     }
@@ -2507,6 +3319,11 @@ export class RealmScene extends Phaser.Scene {
       duelSpots: this.duel?.spots,
       arenaGate: this.arena?.gate,
       riftSpots: this.rifts?.spots,
+      gear: this.gear,
+      sigils: this.sigils,
+      forged: this.forged,
+      harvested: this.harvested,
+      story: this.story?.data,
     });
   }
 }

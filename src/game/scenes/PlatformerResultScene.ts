@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { CHARACTERS } from '../data/characters';
-import { COLORS, REGISTRY_KEY_LAST_PLATFORMER_RESULT, REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, WIDTH } from '../config';
+import { COLORS, REGISTRY_KEY_LAST_PLATFORMER_RESULT, REGISTRY_KEY_PLATFORMER_LEVEL_INDEX, HEIGHT, RIFT_W } from '../config';
 import { LEVELS } from '../data/levels';
 import { realmActiveText } from '../realm/RealmHero';
 import type { PlatformerResult } from '../db/platformerResult';
@@ -33,6 +33,8 @@ export class PlatformerResultScene extends Phaser.Scene {
   }
 
   create(): void {
+    this.scale.setGameSize(RIFT_W, HEIGHT);
+    this.cameras.main.setSize(RIFT_W, HEIGHT);
     this.cameras.main.setBackgroundColor(COLORS.bg);
     const stored = this.registry.get(REGISTRY_KEY_LAST_PLATFORMER_RESULT) as PlatformerResult | undefined;
     const result = stored ?? fallbackResult();
@@ -46,25 +48,25 @@ export class PlatformerResultScene extends Phaser.Scene {
         : OUTCOME_COPY[result.raceOutcome];
     const toRealm = () => this.scene.start('Realm');
 
-    this.add.text(WIDTH / 2, 96, character.emoji, { fontSize: '52px' }).setOrigin(0.5);
-    this.add.text(WIDTH / 2, 148, level.name, { fontSize: '13px', fontFamily: FONT, color: '#6b6180' }).setOrigin(0.5);
+    this.add.text(RIFT_W / 2, 96, character.emoji, { fontSize: '52px' }).setOrigin(0.5);
+    this.add.text(RIFT_W / 2, 148, level.name, { fontSize: '13px', fontFamily: FONT, color: '#6b6180' }).setOrigin(0.5);
     this.add
-      .text(WIDTH / 2, 182, copy.title, { fontSize: '26px', fontFamily: FONT, fontStyle: 'bold', color: copy.color })
+      .text(RIFT_W / 2, 182, copy.title, { fontSize: '26px', fontFamily: FONT, fontStyle: 'bold', color: copy.color })
       .setOrigin(0.5);
-    this.add.text(WIDTH / 2, 216, copy.sub, { fontSize: '14px', fontFamily: FONT, color: '#b7aed0' }).setOrigin(0.5);
+    this.add.text(RIFT_W / 2, 216, copy.sub, { fontSize: '14px', fontFamily: FONT, color: '#b7aed0' }).setOrigin(0.5);
 
-    this.add.rectangle(WIDTH / 2, 300, 360, 120, 0x1c1430).setStrokeStyle(1, 0x362a52);
+    this.add.rectangle(RIFT_W / 2, 300, 360, 120, 0x1c1430).setStrokeStyle(1, 0x362a52);
     const stats = [
       `🪙 Coins collected: ${result.coins}`,
       `⏱️ Time: ${result.elapsedSeconds.toFixed(1)}s`,
       `👟 Best stomp combo: ${result.bestStompCombo}`,
     ];
     this.add
-      .text(WIDTH / 2, 300, stats.join('\n'), { fontSize: '15px', fontFamily: FONT, color: '#ffffff', align: 'center', lineSpacing: 10 })
+      .text(RIFT_W / 2, 300, stats.join('\n'), { fontSize: '15px', fontFamily: FONT, color: '#ffffff', align: 'center', lineSpacing: 10 })
       .setOrigin(0.5);
 
     const rewardText = this.add
-      .text(WIDTH / 2, 372, 'saving…', { fontSize: '13px', fontFamily: FONT, color: '#6b6180', align: 'center', lineSpacing: 6, wordWrap: { width: WIDTH - 60 } })
+      .text(RIFT_W / 2, 372, 'saving…', { fontSize: '13px', fontFamily: FONT, color: '#6b6180', align: 'center', lineSpacing: 6, wordWrap: { width: RIFT_W - 60 } })
       .setOrigin(0.5, 0);
     if (stored) {
       let pending = recorded.get(stored);
@@ -107,8 +109,8 @@ export class PlatformerResultScene extends Phaser.Scene {
   }
 
   private makeButton(y: number, label: string, color: number, textColor: string, onTap: () => void): Phaser.GameObjects.Rectangle {
-    const btn = this.add.rectangle(WIDTH / 2, y, 300, 54, color).setInteractive({ useHandCursor: true });
-    this.add.text(WIDTH / 2, y, label, { fontSize: '17px', fontFamily: FONT, fontStyle: 'bold', color: textColor }).setOrigin(0.5);
+    const btn = this.add.rectangle(RIFT_W / 2, y, 300, 54, color).setInteractive({ useHandCursor: true });
+    this.add.text(RIFT_W / 2, y, label, { fontSize: '17px', fontFamily: FONT, fontStyle: 'bold', color: textColor }).setOrigin(0.5);
     btn.on('pointerdown', () => {
       btn.disableInteractive();
       this.tweens.add({ targets: btn, scale: 0.96, duration: 80, yoyo: true, onComplete: onTap });

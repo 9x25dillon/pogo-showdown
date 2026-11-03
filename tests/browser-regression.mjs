@@ -10,6 +10,7 @@ import { verifyForeverGate } from './realm-forever-regression.mjs';
 import { verifyHomestead } from './realm-homestead-regression.mjs';
 import { verifyFoundry } from './realm-foundry-regression.mjs';
 import { verifyUnified } from './realm-unified-regression.mjs';
+import { verifyCombat, verifyStory, verifyTouch } from './realm-story-regression.mjs';
 
 const cdpUrl = process.env.CDP_URL ?? 'http://127.0.0.1:9333';
 const gameUrl = process.env.POGO_URL ?? 'http://127.0.0.1:5173';
@@ -91,7 +92,9 @@ try {
     await page.call('Input.dispatchKeyEvent', { type: 'keyUp', windowsVirtualKeyCode: code, key });
     await pause();
   };
-  if (!['homestead', 'foundry'].includes(process.env.POGO_SUITE)) {
+  const only = process.env.POGO_SUITE;
+  const newOnly = only === 'story' || only === 'touch' || only === 'combat';
+  if (!newOnly && !['homestead', 'foundry'].includes(process.env.POGO_SUITE)) {
   await verifyUnified({ execute, evaluate, waitFor, scene, key });
   if (process.env.POGO_SUITE !== 'unified') {
   await verifyPlatformer({ execute, evaluate, waitFor, start, scene, textExists });
@@ -113,8 +116,13 @@ try {
     const { data } = await page.call('Page.captureScreenshot');
     await writeFile(`${process.env.POGO_SCREENSHOT_DIR}/${name}.png`, Buffer.from(data, 'base64'));
   } : undefined;
-  if (!['foundry', 'unified'].includes(process.env.POGO_SUITE)) await verifyHomestead({ execute, evaluate, waitFor, scene, key, tap, screenshot });
-  if (!['homestead', 'unified'].includes(process.env.POGO_SUITE)) await verifyFoundry({ execute, evaluate, waitFor, scene, key, tap, screenshot });
+  if (!newOnly && !['foundry', 'unified'].includes(process.env.POGO_SUITE)) await verifyHomestead({ execute, evaluate, waitFor, scene, key, tap, screenshot });
+  if (!newOnly && !['homestead', 'unified'].includes(process.env.POGO_SUITE)) await verifyFoundry({ execute, evaluate, waitFor, scene, key, tap, screenshot });
+  // these two come last: they spend the profile that the suites above expect to find fresh
+  if (only === 'story' || only === 'combat' || !only) await page.call('Emulation.setDeviceMetricsOverride', { width: 960, height: 540, deviceScaleFactor: 1, mobile: false });
+  if (only === 'combat' || !only) await verifyCombat({ execute, evaluate, waitFor, scene });
+  if (only === 'story' || !only) await verifyStory({ execute, evaluate, waitFor, scene });
+  if (only === 'touch' || !only) await verifyTouch({ page, execute, evaluate, waitFor, scene, gameUrl, pause });
   assert.equal(page.errors.length, 0, JSON.stringify(page.errors));
   console.log('PASS: no browser exceptions.');
   completed = true;
