@@ -123,6 +123,7 @@ export class RealmHeroMenu {
       { label: `Max HP +${st.maxHpBonus} · damage ×${st.damageMult.toFixed(2)} · crit ${pct(st.critChance)} · move ×${st.moveMult.toFixed(2)} · jump ×${st.jumpMult.toFixed(2)}` },
       { label: `Combo cap +${pct(st.comboCap)} · combo lasts ${(st.comboDecayMs / 1000).toFixed(1)}s · regen ×${st.regenMult.toFixed(2)} · loot +${pct(st.lootLuck)}` },
       { label: `Guard pips ${hero.guard}/${st.guardPips} (every ${(st.guardRechargeMs / 1000).toFixed(0)}s) · revives ${hero.revivesLeft}/${st.revives}` },
+      { label: hint('Dodge: double-tap a direction or Shift / double-tap stick · Guard: hold L or B, tap to parry · Heavy: hold J or X', 'Dodge: double-tap ◀ ▶ · Guard: hold 🛡, tap it to parry · Heavy: hold ⚔ · Monsters flash before they strike'), color: '#93c5fd' },
       { label: blocked ? `Switch hero · ${blocked}` : 'Switch hero ›', enabled: !blocked, action: () => { this.picking = true; this.panel.show(); } },
     ];
     return { title: 'YOUR HERO', subtitle: 'Your hero, pogs and Tech Points belong to you, not the world: a New World keeps them.', rows };

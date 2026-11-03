@@ -1,6 +1,6 @@
 # Eternity High (formerly Pogo Showdown): session handoff
 
-Updated November 2, 2026, at v0.6.0.
+Updated November 2, 2026, at v0.7.0.
 
 ## Start here
 
@@ -8,6 +8,19 @@ Updated November 2, 2026, at v0.6.0.
 2. All story, characters and art here are original (see `docs/story.md`).
 3. Tests: run `npx vite --port 5199`, start Chromium with `--remote-debugging-port=9444`, then `POGO_URL=http://localhost:5199 CDP_URL=http://127.0.0.1:9444 node tests/browser-regression.mjs`. `POGO_SUITE=story` or `touch` runs just the new suites. The story and touch suites run last because they spend the profile the others expect to be fresh.
 4. **Next task:** a human plays Story Mode through on a phone. No human has played 0.6 yet.
+
+## What 0.7 added (from the user's first playtest)
+
+All tuning is in `realm/combat.ts`; the scene side is `swing`, `updateAttack`, `updateDefence`, `dodge`, `parry`, `hurtPlayer` and `updateEnemyAttack` in `RealmScene`.
+
+- **Stamina**, a three-hit chain with buffered presses, and a charged heavy on a held attack.
+- **Dodge:** double-tap a direction (Shift on keyboard). I-frames; rolling through a blow is a perfect dodge.
+- **Guard:** 🛡 on touch, L on keyboard, B on a pad, which moved the pad's potion off B (use the hotbar). A tap is a parry, a hold blocks. Blows with no `src` in `hurtPlayer` (lava, traps) can't be blocked.
+- **Poise** and stagger on monsters and bosses; riposte after a parry; backstabs.
+- **Monsters telegraph:** wind up, strike, recover. Only the strike hurts, and bumping into one does nothing. Damage is down about a third, boss damage scaled by 0.75, and sturdier monsters have more HP.
+- **Lighting fixed:** `rt.stamp` instead of `rt.erase(object)`, which put every light on the last position. Lights are capped at the nearest 28.
+- **Help bubble:** 3 showings in the whole game, 4 seconds each.
+- **Left-swing report:** measured reach and drawing are mirror images, before and after, and it could not be reproduced. The blade drawn now matches real reach and a soft lock-on turns you to the target. A test keeps left and right equal.
 
 ## What 0.6 added
 

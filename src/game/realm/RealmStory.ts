@@ -19,6 +19,7 @@ export interface StoryHost {
 }
 
 const OPEN_WORLD_HINTS = [
+  'Monsters flash before they strike. Double-tap a direction to roll through it, tap your shield to parry, hold it to block, and hold attack for a heavy blow.',
   'Everything you build can be unbuilt. Open HERO, then BUILD: items break back down into what they were made of.',
   'Your hero has a nemesis, and a weapon only they can carry. Open HERO, then QUEST.',
   'The shrine to the east holds four doors. Each ruler behind one keeps a relic, and four relics open the Forever Gate.',

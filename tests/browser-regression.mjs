@@ -10,7 +10,7 @@ import { verifyForeverGate } from './realm-forever-regression.mjs';
 import { verifyHomestead } from './realm-homestead-regression.mjs';
 import { verifyFoundry } from './realm-foundry-regression.mjs';
 import { verifyUnified } from './realm-unified-regression.mjs';
-import { verifyStory, verifyTouch } from './realm-story-regression.mjs';
+import { verifyCombat, verifyStory, verifyTouch } from './realm-story-regression.mjs';
 
 const cdpUrl = process.env.CDP_URL ?? 'http://127.0.0.1:9333';
 const gameUrl = process.env.POGO_URL ?? 'http://127.0.0.1:5173';
@@ -93,7 +93,7 @@ try {
     await pause();
   };
   const only = process.env.POGO_SUITE;
-  const newOnly = only === 'story' || only === 'touch';
+  const newOnly = only === 'story' || only === 'touch' || only === 'combat';
   if (!newOnly && !['homestead', 'foundry'].includes(process.env.POGO_SUITE)) {
   await verifyUnified({ execute, evaluate, waitFor, scene, key });
   if (process.env.POGO_SUITE !== 'unified') {
@@ -119,10 +119,9 @@ try {
   if (!newOnly && !['foundry', 'unified'].includes(process.env.POGO_SUITE)) await verifyHomestead({ execute, evaluate, waitFor, scene, key, tap, screenshot });
   if (!newOnly && !['homestead', 'unified'].includes(process.env.POGO_SUITE)) await verifyFoundry({ execute, evaluate, waitFor, scene, key, tap, screenshot });
   // these two come last: they spend the profile that the suites above expect to find fresh
-  if (only === 'story' || !only) {
-    await page.call('Emulation.setDeviceMetricsOverride', { width: 960, height: 540, deviceScaleFactor: 1, mobile: false });
-    await verifyStory({ execute, evaluate, waitFor, scene });
-  }
+  if (only === 'story' || only === 'combat' || !only) await page.call('Emulation.setDeviceMetricsOverride', { width: 960, height: 540, deviceScaleFactor: 1, mobile: false });
+  if (only === 'combat' || !only) await verifyCombat({ execute, evaluate, waitFor, scene });
+  if (only === 'story' || !only) await verifyStory({ execute, evaluate, waitFor, scene });
   if (only === 'touch' || !only) await verifyTouch({ page, execute, evaluate, waitFor, scene, gameUrl, pause });
   assert.equal(page.errors.length, 0, JSON.stringify(page.errors));
   console.log('PASS: no browser exceptions.');

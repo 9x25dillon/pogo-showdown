@@ -1,0 +1,1 @@
+A new combat system: stamina, dodge rolls with i-frames, block and parry, ripostes, charged attacks, and monsters that telegraph their strikes. Monsters hit softer, lighting follows you, and help bubbles stay out of your way.

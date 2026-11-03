@@ -101,10 +101,11 @@ export async function verifyStory({ execute, evaluate, waitFor, scene }) {
   assert.deepEqual(await evaluate(`[${r}.bubble.visible, ${r}.bubble.text.includes('Tree'), ${r}.bubble.text.includes('hotbar') || ${r}.bubble.text.includes('pick ⛏')]`), [true, true, true]);
   await execute(`${r}.bubble.emit('pointerdown'); ${r}.harvestTimer = 0; ${r}.updateHarvestHelp(16);`);
   assert.deepEqual(await evaluate(`[${r}.slots[${r}.slot], ${r}.bubble.text.includes('hold')]`), ['pickaxe', true]);
-  await execute(`${r}.harvested.tree = 3; ${r}.harvestTimer = 0; ${r}.updateHarvestHelp(16);`);
+  // each thing is explained once, for a few seconds, then it's gone for good
+  await execute(`${r}.bubbleUntil = 0; ${r}.harvestTimer = 0; ${r}.updateHarvestHelp(16);`);
   assert.equal(await evaluate(`${r}.bubble.visible`), false);
-  // a blocked ore always explains itself, however many you've dug
-  await execute(`${r}.harvested.iron = 99; const w = ${r}.world; const tx = Math.floor(${r}.player.x / 16); const ty = Math.floor((${r}.player.y - 20) / 16);
+  // a blocked ore explains itself once as well
+  await execute(`const w = ${r}.world; const tx = Math.floor(${r}.player.x / 16); const ty = Math.floor((${r}.player.y - 20) / 16);
     window.__oreAt = ty * w.w + tx; window.__oreWas = w.tiles[window.__oreAt]; w.tiles[window.__oreAt] = 6; ${r}.pickaxe = 0; ${r}.harvestTimer = 0; ${r}.updateHarvestHelp(16);`);
   assert.deepEqual(await evaluate(`[${r}.bubble.visible, ${r}.bubble.text.includes('Copper Pickaxe'), ${r}.harvestTile]`), [true, true, null]);
   await execute(`${r}.world.tiles[window.__oreAt] = window.__oreWas;`);
@@ -265,6 +266,114 @@ export async function verifyStory({ execute, evaluate, waitFor, scene }) {
   console.log('PASS: Eternity High: lossless item builds and set bonuses, eight nemeses, weapon quest and passives, Story Mode title to ending with choices, harvest bubble, QUEST and BUILD menus, save and reload.');
 }
 
+// The fight itself: stamina, the chain, dodge, guard, parry, poise, telegraphed monsters, and the light that follows you.
+export async function verifyCombat({ execute, evaluate, waitFor, scene }) {
+  const r = scene('Realm');
+  const open = async (data = {}) => {
+    await execute(`for (const s of window.__game.scene.getScenes(true)) s.scene.stop();`);
+    await waitFor(`window.__game.scene.getScenes(true).length === 0`);
+    await execute(`const old = ${r}; if (old) old.ready = false; window.__game.scene.start('Realm', ${JSON.stringify(data)});`);
+    await waitFor(`window.__game.scene.isActive('Realm') && ${r}.ready`);
+    await execute(`${r}.trySpawn = () => {}; for (const e of [...${r}.enemies]) ${r}.despawn(e); ${r}.hero.stats.critChance = 0; ${r}.hero.stats.guardPips = 0; ${r}.hero.guard = 0; ${r}.spawnTimer = 1e9;
+      const { REALM_ENEMIES } = await import('/src/game/realm/realmEnemies.ts'); window.__E = REALM_ENEMIES;
+      window.__step = (n) => { const g = window.__game; g.loop.sleep(); window.__t = window.__t ?? performance.now(); for (let i = 0; i < n; i++) { window.__t += 1000 / 60; g.headlessStep(window.__t, 1000 / 60); } g.loop.wake(); };
+      // a flat slab to fight on
+      const s = ${r}; const ty = Math.floor(s.player.y / 16); const cx = Math.floor(s.player.x / 16);
+      for (let x = cx - 24; x < cx + 24; x++) { for (let y = ty - 12; y < ty; y++) if (s.tileAt(x, y) !== 0 && s.tileAt(x, y) !== 23) s.setTile(x, y, 0); if (s.tileAt(x, ty) !== 23) s.setTile(x, ty, 3); }
+      s.player.body.reset(cx * 16, ty * 16); window.__step(4);`);
+  };
+  await open({ newWorld: true });
+
+  // ---- reach is the same either way, at every step of the chain, and matches the drawn blade ----
+  assert.equal(await execute(`const s = ${r};
+    const reach = (dir, chain) => { let best = 0; for (let d = 10; d < 150; d += 2) {
+      const e = s.spawnEnemy(window.__E.crawler, s.player.x + dir * d, s.player.y); e.hp = 1e6; e.sprite.setPosition(s.player.x + dir * d, s.player.y); e.sprite.body.updateFromGameObject();
+      s.facing = dir; s.swingTimer = 0; s.combat.chain = chain; s.keys.a.isDown = false; const before = e.hp; s.swing(); if (e.hp < before) best = d; s.despawn(e); s.dash.ms = 0; }
+      return best; };
+    for (let c = 0; c < 3; c++) if (reach(1, c) !== reach(-1, c) || reach(1, c) < 60) return 'chain step ' + c + ': ' + reach(1, c) + ' vs ' + reach(-1, c);
+    return true;`), true);
+
+  // ---- the chain: three swings, the third hits harder, then it starts over; a pause drops it ----
+  assert.deepEqual(await execute(`const s = ${r}; const e = s.spawnEnemy(window.__E.knight, s.player.x + 20, s.player.y); e.hp = 1e6; e.poise = 1e6; s.facing = 1; s.combat.resetChain(); s.hero.combo = 0; s.hero.stats.comboCap = 0;
+    const hit = () => { s.swingTimer = 0; const b = e.hp; s.swing(); s.dash.ms = 0; return b - e.hp; };
+    const a = hit(), b = hit(), c = hit(), d = hit(); s.combat.tick(2000); const chainAfter = s.combat.chain; s.despawn(e);
+    return [c > a * 1.4, d === a, b >= a, chainAfter];`), [true, true, true, 0]);
+
+  // ---- stamina: swings spend it, it comes back, and an empty bar means a slow swing but never no swing ----
+  assert.deepEqual(await execute(`const s = ${r}; const c = s.combat; c.stamina = 100; s.swingTimer = 0; s.swing(); s.dash.ms = 0; const spent = c.stamina; c.tick(300); const held = c.stamina; c.tick(1000); const back = c.stamina;
+    c.stamina = 0; c.resetChain(); s.swingTimer = 0; s.swing(); s.dash.ms = 0; const slow = s.swingTimer; const canRoll = c.canDodge(true); c.stamina = 100; c.dodgeCooldown = 0;
+    return [spent, held === spent, back > spent, slow > 320, canRoll];`), [88, true, true, true, false]);
+
+  // ---- dodge: a double-tap only; i-frames; a blow through it is a perfect dodge, and the next hit is stronger ----
+  assert.deepEqual(await execute(`const s = ${r}; const c = s.combat; const now = 1e6;
+    const single = c.tapped(1, now), wrong = c.tapped(-1, now + 50), slowTap = c.tapped(-1, now + 500), good = c.tapped(-1, now + 720);
+    s.swingTimer = 200; s.invuln = 0; s.hp = 100; c.stamina = 100; c.dodgeCooldown = 0; s.dodge(1, true);
+    const e = s.spawnEnemy(window.__E.crawler, s.player.x + 30, s.player.y);
+    const iframes = s.invuln > 0; s.hurtPlayer(10, e.sprite.x, { enemy: e }); const unhurt = s.hp === 100; const bonus = c.perfectBonus > 0; const stam = c.stamina;
+    s.despawn(e);
+    return [single, wrong, slowTap, good, iframes, unhurt, bonus, stam > 80, s.swingTimer];`), [false, false, false, true, true, true, true, true, 0]);
+  await execute(`window.__step(40); const s = ${r}; s.invuln = 0; s.combat.perfectBonus = 0; s.combat.stamina = 100; s.combat.lowerGuard();`);
+
+  // ---- guard: a tap is a parry (no damage, it reels, a riposte is 2.5x); holding blocks for stamina; behind you isn't blocked ----
+  assert.deepEqual(await execute(`const s = ${r}; const c = s.combat; s.hp = 100; s.facing = 1; c.stamina = 100; s.invuln = 0;
+    const e = s.spawnEnemy(window.__E.knight, s.player.x + 26, s.player.y); e.hp = 1e5; e.sprite.setFlipX(true);
+    c.raiseGuard(); s.hurtPlayer(20, e.sprite.x, { enemy: e }); const parried = [s.hp, e.stagger > 0, e.riposte];
+    s.invuln = 0; c.lowerGuard(); s.swingTimer = 0; c.resetChain(); s.hero.combo = 0; const plain = s.hero.strike(s.swordDamage()).damage; const b = e.hp; s.swing(); s.dash.ms = 0; const riposte = b - e.hp; const spent = e.riposte;
+    s.despawn(e); return [...parried, riposte >= plain * 2.4, spent];`), [100, true, true, true, false]);
+  assert.deepEqual(await execute(`const s = ${r}; const c = s.combat; const e = s.spawnEnemy(window.__E.knight, s.player.x + 26, s.player.y); s.hp = 100; s.facing = 1; c.stamina = 100; s.invuln = 0;
+    c.raiseGuard(); c.parryTimer = 0; s.hurtPlayer(20, e.sprite.x, { enemy: e }); const blocked = [s.hp, c.stamina < 100, c.guarding];
+    s.invuln = 0; s.hp = 100; s.hurtPlayer(20, s.player.x - 40, { enemy: e }); const behind = s.hp;
+    // run the bar out and the guard breaks, and you're open
+    s.invuln = 0; s.hp = 100; c.stamina = 5; c.guarding = true; c.parryTimer = 0; s.hurtPlayer(20, e.sprite.x, { enemy: e }); const broke = [s.hp, c.guarding, c.stun > 0];
+    c.stun = 0; c.stamina = 100; s.invuln = 0; s.despawn(e);
+    return [...blocked, behind, ...broke];`), [97, true, true, 80, 88, false, true]);
+  // a world hazard (lava, traps) can't be blocked
+  assert.equal(await execute(`const s = ${r}; const c = s.combat; c.raiseGuard(); s.hp = 100; s.invuln = 0; s.hurtPlayer(20, s.player.x + 10); c.lowerGuard(); s.invuln = 0; const hp = s.hp; s.hp = 100; return hp;`), 80);
+  // a parried shot goes back
+  assert.deepEqual(await execute(`const s = ${r}; const c = s.combat; s.facing = 1; c.stamina = 100; s.invuln = 0; c.parryTimer = 0; c.dodgeCooldown = 0; c.tick(1000);
+    s.spawnHazard({ x: s.player.x + 200, y: s.player.y - 20, texture: 'fx_soul', vx: 0, vy: 0, damage: 12, lifespanMs: 5000 });
+    const h = s.hazards[s.hazards.length - 1]; const shots = s.projectiles.length; c.raiseGuard(); s.hp = 100; s.hurtPlayer(9, h.sprite.x, { hazard: h }); const out = [s.hp, s.hazards.includes(h), s.projectiles.length === shots + 1]; c.lowerGuard(); s.invuln = 0; return out;`), [100, false, true]);
+
+  // ---- poise: blows pile up to a stagger; a staggered target takes more ----
+  assert.deepEqual(await execute(`const s = ${r}; const e = s.spawnEnemy(window.__E.crawler, s.player.x + 20, s.player.y); e.hp = 1e5; const first = e.poise; s.hurtEnemy(e, 1, 1, false, 12); const held = e.stagger; s.hurtEnemy(e, 1, 1, false, 30); const reeling = e.stagger > 0; const scale = s.openingScale(e.sprite, e.stagger > 0, false); s.despawn(e);
+    return [first > 12, held, reeling, scale];`), [true, 0, true, 1.3]);
+
+  // ---- a monster warns before it strikes, and touching it otherwise is harmless ----
+  const fight = await execute(`const s = ${r}; s.invuln = 0; s.hp = s.maxHp; s.facing = 1; const start = s.hp; s.keys.a.isDown = false;
+    const e = s.spawnEnemy(window.__E.crawler, s.player.x + 10, s.player.y); e.hp = 1e5; e.timer = 0; e.cooldown = 1e6; e.sprite.setPosition(s.player.x + 10, s.player.y); e.sprite.body.updateFromGameObject();
+    window.__step(30); const touching = s.hp === start && e.phase === 'none';
+    e.cooldown = 0; e.timer = 0; const seen = []; let hurtPhase = null;
+    for (let i = 0; i < 90; i++) { window.__step(1); if (!seen.includes(e.phase)) seen.push(e.phase); if (s.hp < start && !hurtPhase) hurtPhase = e.phase; e.sprite.setPosition(Math.abs(e.sprite.x - s.player.x) > 40 ? s.player.x + 10 : e.sprite.x, e.sprite.y); }
+    const lost = start - s.hp; s.despawn(e); s.hp = s.maxHp; s.invuln = 0; return { touching, seen, hurtPhase, lost, dmg: window.__E.crawler.damage };`);
+  assert.deepEqual([fight.touching, fight.seen.filter(x => x !== 'none').slice(0, 3), fight.hurtPhase], [true, ['windup', 'strike', 'recover'], 'strike']);
+  assert.ok(fight.lost <= fight.dmg && fight.dmg <= 10, 'one strike, softer than it used to be: ' + JSON.stringify(fight));
+
+  // ---- a boss's poise breaks too, and it stands still for it ----
+  await open({ pocket: 'detention' });
+  await execute(`const s = ${r}; s.invuln = 1e9; s.player.body.reset(s.pocketWorld.arena.x0 * 16 + 120, s.pocketWorld.arena.floorY * 16); window.__step(10);`);
+  assert.deepEqual(await execute(`const s = ${r}; const b = s.boss; const before = b.data.stagger ?? 0; s.breakBossPoise(b, b.def.hp); const on = b.data.stagger > 0; const x = b.sprite.x; window.__step(20); const still = Math.abs(b.sprite.x - x) < 2; s.boss.data.stagger = 0;
+    return [before, on, still];`), [0, true, true]);
+
+  // ---- the Ember Realm: the dark opens around you, wherever you stand, and every light really draws ----
+  await open({ pocket: 'ember' });
+  const light = await execute(`const s = ${r}; const g = window.__game; s.invuln = 1e9; const cam = s.cameras.main;
+    const sample = () => { g.loop.sleep(); window.__t += 1000 / 60; g.headlessStep(window.__t, 1000 / 60); s.lightScanTimer = 0; window.__t += 1000 / 60; g.headlessStep(window.__t, 1000 / 60);
+      const c = document.createElement('canvas'); c.width = g.canvas.width; c.height = g.canvas.height; const x = c.getContext('2d'); x.drawImage(g.canvas, 0, 0); g.loop.wake();
+      const k = g.canvas.width / g.scale.width; const px = (wx, wy) => { const d = x.getImageData((wx - cam.worldView.x) * k, (wy - cam.worldView.y) * k, 1, 1).data; return d[0] + d[1] + d[2]; };
+      return px; };
+    // only the hero's own light in the test: no lava about
+    const w = s.world; for (let i = 0; i < w.tiles.length; i++) if (w.tiles[i] === 15) s.setTile(i % w.w, Math.floor(i / w.w), 13);
+    const out = [];
+    for (const tx of [30, 60]) {
+      s.player.body.reset(tx * 16, s.world.surface[tx] * 16); window.__step(30);
+      const floor = s.world.surface[tx] * 16 + 10;
+      const px = sample(); out.push([px(s.player.x + 40, floor), px(s.player.x + 250, floor)]);
+    }
+    return out;`);
+  for (const [near, far] of light) assert.ok(near > far * 1.5, 'the ground by the hero is lit and the ground far off is not: ' + JSON.stringify(light));
+  console.log('PASS: combat: mirrored reach, chain, stamina, dodge and perfect dodge, parry and riposte, block and guard break, reflected shots, poise and stagger, telegraphed monsters, boss stagger, light follows the hero.');
+}
+
 // Real touch events on a phone-shaped screen: a thumb on a direction while the other presses jump and attack.
 export async function verifyTouch({ page, execute, evaluate, waitFor, scene, gameUrl, pause }) {
   const r = scene('Realm');
@@ -315,6 +424,23 @@ export async function verifyTouch({ page, execute, evaluate, waitFor, scene, gam
   await pause(80);
   assert.deepEqual(await evaluate(`[${r}.touch.left, ${r}.touch.right, ${r}.touch.jump, ${r}.touch.attack]`), [false, false, false, false]);
 
+  // a double-tap of a direction is a dodge; a single tap isn't. 🛡 is its own thumb: tap parries, hold guards, while moving
+  const guardZone = zones[5];
+  await execute(`${r}.combat.stamina = 100; ${r}.invuln = 0;`);
+  await touch('touchStart', [pt(0, right.x, right.y)]); await pause(70); await touch('touchEnd', [pt(0, right.x, right.y)]); await pause(600);
+  assert.equal(await evaluate(`${r}.dash.ms <= 0 && ${r}.combat.stamina`), 100);
+  await execute(`window.__rolled = 0; const s = ${r}; const o = s.dodge.bind(s); s.dodge = (d, g) => { window.__rolled = d; o(d, g); };`);
+  await touch('touchStart', [pt(0, left.x, left.y)]); await pause(70); await touch('touchEnd', [pt(0, left.x, left.y)]); await pause(60);
+  await touch('touchStart', [pt(0, left.x, left.y)]); await pause(90);
+  assert.equal(await evaluate(`window.__rolled`), -1);
+  await touch('touchEnd', [pt(0, left.x, left.y)]); await pause(500);
+  await touch('touchStart', [pt(0, guardZone.x, guardZone.y)]); await pause(90);
+  assert.deepEqual(await evaluate(`[${r}.touch.guard, ${r}.combat.guarding]`), [true, true]);
+  await touch('touchStart', [pt(0, guardZone.x, guardZone.y), pt(1, right.x, right.y)]); await pause(120);
+  assert.deepEqual(await evaluate(`[${r}.combat.guarding, ${r}.touch.right]`), [true, true]);
+  await touch('touchEnd', []); await pause(120);
+  assert.equal(await evaluate(`${r}.combat.guarding`), false);
+
   // the USE button mines the nearest harvest with no aiming at all
   const w = await execute(`const s = ${r}; const b = s.player.body; const tx = Math.floor(s.player.x / 16) + 2; const ty = Math.floor((s.player.y - 20) / 16);
     s.setTile(tx, ty, 5); s.slot = 0; s.harvestTimer = 0; s.updateHarvestHelp(16); return { tx, ty, harvest: s.harvestTile };`);
@@ -334,5 +460,5 @@ export async function verifyTouch({ page, execute, evaluate, waitFor, scene, gam
   await waitFor(`!${r}.heroMenu.open`);
   await page.call('Emulation.setUserAgentOverride', { userAgent: '' }).catch(() => {});
   await page.call('Emulation.setTouchEmulationEnabled', { enabled: false });
-  console.log('PASS: touch: direction + jump + attack together, thumbs lift and slide independently, USE mines with no aiming, menus centred, tap outside closes.');
+  console.log('PASS: touch: direction + jump + attack together, thumbs lift and slide independently, double-tap dodge, guard thumb, USE mines with no aiming, menus centred, tap outside closes.');
 }

@@ -136,6 +136,7 @@ export const CHAPTERS: Chapter[] = [
     scene: () => [
       { who: 'clio', text: 'Good. The realm is made of the school: the walls, the lockers, everyone who ever failed. Dig, and it gives some of that back.' },
       { who: 'clio', text: 'Copper shows orange in the rock. Dig down until you find it, then craft a pickaxe and a blade at your bench. Things come out at night here.' },
+      { who: 'clio', text: 'When one flashes, it is about to strike. Double-tap a direction to roll through it. Tap your shield just as it lands to parry, then hit it while it reels. Hold the shield to block. Hold attack for a heavy blow. All of it costs stamina, the green bar.' },
     ],
     objectives: [
       { text: (p) => `Craft a Copper Pickaxe ${p.pickaxe >= 1 ? '✓' : ''}`, done: (p) => p.pickaxe >= 1 },
