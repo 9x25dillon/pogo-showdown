@@ -72,6 +72,7 @@ The Forever Realm used to be one of eight menu modes. Now it's the whole game, a
 - **Fedora / RHEL / openSUSE:** `sudo dnf install ./pogo-showdown-0.5.1-1.noarch.rpm`, then launch **Pogo Showdown** from your app menu or run `pogo-showdown`. It serves the game on `127.0.0.1:47219` and opens your browser. The port is fixed so your saves persist; set `POGO_PORT` to change it.
 - **F-Droid:** submission prepared; see [`fdroid/`](fdroid/README.md).
 - **Any browser:** `npm install && npm run build`, then serve `dist/`.
+- **itch.io:** `npm run package:itch` makes `release/eternity-high-web-<version>.zip`, an HTML5 upload with `index.html` at the root and the licenses inside. `packaging/itch/` has the 630×500 cover image.
 
 ## Develop
 
@@ -82,6 +83,7 @@ npm run build                # type-check + production build
 npm run android:apk          # debug APK (see PLAY_STORE.md for SDK/JDK setup)
 npm run android:release      # signed release APK + AAB
 npm run package:rpm          # RPM via a Fedora container (needs Docker)
+npm run package:itch         # web zip for an itch.io HTML5 upload (release/)
 ```
 
 Browser regression tests drive the real game through Chrome DevTools. Start the dev server and a Chromium with `--remote-debugging-port=9333`, then run `POGO_URL=http://127.0.0.1:5173 npm run test:browser`. Set `POGO_SUITE=unified|homestead|foundry` for one suite. `Hand_off.md` has the full playbook, code map and open questions.

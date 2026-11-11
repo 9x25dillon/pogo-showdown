@@ -31,3 +31,6 @@ android/keystore.properties
 
 # built packages
 /packaging/rpm/out/
+
+# itch.io web zips
+/release/
